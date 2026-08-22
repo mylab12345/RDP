@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
-    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -20,7 +19,7 @@ from PySide6.QtWidgets import (
 from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
-from .theme import icon, palette
+from .theme import icon
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,11 +15,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QScrollArea,
 )
 
 from ..core.models import (
@@ -36,7 +35,6 @@ from ..core.models import (
 )
 from ..core.plugin import SessionContext, registry
 from .forward_editor import ForwardListEditor
-from .theme import palette
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
 _RDP_STEP = 8

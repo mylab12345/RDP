@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout, QGraphicsDropShadowEffect
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .theme import palette
 
@@ -56,16 +56,10 @@ class StateChip(QLabel):
         )
 
     def setText(self, text: str) -> None:  # noqa: N802
-        pal = palette()
-        hexcolor = pal.get(self._color_key, self._color_key)
-        dot_color = hexcolor if self._color_key != "fg_dim" else pal["fg_muted"]
-        # Add colored dot prefix for modern look
         if text and self._color_key in ("good", "warn", "bad", "info", "connected", "connecting", "reconnecting", "closed", "failed"):
             # Normalize state names to colors
             display = text
             super().setText(f"●  {display}")
-            # Color the dot via stylesheet already? We'll keep simple
-            # For extra polish, we could use rich text but keep plain for perf
         else:
             super().setText(text)
 
