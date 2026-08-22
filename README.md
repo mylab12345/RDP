@@ -22,7 +22,7 @@ plugin architecture for adding protocols — all in one clean, dark-themed GUI.
 | Area | What you get |
 |---|---|
 | **SSH (Linux)** | Interactive shells in tabs with a real VT emulator (pyte-based: colors, scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives |
-| **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window) on Linux; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
+| **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window, like MobaXterm) on Linux — **including Wayland desktops**, where RDP Studio restarts itself through XWayland automatically when an RDP session is in play; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Credentials** | Simple path: type a **username + password** per session (stored in the sessions file — no vault required). Power path: AES-256-GCM encrypted vault under a master passphrase (PBKDF2-SHA256, 310k iterations default), auto-lock, redacted logging; SSH key generation (Ed25519/ECDSA/RSA) with passphrases stored in the vault |
 | **File transfer** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, drag-friendly workflow |
@@ -49,7 +49,16 @@ rdpstudio
 
 For RDP you'll want FreeRDP: `sudo apt install freerdp3-x11` (or `freerdp2-x11`).
 FreeRDP powers both the **built-in display** (the desktop renders inside the
-app) and the external-window mode.
+app) and the external-window mode. Make sure to install the **`-x11` flavour**
+(`xfreerdp`); the SDL client (`sdl-freerdp`) cannot embed and is only used for
+external windows.
+
+**Wayland desktops** (Ubuntu 25.04+/26.04, Fedora, …): the built-in display
+needs X11 window embedding, so RDP Studio transparently restarts itself
+through **XWayland** (the X11 compatibility layer that ships with your
+desktop) whenever it opens an RDP session — nothing to configure. Prefer the
+native Wayland window instead? Set *Settings → Connection → RDP display* to
+**External**, or force it per run with `QT_QPA_PLATFORM=wayland rdpstudio`.
 
 ### Windows
 
@@ -85,14 +94,21 @@ RDP rendering is delegated to FreeRDP / `mstsc` — the same approach used by
 Remmina and mRemoteNG — because no licenseable embeddable RDP *renderer*
 exists. On Linux, RDP Studio runs FreeRDP in **built-in mode** so the remote
 desktop appears *inside the app* (FreeRDP's X11 window is embedded into the
-tab via `/parent-window`; keyboard/mouse are handled by FreeRDP). On Windows,
-or when built-in mode isn't available (Wayland, no FreeRDP), the session opens
-in the platform's normal RDP window and the tab monitors it. Either way RDP
+tab via `/parent-window`; keyboard/mouse are handled by FreeRDP). On
+**Wayland** desktops the app restarts itself through **XWayland**
+automatically when an RDP session is in play, so the in-tab desktop works
+there too (exactly like MobaXterm on Windows). On Windows, or when built-in
+mode isn't available (no XWayland, no FreeRDP), the session opens in the
+platform's normal RDP window and the tab monitors it. Either way RDP
 Studio adds protocol-level *RDP server probing* (real X.224/TPKT negotiation
 in pure Python), session settings management, gateway support,
 auto-reconnect, and local server enable/disable. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap toward a fully
 in-process renderer.
+
+| RDP tab on a Wayland desktop (before the one-click XWayland restart) | Settings → Connection |
+|---|---|
+| ![RDP tab on Wayland](docs/screenshots/rdp-wayland-inapp.png) | ![XWayland setting](docs/screenshots/rdp-wayland-settings.png) |
 
 ## Development
 

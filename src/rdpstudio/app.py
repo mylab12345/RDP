@@ -72,7 +72,16 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtWidgets import QApplication
 
     from . import APP_NAME, ORG_NAME, __version__
+    from .protocols.rdp.embed import maybe_relaunch_for_embedded, xcb_relaunch_self_check
     from .ui import theme
+
+    # On Wayland desktops, restart via XWayland *before* the QApplication
+    # exists so the built-in RDP display (X11 window embedding) can work —
+    # no-op unless the session is Wayland, XWayland + an X11 FreeRDP client
+    # are available and RDP is actually in play.
+    maybe_relaunch_for_embedded(argv)
+    # In the restarted process: if xcb cannot load, fall back gracefully.
+    xcb_relaunch_self_check()
 
     QGuiApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     app = QApplication(argv)
