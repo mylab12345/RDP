@@ -55,7 +55,7 @@ def build_rdp_text(defn: Session) -> str:
         "gatewaycredentialssource:i:4" if defn.rdp_gateway_host else "gatewaycredentialssource:i:0",
         "gatewayprofileusagemethod:i:1" if defn.rdp_gateway_host else "gatewayprofileusagemethod:i:0",
         f"gatewayusername:s:{defn.rdp_gateway_user}",
-        "smart sizing:i:1",
+        f"smart sizing:i:{1 if defn.rdp_fit_screen else 0}",
         "use multimon:i:0",
     ]
     seen = set()

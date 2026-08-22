@@ -128,8 +128,10 @@ class SshSessionController(SessionController):
         key_path = ""
         passphrase = None
         allow_agent = defn.auth == "agent"
-        if defn.auth == "password" and defn.credential_id:
-            password = self._vault_secret(defn.credential_id)
+        if defn.auth == "password":
+            # plain password saved on the session (simple path, no vault),
+            # falling back to a vault credential, else prompt at connect
+            password = defn.password or (self._vault_secret(defn.credential_id) or None)
         elif defn.auth == "credential":
             password = self._vault_secret(defn.credential_id)
         elif defn.auth == "key":

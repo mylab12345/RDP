@@ -25,8 +25,11 @@ servers. We assume:
 - **In memory**: the master passphrase is held only while unlocked, and wiped
   on lock/auto-lock (15 min inactivity default). Secrets are registered with
   the redaction filter and removed on lock.
-- **Session store** never contains secrets — sessions reference vault
-  entries by id.
+- **Session store** contains no vault secrets — sessions reference vault
+  entries by id. The one exception is a *plain password the user explicitly
+  saves on a session* (the simple no-vault flow): it is written as-is to the
+  local sessions file, surfaced with a tooltip that it is plain text, and is
+  **stripped from JSON exports**. Use the vault instead for shared machines.
 - **Autolock**: `Vault.lock_if_due()` runs on a 30 s UI timer.
 
 Known limitation: while unlocked, the master key exists in process memory —
@@ -52,7 +55,10 @@ prompt, material resolution).
 
 ## Process hygiene
 
-- RDP passwords are **not** passed on FreeRDP's command line by default
+- RDP passwords: a **plain password saved on the session** is passed on
+  FreeRDP's command line (`/p:`, `ps(1)` visibility) — a GUI-launched xfreerdp
+  has no terminal to prompt on, so this is the only way the simple no-vault
+  flow can log in. **Vault** passwords are **not** passed by default
   (`ps(1)` visibility); the opt-in `rdp_pass_on_cmdline` flag is documented as
   unsafe in the session editor. `mstsc` never receives passwords via CLI —
   Windows credential UI is used.

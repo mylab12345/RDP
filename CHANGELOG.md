@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Simple connect flow: sessions take a plain **username + password** field
+  directly — no vault required (leave the password empty to be asked at
+  connect time). Saved passwords are stored in the local sessions file and are
+  never included in JSON exports.
+- RDP: new **Fit display to screen** option (FreeRDP `/smart-sizing`, mstsc
+  smart sizing) that scales the remote desktop to the RDP window.
+- The credential vault is now clearly optional everywhere (status bar, docs).
+
 ## 0.9.0 — initial release
 
 - Tabbed session manager with grouped, searchable sidebar and quick connect.

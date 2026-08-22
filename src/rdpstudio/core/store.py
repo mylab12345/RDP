@@ -4,8 +4,10 @@ Format::
 
     {"format": 1, "groups": [...], "sessions": [{...}, ...]}
 
-Secrets are *never* stored here — the store holds only references to vault
-entries (``credential_id``).
+Vault secrets are never stored here — the store holds only references to
+vault entries (``credential_id``). The one deliberate exception is a plain
+password the user explicitly saves on a session (the simple no-vault flow);
+it is written as-is to the local sessions file and stripped from exports.
 """
 
 from __future__ import annotations
@@ -160,8 +162,13 @@ class SessionStore:
 
     def export_dict(self) -> dict:
         with self._lock:
+            sessions = []
+            for s in self._sessions.values():
+                d = s.to_dict()
+                d.pop("password", None)  # never leak saved passwords into exports
+                sessions.append(d)
             return {
                 "format": _FORMAT,
                 "groups": list(self._groups),
-                "sessions": [s.to_dict() for s in self._sessions.values()],
+                "sessions": sessions,
             }

@@ -81,11 +81,16 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
     if defn.username:
         domain_prefix = f"{defn.domain}\\" if defn.domain else ""
         args.append(f"/u:{domain_prefix}{defn.username}")
-    if password and defn.rdp_pass_on_cmdline:
-        args.append(f"/p:{password}")  # visible in ps(1); opt-in only
+    if password and (defn.password or defn.rdp_pass_on_cmdline):
+        # a password saved on the session is passed automatically (that is
+        # what makes the simple no-vault flow work without a terminal prompt);
+        # vault passwords are only passed when the opt-in flag is set
+        args.append(f"/p:{password}")
     args.append(f"/size:{defn.rdp_width}x{defn.rdp_height}")
     args.append(f"/bpp:{defn.rdp_color_depth}")
     args.append("/clipboard" if defn.rdp_clipboard else "-clipboard")
+    if defn.rdp_fit_screen:
+        args.append("/smart-sizing")  # scale the remote desktop to fit the window
     if defn.rdp_fullscreen:
         args.append("/f")
     if defn.rdp_drives:
@@ -218,6 +223,8 @@ class RdpSessionController(SessionController):
 
     def _resolve_secret(self) -> str | None:
         defn = self.definition
+        if defn.password:
+            return defn.password  # plain password saved on the session (no vault)
         if defn.credential_id:
             try:
                 cred = self.ctx.vault.get(defn.credential_id)

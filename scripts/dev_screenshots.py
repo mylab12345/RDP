@@ -123,7 +123,10 @@ def main() -> int:
 
     # --- session editor -----------------------------------------------------------
     from rdpstudio.ui.session_dialog import SessionDialog
-    dlg = SessionDialog(ctx, Session(protocol=PROTOCOL_RDP, host="10.20.2.55", username="admin"), win)
+    dlg = SessionDialog(
+        ctx, Session(protocol=PROTOCOL_RDP, host="10.20.2.55", port=3389,
+                     username="admin", rdp_fit_screen=True), win
+    )
     dlg.resize(620, 760)
     app.processEvents()
     dlg.grab().save(str(OUT / "session-editor.png"))

@@ -93,6 +93,9 @@ class Session:
     host: str = ""
     port: int = 22
     username: str = ""
+    # Optional plain-text password stored with the session (no vault needed).
+    # Empty ⇒ interactive prompt at connect (SSH) / logon prompt (RDP).
+    password: str = ""
     # password | key | agent | credential | none
     auth: str = AUTH_PASSWORD
     credential_id: str = ""  # vault entry when auth == credential
@@ -118,6 +121,7 @@ class Session:
     rdp_height: int = 900
     rdp_color_depth: int = 32
     rdp_fullscreen: bool = False
+    rdp_fit_screen: bool = False  # scale the remote desktop to fit the RDP window
     rdp_clipboard: bool = True
     rdp_drives: bool = False
     rdp_cert_ignore: bool = False
@@ -165,6 +169,7 @@ class Session:
             "host": self.host,
             "port": self.port,
             "username": self.username,
+            "password": self.password,
             "auth": self.auth,
             "credential_id": self.credential_id,
             "key_path": self.key_path,
@@ -183,6 +188,7 @@ class Session:
             "rdp_height": self.rdp_height,
             "rdp_color_depth": self.rdp_color_depth,
             "rdp_fullscreen": self.rdp_fullscreen,
+            "rdp_fit_screen": self.rdp_fit_screen,
             "rdp_clipboard": self.rdp_clipboard,
             "rdp_drives": self.rdp_drives,
             "rdp_cert_ignore": self.rdp_cert_ignore,
@@ -206,6 +212,7 @@ class Session:
         s.host = d.get("host", "")
         s.port = int(d.get("port", 22) or 22)
         s.username = d.get("username", "")
+        s.password = d.get("password", "")
         s.auth = d.get("auth", AUTH_PASSWORD)
         s.credential_id = d.get("credential_id", "")
         s.key_path = d.get("key_path", "")
@@ -224,6 +231,7 @@ class Session:
         s.rdp_height = int(d.get("rdp_height", 900) or 900)
         s.rdp_color_depth = int(d.get("rdp_color_depth", 32) or 32)
         s.rdp_fullscreen = bool(d.get("rdp_fullscreen", False))
+        s.rdp_fit_screen = bool(d.get("rdp_fit_screen", False))
         s.rdp_clipboard = bool(d.get("rdp_clipboard", True))
         s.rdp_drives = bool(d.get("rdp_drives", False))
         s.rdp_cert_ignore = bool(d.get("rdp_cert_ignore", False))
