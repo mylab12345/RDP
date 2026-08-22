@@ -248,10 +248,30 @@ class TerminalView(QWidget):
         self._font_size = self._font.pointSize()  # Ctrl+wheel zoom base
 
         self.vbar = QScrollBar(Qt.Orientation.Vertical, self)
+        self.vbar.setStyleSheet("""
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 2px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #2a3448;
+                border-radius: 4px;
+                min-height: 24px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #3a4a6a;
+            }
+            QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+            QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+        """)
         self.vbar.rangeChanged.connect(self._sync_scrollbar)
         self.vbar.valueChanged.connect(self._on_scrollbar)
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        # Modern focus: show cursor immediately
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     # ------------------------------------------------------------------
     def _on_bell(self) -> None:
@@ -383,22 +403,32 @@ class TerminalView(QWidget):
         return pal
 
     def _build_palette(self) -> dict:
+        # Modern palette matching theme.py — soft dark/light
         dark = self.settings.theme == "dark"
-        base = {
-            "fg": QColor("#d8dee9") if dark else QColor("#1b1f24"),
-            "bg": QColor("#11151c") if dark else QColor("#ffffff"),
-            "cursor": QColor("#88c0d0") if dark else QColor("#2e3440"),
-            "sel": QColor("#2f4b67") if dark else QColor("#b3d4fc"),
-        }
-        palette16 = (
-            ["#2e3440", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
-             "#4c566a", "#d08770", "#a3be8c", "#ebcb8b", "#5e81ac", "#b48ead", "#8fbcbb", "#eceff4"]
-            if dark
-            else ["#000000", "#a31515", "#357200", "#8f6700", "#0b5cc4", "#832e83", "#0e7a8a", "#5e5e5e",
-                  "#4d4d4d", "#b15b5b", "#4f9f4f", "#b5a52f", "#5f87d7", "#9b6b9b", "#54b3c5", "#efefef"]
-        )
+        if dark:
+            base = {
+                "fg": QColor("#e6eaf2"),
+                "bg": QColor("#0b0f19"),
+                "cursor": QColor("#6c8bff"),
+                "sel": QColor("#2a3a5e"),
+            }
+            palette16 = [
+                "#1a1f2e", "#ff7a7a", "#6ee7a5", "#fbbf6a", "#7cc4ff", "#c4a7ff", "#6c8bff", "#e6eaf2",
+                "#5c677e", "#ff9a9a", "#8ff0b8", "#ffd08a", "#9cd6ff", "#d4bfff", "#8aa4ff", "#f6f7fb"
+            ]
+        else:
+            base = {
+                "fg": QColor("#151a2b"),
+                "bg": QColor("#ffffff"),
+                "cursor": QColor("#4f6ef7"),
+                "sel": QColor("#c7d9ff"),
+            }
+            palette16 = [
+                "#000000", "#e02424", "#0e9f6e", "#c07a00", "#1a73e8", "#7c3aed", "#4f6ef7", "#5c677e",
+                "#6b768f", "#ff6b6b", "#34d399", "#fbbf24", "#60a5fa", "#a78bfa", "#818cf8", "#eef1f8"
+            ]
         base["16"] = [QColor(c.lower()) for c in palette16]
-        base["fg_dim"] = base["16"][8]
+        base["fg_dim"] = QColor("#8a94ac") if dark else QColor("#6b768f")
         return base
 
     def _font_for(self, bold: bool, italic: bool) -> QFont:
@@ -515,6 +545,9 @@ class TerminalView(QWidget):
         return QRect(x1, y1, x2 - x1, y2 - y1)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
+        # Always focus on click — fixes "not able to type after connect" when
+        # focus was on quick-connect or another widget.
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         if event.button() == Qt.MouseButton.LeftButton:
             self._sel_start = self._sel_end = self._pos_to_cell(event.position().toPoint())
             self._dragging = True

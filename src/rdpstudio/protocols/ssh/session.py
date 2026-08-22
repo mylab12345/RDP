@@ -30,6 +30,7 @@ class SshSessionController(SessionController):
     transportUp = Signal()  # emitted when transport is ready (SFTP/tunnels ok)
 
     # cross-thread bridges to the worker (auto → queued connections)
+    # write/resize now also have direct thread-safe fast paths
     _sigWrite = Signal(bytes)
     _sigResize = Signal(int, int)
     _sigStartForward = Signal(dict)
@@ -72,9 +73,10 @@ class SshSessionController(SessionController):
         self._wanted_stop = False
         self._spawn_worker()
         if self._thread is not None and self._worker is not None:
-            # Connect the thread's started() DIRECTLY to a worker slot: the
-            # receiver (worker) lives on the new thread, so the blocking
-            # connect+pump runs there — never in the GUI thread.
+            # The worker now starts its pump in a Python thread and returns
+            # immediately, so the QThread event loop stays alive and queued
+            # slots (forwards, shutdown) still work. Input uses a direct
+            # thread-safe path for zero-latency typing.
             self._thread.started.connect(self._worker.connect_and_shell)
             self._thread.start()
 
@@ -111,8 +113,9 @@ class SshSessionController(SessionController):
             lambda ev: self.statusInfo.emit({"forward": ev})
         )
         # bridge signals → worker slots (queued: worker lives on its thread)
-        self._sigWrite.connect(self._worker.write_input)
-        self._sigResize.connect(self._worker.resize_pty)
+        # For typing we now call directly, but keep signals for compat.
+        self._sigWrite.connect(self._worker.write_input_slot)
+        self._sigResize.connect(self._worker.resize_pty_slot)
         self._sigStartForward.connect(self._worker.start_forward)
         self._sigStopForward.connect(self._worker.stop_forward)
         self._sigShutdown.connect(self._worker.shutdown)
@@ -173,6 +176,9 @@ class SshSessionController(SessionController):
         self.statusInfo.emit({"connected": info, "status_text": ""})
         self.transportUp.emit()
         self.ctx.publish("session/connected", {"protocol": "ssh", **info})
+        # Ensure terminal gets focus after connect — previously focus could
+        # stay on the quick-connect box, making it look like typing was broken.
+        QTimer.singleShot(0, lambda: self.term.setFocus())
 
     def _on_failed(self, message: str) -> None:
         self.set_state(SessionState.FAILED)
@@ -232,12 +238,30 @@ class SshSessionController(SessionController):
 
     # -- helpers -----------------------------------------------------------
     def _worker_call(self, method: str, *args) -> None:
-        """Emit the cross-thread bridge signal for ``method``."""
-        if self._worker is None:
+        """Thread-safe dispatch to worker.
+
+        For input and resize we call directly (no queued delay) so typing
+        feels instant even under load. Forwards/shutdown still go via queued
+        signals because they touch the TunnelManager which lives on the
+        worker's QThread.
+        """
+        worker = self._worker
+        if worker is None:
             return
         if method == "write_input" and args:
+            try:
+                worker.write_input(bytes(args[0]))
+                return
+            except Exception:
+                pass
+            # fallback to queued
             self._sigWrite.emit(bytes(args[0]))
         elif method == "resize_pty" and len(args) == 2:
+            try:
+                worker.resize_pty(int(args[0]), int(args[1]))
+                return
+            except Exception:
+                pass
             self._sigResize.emit(int(args[0]), int(args[1]))
         elif method == "start_forward" and args:
             self._sigStartForward.emit(dict(args[0]))

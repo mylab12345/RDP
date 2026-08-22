@@ -1,4 +1,4 @@
-"""Left sidebar: searchable tree of saved sessions grouped in folders."""
+"""Left sidebar: searchable tree of saved sessions — modern 2026 design."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMenu,
+    QPushButton,
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -18,14 +20,14 @@ from PySide6.QtWidgets import (
 from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
-from .theme import icon
+from .theme import icon, palette
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
 
 
 class SessionTree(QWidget):
-    """Saved sessions with groups, search filter, context actions."""
+    """Saved sessions with groups, search filter, context actions — modern."""
 
     connectRequested = Signal(str)  # session id
     editRequested = Signal(str)
@@ -39,26 +41,62 @@ class SessionTree(QWidget):
         super().__init__(parent)
         self.store = store
         self._filter = ""
+        self.setObjectName("sidebar")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        bar = QToolBar()
-        new_btn = bar.addAction(icon("plus"), "New session")
-        new_btn.triggered.connect(self.newSessionRequested.emit)
-        new_folder = bar.addAction(icon("folder"), "New folder")
-        new_folder.triggered.connect(self.newFolderRequested.emit)
-        layout.addWidget(bar)
+        # Header
+        header = QWidget()
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(4, 2, 4, 2)
+        title = QLabel("Sessions")
+        title.setObjectName("h1")
+        hl.addWidget(title)
+        hl.addStretch(1)
+        # Count badge
+        self._count_label = QLabel("")
+        self._count_label.setObjectName("caption")
+        hl.addWidget(self._count_label)
+        layout.addWidget(header)
 
+        # Search — modern pill with icon
+        search_wrap = QWidget()
+        search_wrap.setObjectName("card")
+        sl = QHBoxLayout(search_wrap)
+        sl.setContentsMargins(4, 4, 4, 4)
+        sl.setSpacing(0)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search sessions…")
+        self.search.setObjectName("search")
+        self.search.setPlaceholderText("Search sessions, hosts, tags…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._on_search)
-        layout.addWidget(self.search)
+        sl.addWidget(self.search, 1)
+        layout.addWidget(search_wrap)
 
-        # Debounce typing: every keystroke used to re-read the store and
-        # rebuild the whole tree, which is visibly janky with many sessions.
+        # Toolbar — modern icon buttons
+        bar_wrap = QWidget()
+        bl = QHBoxLayout(bar_wrap)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(6)
+
+        def make_btn(text, icon_name, tip, cb):
+            b = QPushButton(text)
+            b.setIcon(icon(icon_name))
+            b.setObjectName("subtle")
+            b.setToolTip(tip)
+            b.clicked.connect(cb)
+            b.setMinimumHeight(32)
+            return b
+
+        btn_new = make_btn(" New", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit)
+        btn_folder = make_btn(" Folder", "folder", "New folder", self.newFolderRequested.emit)
+        bl.addWidget(btn_new, 1)
+        bl.addWidget(btn_folder, 1)
+        layout.addWidget(bar_wrap)
+
+        # Debounce typing
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(120)
@@ -66,19 +104,31 @@ class SessionTree(QWidget):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setAlternatingRowColors(True)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setAnimated(True)
+        self.tree.setIndentation(16)
+        self.tree.setRootIsDecorated(True)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(self._double_clicked)
+        self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Modern styling tweaks
+        self.tree.setStyleSheet(
+            """
+            QTreeView { border: none; background: transparent; }
+            QTreeView::item { min-height: 32px; }
+            """
+        )
         layout.addWidget(self.tree, 1)
 
+        # Footer hint — modern muted card
         hint = QFrame()
-        hint.setObjectName("muted")
+        hint.setObjectName("card")
         hint_l = QHBoxLayout(hint)
-        from PySide6.QtWidgets import QLabel
-
-        self._hint = QLabel("Double-click to connect")
-        self._hint.setObjectName("muted")
+        hint_l.setContentsMargins(10, 8, 10, 8)
+        self._hint = QLabel("Double-click to connect • Right-click for actions")
+        self._hint.setObjectName("caption")
+        self._hint.setWordWrap(True)
         hint_l.addWidget(self._hint)
         layout.addWidget(hint)
 
@@ -86,8 +136,6 @@ class SessionTree(QWidget):
 
     # ------------------------------------------------------------------
     def reload(self) -> None:
-        # setUpdatesEnabled(False) collapses N item insertions into a single
-        # repaint/relayout instead of one per row.
         self.tree.setUpdatesEnabled(False)
         try:
             self._reload()
@@ -98,6 +146,9 @@ class SessionTree(QWidget):
         self.tree.clear()
         reg = registry()
         sessions = self.store.sessions()
+        total = len(sessions)
+        self._count_label.setText(f"{total}" if total else "")
+
         if self._filter:
             needle = self._filter.lower()
             sessions = [
@@ -113,28 +164,38 @@ class SessionTree(QWidget):
             groups.setdefault(s.group or "", []).append(s)
 
         # top-level sessions first
-        for s in groups.get("", []):
+        for s in sorted(groups.get("", []), key=lambda x: x.display_name().lower()):
             self._add_session_item(self.tree.invisibleRootItem(), s, reg)
         for name in sorted(g for g in groups if g):
-            folder = QTreeWidgetItem([f"📁 {name}"])
+            folder = QTreeWidgetItem([f"{name}"])
             folder.setData(0, ROLE_GROUP, name)
             folder.setIcon(0, icon("folder"))
-            folder.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            for s in groups[name]:
+            folder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            # Folder styling: bold-ish via tooltip
+            folder.setToolTip(0, f"Folder: {name} ({len(groups[name])} sessions)")
+            for s in sorted(groups[name], key=lambda x: x.display_name().lower()):
                 self._add_session_item(folder, s, reg)
             folder.setExpanded(True)
             self.tree.addTopLevelItem(folder)
 
+        # Expand all if searching
+        if self._filter:
+            self.tree.expandAll()
+
     def _add_session_item(self, parent, s: Session, reg) -> None:
         item = QTreeWidgetItem([s.display_name()])
         item.setData(0, ROLE_ID, s.id)
-        item.setIcon(0, icon(reg.get(s.protocol).icon_name if reg.get(s.protocol) else "server"))
+        icon_name = reg.get(s.protocol).icon_name if reg.get(s.protocol) else "server"
+        item.setIcon(0, icon(icon_name))
         tooltip = f"{s.protocol.upper()} · {s.target()}"
         if s.description:
             tooltip += f"\n{s.description}"
+        if s.tags:
+            tooltip += f"\nTags: {', '.join(s.tags)}"
         if s.jump_session_id:
             tooltip += "\n(via jump host)"
         item.setToolTip(0, tooltip)
+        # Subtle: add host as secondary text via status tip?
         parent.addChild(item)
 
     def _on_search(self, text: str) -> None:
@@ -174,29 +235,30 @@ class SessionTree(QWidget):
             session_id = item.data(0, ROLE_ID)
             if session_id:
                 s = self.store.get(session_id)
-                menu.addAction("Connect", lambda: self.connectRequested.emit(session_id))
+                menu.addAction(icon("connect"), "Connect", lambda: self.connectRequested.emit(session_id))
                 if s and s.protocol == "ssh":
-                    menu.addAction("Browse files (SFTP)", lambda: self.sftpRequested.emit(session_id))
+                    menu.addAction(icon("folder"), "Browse files (SFTP)", lambda: self.sftpRequested.emit(session_id))
                 menu.addSeparator()
-                menu.addAction("Edit…", lambda: self.editRequested.emit(session_id))
-                menu.addAction("Duplicate", lambda: self.duplicateRequested.emit(session_id))
+                menu.addAction(icon("edit"), "Edit…", lambda: self.editRequested.emit(session_id))
+                menu.addAction(icon("plus"), "Duplicate", lambda: self.duplicateRequested.emit(session_id))
                 menu.addSeparator()
-                menu.addAction("Delete", lambda: self.deleteRequested.emit(session_id))
+                menu.addAction(icon("trash"), "Delete", lambda: self.deleteRequested.emit(session_id))
             elif item.data(0, ROLE_GROUP):
                 group = item.data(0, ROLE_GROUP)
-
                 menu.addAction(
+                    icon("edit"),
                     "Rename folder…",
                     lambda: self._rename_group(str(group)),
                 )
                 menu.addAction(
+                    icon("trash"),
                     "Delete folder",
                     lambda: self.store.delete_group(str(group)) or self.reload(),
                 )
             menu.exec(self.tree.viewport().mapToGlobal(pos))
             return
-        menu.addAction("New session…", self.newSessionRequested.emit)
-        menu.addAction("New folder…", self.newFolderRequested.emit)
+        menu.addAction(icon("plus"), "New session…", self.newSessionRequested.emit)
+        menu.addAction(icon("folder"), "New folder…", self.newFolderRequested.emit)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _rename_group(self, group: str) -> None:
