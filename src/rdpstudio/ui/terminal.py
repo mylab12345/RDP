@@ -6,7 +6,7 @@ Split into two layers:
   clipboard sniffing and bracketed-paste tracking. Fully unit-testable
   without Qt.
 - :class:`TerminalView` — the QWidget that renders the core, handles
-  keyboard/mouse, selection, clipboard and scrolling.
+  keyboard/mouse, selection, clipboard, scrolling, in-terminal search, and session logging.
 """
 
 from __future__ import annotations
@@ -14,11 +14,21 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+import time
+from pathlib import Path
 
 import pyte
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QClipboard, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QMenu, QScrollBar, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QScrollBar,
+    QToolButton,
+    QWidget,
+)
 
 from ..core.settings import Settings
 
@@ -148,15 +158,56 @@ class TerminalCore:
             lines.append(text[a:b].rstrip() or "")
         return "\n".join(lines).rstrip("\n")
 
-    def find_text(self, needle: str, from_line: int = 0) -> tuple[int, int] | None:
-        """Return (line, col) of first match at/after from_line, else None."""
+    def find_text(
+        self,
+        needle: str,
+        from_line: int = 0,
+        backward: bool = False,
+        case_sensitive: bool = False,
+    ) -> tuple[int, int] | None:
+        """Return (line, col) of first match at/after/before from_line, else None."""
         if not needle:
             return None
-        for idx in range(from_line, self.total_lines()):
-            col = self.line_at(idx).find(needle)
-            if col >= 0:
-                return idx, col
+        total = self.total_lines()
+        target_needle = needle if case_sensitive else needle.lower()
+        if backward:
+            start = min(from_line, total - 1)
+            for idx in range(start, -1, -1):
+                raw = self.line_at(idx)
+                line = raw if case_sensitive else raw.lower()
+                col = line.rfind(target_needle)
+                if col >= 0:
+                    return idx, col
+        else:
+            start = max(0, from_line)
+            for idx in range(start, total):
+                raw = self.line_at(idx)
+                line = raw if case_sensitive else raw.lower()
+                col = line.find(target_needle)
+                if col >= 0:
+                    return idx, col
         return None
+
+    def find_all(
+        self, needle: str, case_sensitive: bool = False
+    ) -> list[tuple[int, int, int]]:
+        """Return list of (line, start_col, end_col) for all matches in buffer."""
+        if not needle:
+            return []
+        matches: list[tuple[int, int, int]] = []
+        target = needle if case_sensitive else needle.lower()
+        nlen = len(needle)
+        for idx in range(self.total_lines()):
+            raw = self.line_at(idx)
+            line = raw if case_sensitive else raw.lower()
+            pos = 0
+            while True:
+                col = line.find(target, pos)
+                if col == -1:
+                    break
+                matches.append((idx, col, col + nlen))
+                pos = col + max(1, nlen)
+        return matches
 
 
 def _seq_complete(window: bytes) -> bool:
@@ -175,6 +226,124 @@ def _seq_complete(window: bytes) -> bool:
     if body[:1] == b"P":  # DCS
         return b"\x1b\\" in body
     return True
+
+
+# ----------------------------------------------------------------------
+# Floating In-Terminal Search Bar
+# ----------------------------------------------------------------------
+class TerminalSearchBar(QWidget):
+    """Floating modern search bar overlay for TerminalView."""
+
+    findNext = Signal(str, bool)  # needle, case_sensitive
+    findPrev = Signal(str, bool)
+    queryChanged = Signal(str, bool)
+    closed = Signal()
+
+    def __init__(self, parent: TerminalView) -> None:
+        super().__init__(parent)
+        self.setObjectName("card")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFixedHeight(40)
+        self.setMinimumWidth(360)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        lbl = QLabel("⌕")
+        lbl.setObjectName("muted")
+        lbl.setStyleSheet("font-size: 13px; font-weight: bold;")
+        layout.addWidget(lbl)
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Find in terminal…")
+        self.input.setObjectName("search")
+        self.input.setClearButtonEnabled(True)
+        self.input.setMinimumWidth(160)
+        self.input.textChanged.connect(self._on_text_changed)
+        self.input.returnPressed.connect(self._on_return)
+        layout.addWidget(self.input, 1)
+
+        self.lbl_count = QLabel("0 matches")
+        self.lbl_count.setObjectName("caption")
+        self.lbl_count.setStyleSheet("font-size: 11px; min-width: 65px;")
+        layout.addWidget(self.lbl_count)
+
+        self.btn_case = QToolButton()
+        self.btn_case.setText("Aa")
+        self.btn_case.setCheckable(True)
+        self.btn_case.setToolTip("Match case (Alt+C)")
+        self.btn_case.setShortcut("Alt+C")
+        self.btn_case.toggled.connect(self._on_text_changed)
+        layout.addWidget(self.btn_case)
+
+        self.btn_prev = QToolButton()
+        self.btn_prev.setText("▲")
+        self.btn_prev.setToolTip("Previous match (Shift+Enter / Shift+F3)")
+        self.btn_prev.clicked.connect(self._on_prev)
+        layout.addWidget(self.btn_prev)
+
+        self.btn_next = QToolButton()
+        self.btn_next.setText("▼")
+        self.btn_next.setToolTip("Next match (Enter / F3)")
+        self.btn_next.clicked.connect(self._on_next)
+        layout.addWidget(self.btn_next)
+
+        self.btn_close = QToolButton()
+        self.btn_close.setText("✕")
+        self.btn_close.setToolTip("Close search (Escape)")
+        self.btn_close.clicked.connect(self.close_bar)
+        layout.addWidget(self.btn_close)
+
+    def _on_text_changed(self) -> None:
+        self.queryChanged.emit(self.input.text(), self.btn_case.isChecked())
+
+    def _on_return(self) -> None:
+        # If shift is pressed during enter, find prev
+        mods = QGuiApplication.keyboardModifiers()
+        if mods & Qt.KeyboardModifier.ShiftModifier:
+            self._on_prev()
+        else:
+            self._on_next()
+
+    def _on_next(self) -> None:
+        self.findNext.emit(self.input.text(), self.btn_case.isChecked())
+
+    def _on_prev(self) -> None:
+        self.findPrev.emit(self.input.text(), self.btn_case.isChecked())
+
+    def set_match_status(self, current_idx: int, total_matches: int) -> None:
+        if total_matches == 0:
+            self.lbl_count.setText("0 matches")
+        else:
+            self.lbl_count.setText(f"{current_idx + 1} of {total_matches}")
+
+    def open_with_text(self, text: str = "") -> None:
+        if text:
+            self.input.setText(text)
+        self.show()
+        self.raise_()
+        self.input.setFocus()
+        self.input.selectAll()
+        self._on_text_changed()
+
+    def close_bar(self) -> None:
+        self.hide()
+        self.closed.emit()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self.close_bar()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_F3:
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._on_prev()
+            else:
+                self._on_next()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 # ----------------------------------------------------------------------
@@ -217,16 +386,22 @@ class TerminalView(QWidget):
         self._palette_theme: str | None = None
         self._font_variants: dict[tuple[bool, bool], QFont] = {}
 
+        # Search state
+        self._search_query = ""
+        self._search_case = False
+        self._search_matches: list[tuple[int, int, int]] = []
+        self._search_current_idx = -1
+
+        # Session logging
+        self._log_file = None
+        self._log_path: Path | None = None
+
         self._blink_timer = QTimer(self)
         self._blink_timer.setInterval(530)
         self._blink_timer.timeout.connect(self._toggle_blink)
         self._blink_timer.start()
 
-        # Output coalescing: repaint at most ~60 fps no matter how fast the
-        # remote host writes. A single-shot timer restarted on every chunk
-        # (the old behaviour) could be pushed out indefinitely by a fast
-        # writer — `yes` or a big `cat` would freeze the tab. Keeping the
-        # first deadline guarantees a frame every 16 ms.
+        # Output coalescing: repaint at most ~60 fps
         self._coalesce = QTimer(self)
         self._coalesce.setSingleShot(True)
         self._coalesce.setTimerType(Qt.TimerType.PreciseTimer)
@@ -240,8 +415,6 @@ class TerminalView(QWidget):
         self._resize_timer.timeout.connect(self._relayout)
 
         self.setMouseTracking(True)
-        # We paint every pixel ourselves; tell Qt to skip clearing the widget
-        # background first (one less full-surface fill per frame).
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(self._cell_w * 20, self._cell_h * 6)
@@ -269,9 +442,15 @@ class TerminalView(QWidget):
         self.vbar.rangeChanged.connect(self._sync_scrollbar)
         self.vbar.valueChanged.connect(self._on_scrollbar)
 
+        # In-terminal search bar overlay
+        self.search_bar = TerminalSearchBar(self)
+        self.search_bar.hide()
+        self.search_bar.queryChanged.connect(self._on_search_query)
+        self.search_bar.findNext.connect(self._on_find_next)
+        self.search_bar.findPrev.connect(self._on_find_prev)
+        self.search_bar.closed.connect(self._on_search_closed)
+
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-        # Modern focus: show cursor immediately
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     # ------------------------------------------------------------------
     def _on_bell(self) -> None:
@@ -292,14 +471,132 @@ class TerminalView(QWidget):
         self._font_size = size
         self._relayout()
 
+    # -- session logging ---------------------------------------------------
+    def start_logging(self, path: str | Path) -> None:
+        """Log all terminal output to a local text/log file."""
+        self.stop_logging()
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        self._log_file = open(p, "a", encoding="utf-8", buffering=1)
+        self._log_path = p
+        self._log_file.write(f"\n--- RDP Studio Session Log Started: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+
+    def stop_logging(self) -> None:
+        if self._log_file is not None:
+            try:
+                self._log_file.write(f"\n--- RDP Studio Session Log Ended: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                self._log_file.close()
+            except Exception:
+                pass
+            self._log_file = None
+            self._log_path = None
+
+    def is_logging(self) -> bool:
+        return self._log_file is not None
+
+    def log_path(self) -> Path | None:
+        return self._log_path
+
+    # -- search flow -------------------------------------------------------
+    def open_search(self) -> None:
+        preset = self.selection() if self.has_selection() else self._search_query
+        self._position_search_bar()
+        self.search_bar.open_with_text(preset)
+
+    def close_search(self) -> None:
+        self.search_bar.close_bar()
+
+    def _position_search_bar(self) -> None:
+        sb_width = min(420, max(300, self.width() - 60))
+        self.search_bar.resize(sb_width, 40)
+        x = max(10, self.width() - sb_width - self.vbar.width() - 14)
+        self.search_bar.move(x, 10)
+
+    def _on_search_query(self, query: str, case_sensitive: bool) -> None:
+        self._search_query = query
+        self._search_case = case_sensitive
+        if not query:
+            self._search_matches = []
+            self._search_current_idx = -1
+            self.search_bar.set_match_status(0, 0)
+            self.update()
+            return
+        self._search_matches = self.core.find_all(query, case_sensitive=case_sensitive)
+        total = len(self._search_matches)
+        if total > 0:
+            # Find closest match at or after current scroll position
+            top = len(self.core.screen.history.top)
+            first_visible = top - self._scroll
+            idx = 0
+            for i, (r, _, _) in enumerate(self._search_matches):
+                if r >= first_visible:
+                    idx = i
+                    break
+            self._search_current_idx = idx
+            self.search_bar.set_match_status(idx, total)
+            self._scroll_to_match(self._search_matches[idx])
+        else:
+            self._search_current_idx = -1
+            self.search_bar.set_match_status(0, 0)
+        self.update()
+
+    def _on_find_next(self, query: str, case_sensitive: bool) -> None:
+        if not self._search_matches:
+            self._on_search_query(query, case_sensitive)
+            return
+        total = len(self._search_matches)
+        if total > 0:
+            self._search_current_idx = (self._search_current_idx + 1) % total
+            match = self._search_matches[self._search_current_idx]
+            self.search_bar.set_match_status(self._search_current_idx, total)
+            self._scroll_to_match(match)
+            self.update()
+
+    def _on_find_prev(self, query: str, case_sensitive: bool) -> None:
+        if not self._search_matches:
+            self._on_search_query(query, case_sensitive)
+            return
+        total = len(self._search_matches)
+        if total > 0:
+            self._search_current_idx = (self._search_current_idx - 1 + total) % total
+            match = self._search_matches[self._search_current_idx]
+            self.search_bar.set_match_status(self._search_current_idx, total)
+            self._scroll_to_match(match)
+            self.update()
+
+    def _scroll_to_match(self, match: tuple[int, int, int]) -> None:
+        r, c1, _ = match
+        top = len(self.core.screen.history.top)
+        visible = self.core.rows
+        # Scroll so line r is nicely centered in visible window
+        target_first_row = max(0, r - (visible // 2))
+        max_scroll = self.vbar.maximum()
+        scroll_val = max(0, min(max_scroll, top - target_first_row))
+        self._scroll = scroll_val
+        self.vbar.setValue(max_scroll - self._scroll)
+
+    def _on_search_closed(self) -> None:
+        self._search_query = ""
+        self._search_matches = []
+        self._search_current_idx = -1
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.update()
+
     # -- data flow --------------------------------------------------------
     def feed(self, data: bytes) -> None:
+        # Write to session log if active
+        if self._log_file is not None:
+            try:
+                # Strip raw ESC control sequences for clean log readability
+                clean = re.sub(r"\x1b\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]", "", data.decode("utf-8", "replace"))
+                clean = re.sub(r"\x1b\].*?(\x07|\x1b\\)", "", clean)
+                self._log_file.write(clean)
+            except Exception:
+                pass
+
         payload = self.core.feed(data)
         title = getattr(self.core.screen, "title", None)
         if title and title != self._last_title:
-            # Only emit on change: the old code re-emitted the (unchanged)
-            # title on every chunk, re-labelling the tab thousands of times
-            # a second during heavy output.
             self._last_title = str(title)
             self.titleChanged.emit(self._last_title)
         if payload is not None:
@@ -339,16 +636,14 @@ class TerminalView(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        # Debounce: dragging the window edge fires resizeEvent per pixel, and
-        # each one used to resize the pyte screen *and* send a PTY resize to
-        # the remote host — the classic "dragging the window locks up the
-        # terminal" stall. Coalesce into one relayout when motion settles.
         self._resize_timer.start()
         self.vbar.setGeometry(self.width() - self.vbar.width(), 0, self.vbar.width(), self.height())
+        if self.search_bar.isVisible():
+            self._position_search_bar()
 
     def _sync_scrollbar(self, *_) -> None:
         if self._syncing_scrollbar:
-            return  # setRange/setValue re-enter us through rangeChanged
+            return
         self._syncing_scrollbar = True
         try:
             total = self.core.total_lines()
@@ -392,7 +687,7 @@ class TerminalView(QWidget):
         return QRect(2 + cx * self._cell_w, 2 + cy * self._cell_h, self._cell_w, self._cell_h)
 
     def _palette(self) -> dict:
-        """Theme palette, built once per theme (this runs on every frame)."""
+        """Theme palette, built once per theme."""
         theme = self.settings.theme
         cached = self._palette_cache
         if cached is not None and self._palette_theme == theme:
@@ -403,7 +698,6 @@ class TerminalView(QWidget):
         return pal
 
     def _build_palette(self) -> dict:
-        # Modern palette matching theme.py — soft dark/light
         dark = self.settings.theme == "dark"
         if dark:
             base = {
@@ -411,6 +705,9 @@ class TerminalView(QWidget):
                 "bg": QColor("#0b0f19"),
                 "cursor": QColor("#6c8bff"),
                 "sel": QColor("#2a3a5e"),
+                "match": QColor(251, 191, 106, 75),       # soft amber highlight
+                "match_active": QColor(251, 191, 106, 170),
+                "match_border": QColor("#fbbf6a"),
             }
             palette16 = [
                 "#1a1f2e", "#ff7a7a", "#6ee7a5", "#fbbf6a", "#7cc4ff", "#c4a7ff", "#6c8bff", "#e6eaf2",
@@ -422,6 +719,9 @@ class TerminalView(QWidget):
                 "bg": QColor("#ffffff"),
                 "cursor": QColor("#4f6ef7"),
                 "sel": QColor("#c7d9ff"),
+                "match": QColor(255, 230, 100, 100),
+                "match_active": QColor(255, 210, 50, 190),
+                "match_border": QColor("#d97706"),
             }
             palette16 = [
                 "#000000", "#e02424", "#0e9f6e", "#c07a00", "#1a73e8", "#7c3aed", "#4f6ef7", "#5c677e",
@@ -432,13 +732,6 @@ class TerminalView(QWidget):
         return base
 
     def _font_for(self, bold: bool, italic: bool) -> QFont:
-        """Cached font variant.
-
-        The old code mutated ``self._font`` in place inside the per-cell loop
-        and reset it afterwards, which both cost a font re-resolve per cell
-        and corrupted the base font whenever an early ``continue`` skipped the
-        reset (bold/italic then leaked into every later frame).
-        """
         key = (bold, italic)
         font = self._font_variants.get(key)
         if font is None:
@@ -458,7 +751,6 @@ class TerminalView(QWidget):
         cw, ch = self._cell_w, self._cell_h
         ascent = self._ascent
 
-        # Only repaint the rows Qt actually invalidated.
         dirty = event.rect()
         row_from = max(0, (dirty.top() - 2) // ch)
         row_to = min(self.core.rows, (dirty.bottom() - 2) // ch + 1)
@@ -470,7 +762,7 @@ class TerminalView(QWidget):
                 continue
             y = 2 + row * ch
             if abs_index < top:
-                # scrollback line (plain text, single draw call)
+                # scrollback line
                 text = self.core.line_at(abs_index).rstrip()
                 if text:
                     painter.setPen(pal["fg_dim"])
@@ -479,9 +771,6 @@ class TerminalView(QWidget):
             cells = self.core.cells_at(abs_index)
             if not cells:
                 continue
-            # Batch consecutive cells that share styling into one drawText:
-            # a full 200-column line then costs a handful of draw calls
-            # instead of 200 (the single biggest terminal lag source).
             for run in _style_runs(cells, pal):
                 start, text, fg, bg, bold, italic, underline, strike = run
                 x = 2 + start * cw
@@ -498,13 +787,27 @@ class TerminalView(QWidget):
                 if strike:
                     painter.drawLine(x, y + ch // 2, x + width, y + ch // 2)
 
-        # selection
+        # Search match highlights
+        if self._search_matches:
+            for idx, (m_row, m_c1, m_c2) in enumerate(self._search_matches):
+                if first_row <= m_row < first_row + self.core.rows:
+                    y = 2 + (m_row - first_row) * ch
+                    x = 2 + m_c1 * cw
+                    w = (m_c2 - m_c1) * cw
+                    is_active = (idx == self._search_current_idx)
+                    m_rect = QRect(x, y, w, ch)
+                    painter.fillRect(m_rect, pal["match_active"] if is_active else pal["match"])
+                    if is_active:
+                        painter.setPen(QPen(pal["match_border"], 1.5))
+                        painter.drawRect(m_rect.adjusted(0, 0, -1, -1))
+
+        # Selection
         if self._sel_start and self._sel_end:
             rect = self._selection_rect()
             if rect:
                 painter.fillRect(rect, pal["sel"])
 
-        # cursor
+        # Cursor
         if self._blink_state and self._scroll == 0:
             cx, cy_abs = self.core.cursor_pos()
             cy = cy_abs - first_row
@@ -545,8 +848,6 @@ class TerminalView(QWidget):
         return QRect(x1, y1, x2 - x1, y2 - y1)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        # Always focus on click — fixes "not able to type after connect" when
-        # focus was on quick-connect or another widget.
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         if event.button() == Qt.MouseButton.LeftButton:
             self._sel_start = self._sel_end = self._pos_to_cell(event.position().toPoint())
@@ -611,15 +912,6 @@ class TerminalView(QWidget):
 
     # -- keyboard --------------------------------------------------------------
     def event(self, event) -> bool:  # noqa: N802
-        """Make Tab behave like a real terminal.
-
-        Qt's ``QWidget::event()`` steals plain Tab/Shift+Tab for *focus
-        traversal* whenever a next focusable widget exists (inside a tabbed
-        window that is always true — the toolbar's quick-connect box), so the
-        terminal's ``keyPressEvent`` never saw Tab and the shell's completion
-        never fired.  Route Tab/Backtab to the key handler like xterm does;
-        Ctrl+Tab (switch tabs) and Alt+Tab (window switching) are untouched.
-        """
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
             mods = event.modifiers()
@@ -632,6 +924,24 @@ class TerminalView(QWidget):
         return super().event(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        key = event.key()
+        mods = event.modifiers()
+
+        # In-terminal search shortcut (Ctrl+F)
+        if (mods & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_F:
+            self.open_search()
+            event.accept()
+            return
+
+        # F3 for next / Shift+F3 for prev search match
+        if key == Qt.Key.Key_F3:
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                self._on_find_prev(self._search_query, self._search_case)
+            else:
+                self._on_find_next(self._search_query, self._search_case)
+            event.accept()
+            return
+
         data = encode_key_event(event, self.core.screen)
         if data:
             self.write_user(data)
@@ -646,8 +956,6 @@ class TerminalView(QWidget):
             self.write_user(commit.encode("utf-8"))
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        # Ctrl+wheel zooms the terminal font (up = bigger, down = smaller).
-        # Scoped to the terminal widget only — the RDP surface never sees it.
         mods = event.modifiers()
         if mods & Qt.KeyboardModifier.ControlModifier:
             delta = event.angleDelta().y()
@@ -661,7 +969,6 @@ class TerminalView(QWidget):
             self.scroll_lines(-steps * 3)
 
     def _zoom_font(self, step: int) -> None:
-        """Zoom the terminal font in/out by ``step`` points (Ctrl+wheel)."""
         size = max(6, min(48, self._font_size + step))
         self._font_size = size
         self.apply_font(self._font.family(), size)
@@ -678,6 +985,8 @@ class TerminalView(QWidget):
         paste_action = menu.addAction("Paste\tCtrl+Shift+V")
         paste_action.triggered.connect(self.paste_clipboard)
         menu.addSeparator()
+        find_action = menu.addAction("Find in terminal…\tCtrl+F")
+        find_action.triggered.connect(self.open_search)
         select_all = menu.addAction("Select all")
         select_all.triggered.connect(self.select_all)
         clear_sb = menu.addAction("Clear scrollback")
@@ -722,11 +1031,7 @@ def _modifier_code(mods) -> int:
 
 
 def encode_key_event(event, screen) -> bytes | None:
-    """Translate a QKeyEvent to terminal bytes (xterm-ish).
-
-    ``event`` only needs ``key()``, ``text()`` and ``modifiers()`` — tests
-    pass duck-typed fakes.
-    """
+    """Translate a QKeyEvent to terminal bytes (xterm-ish)."""
     key = event.key()
     mods = event.modifiers()
     text = event.text()
@@ -737,7 +1042,6 @@ def encode_key_event(event, screen) -> bytes | None:
 
     app_cursor = False
     try:
-        # pyte stores private modes bit-shifted (DECCKM=1 → 1<<5)
         app_cursor = (1 << 5) in (screen.mode or set())
     except Exception:  # noqa: BLE001
         pass
@@ -836,7 +1140,6 @@ def encode_key_event(event, screen) -> bytes | None:
     if text:
         out = text.encode("utf-8")
         if alt:
-            # ESC-prefix each char is overkill; prefix the whole string once
             return b"\x1b" + out
         return out
     return None
@@ -849,18 +1152,13 @@ def _default_mono() -> str:
 
 
 def _style_runs(cells, pal):
-    """Group a row of pyte cells into maximal runs of identical styling.
-
-    Yields ``(start_col, text, fg, bg, bold, italic, underline, strike)``.
-    Trailing blank cells are dropped so a mostly-empty line costs nothing.
-    """
     end = len(cells)
     while end > 0:
         cell = cells[end - 1]
         if cell is not None and cell.data not in ("", " "):
             break
         if cell is not None and cell.bg not in (None, "default"):
-            break  # a coloured blank still has to be painted
+            break
         end -= 1
 
     run_start = 0

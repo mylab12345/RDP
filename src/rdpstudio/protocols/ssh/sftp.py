@@ -75,6 +75,8 @@ class SftpEngine(QObject):
     transferProgress = Signal(str, int, int, int, int, float)  # id, bytes,total,files,files_total, rate B/s
     transferDone = Signal(str, bool, str)  # id, ok, message
     opDone = Signal(str, bool, str)  # generic op name, ok, message
+    fileRead = Signal(str, bytes)  # path, content_bytes
+    fileWritten = Signal(str, bool, str)  # path, ok, message
 
     def __init__(self, transport_provider) -> None:
         """``transport_provider``: callable returning a live paramiko Transport
@@ -355,6 +357,29 @@ class SftpEngine(QObject):
             self.opDone.emit("realpath", True, self._sftp.normalize(path))
         except Exception as exc:  # noqa: BLE001
             self.opDone.emit("realpath", False, str(exc))
+
+    @Slot(str)
+    def read_file_content(self, remote_path: str) -> None:
+        try:
+            self.ensure_open()
+            assert self._sftp is not None
+            with self._sftp.open(remote_path, "rb") as f:
+                data = f.read(16 * 1024 * 1024)
+            self.fileRead.emit(remote_path, data)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"Failed reading {remote_path}: {exc}")
+
+    @Slot(str, bytes)
+    def write_file_content(self, remote_path: str, data: bytes) -> None:
+        try:
+            self.ensure_open()
+            assert self._sftp is not None
+            with self._sftp.open(remote_path, "wb") as f:
+                f.write(data)
+            self.fileWritten.emit(remote_path, True, "File saved successfully")
+        except Exception as exc:  # noqa: BLE001
+            self.fileWritten.emit(remote_path, False, str(exc))
+
 
 
 def _safe_child(directory: str, name: str) -> Path:

@@ -84,3 +84,8 @@ def downloads_dir() -> Path:
 
 def cache_dir() -> Path:
     return _secure_mkdir(app_dir() / "cache")
+
+
+def snippets_file() -> Path:
+    return app_dir() / "snippets.json"
+
