@@ -27,12 +27,17 @@ python3 -pip install --user .
 
 ### RDP prerequisites
 
-RDP sessions launch the system FreeRDP client:
+The **built-in RDP display** (desktop renders inside the app) uses the system
+FreeRDP client, and so does the external-window mode:
 
 ```bash
 sudo apt install freerdp3-x11     # Debian/Ubuntu (freerdp2-x11 also works)
 sudo dnf install freerdp          # Fedora
 ```
+
+Built-in mode additionally needs an X11 session (it embeds FreeRDP's X11
+window with `/parent-window`). On Wayland-only sessions RDP Studio falls back
+to the external window automatically.
 
 ## Windows
 

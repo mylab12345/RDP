@@ -22,7 +22,7 @@ plugin architecture for adding protocols — all in one clean, dark-themed GUI.
 | Area | What you get |
 |---|---|
 | **SSH (Linux)** | Interactive shells in tabs with a real VT emulator (pyte-based: colors, scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives |
-| **RDP (Windows)** | RDP sessions via the native client (mstsc on Windows, FreeRDP on Linux) with saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
+| **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window) on Linux; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Credentials** | Simple path: type a **username + password** per session (stored in the sessions file — no vault required). Power path: AES-256-GCM encrypted vault under a master passphrase (PBKDF2-SHA256, 310k iterations default), auto-lock, redacted logging; SSH key generation (Ed25519/ECDSA/RSA) with passphrases stored in the vault |
 | **File transfer** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, drag-friendly workflow |
@@ -48,6 +48,8 @@ rdpstudio
 ```
 
 For RDP you'll want FreeRDP: `sudo apt install freerdp3-x11` (or `freerdp2-x11`).
+FreeRDP powers both the **built-in display** (the desktop renders inside the
+app) and the external-window mode.
 
 ### Windows
 
@@ -79,13 +81,18 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 
 ## Scope note on RDP
 
-RDP remoting is delegated to the platform's native client (`mstsc` /
-FreeRDP) — the same approach used by Remina and mRemoteNG — because no
-licenseable embeddable RDP client exists. RDP Studio adds protocol-level
-*RDP server probing* (real X.224/TPKT negotiation in pure Python), session
-settings management, gateway support, auto-reconnect, and local server
-enable/disable. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
-roadmap toward in-process RDP rendering.
+RDP rendering is delegated to FreeRDP / `mstsc` — the same approach used by
+Remmina and mRemoteNG — because no licenseable embeddable RDP *renderer*
+exists. On Linux, RDP Studio runs FreeRDP in **built-in mode** so the remote
+desktop appears *inside the app* (FreeRDP's X11 window is embedded into the
+tab via `/parent-window`; keyboard/mouse are handled by FreeRDP). On Windows,
+or when built-in mode isn't available (Wayland, no FreeRDP), the session opens
+in the platform's normal RDP window and the tab monitors it. Either way RDP
+Studio adds protocol-level *RDP server probing* (real X.224/TPKT negotiation
+in pure Python), session settings management, gateway support,
+auto-reconnect, and local server enable/disable. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap toward a fully
+in-process renderer.
 
 ## Development
 

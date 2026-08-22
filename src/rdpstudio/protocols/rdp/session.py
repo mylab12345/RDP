@@ -1,19 +1,17 @@
-"""RDP client session controller.
+"""RDP session controller — built-in (embedded) and external display modes.
 
-RDP remoting is delegated to the platform's native/FreeRDP client, exactly
-like Remmina (FreeRDP) and mRemoteNG (mstsc COM control) do:
+RDP remoting is provided by FreeRDP (Linux) or the native client (mstsc on
+Windows):
 
-- Windows: generates a ``.rdp`` file and launches the built-in ``mstsc.exe``
-  (with drive/clipboard redirection, gateway, autoreconnect settings).
-- Linux: launches ``sdl-freerdp3`` / ``xfreerdp`` (FreeRDP 2/3) with matching
-  flags, including ``+auto-reconnect``.
+- **Built-in (embedded, Linux/X11)**: the FreeRDP client is launched with
+  ``/parent-window:<xid>`` so the remote desktop renders *inside this
+  application's window* — no separate RDP window appears. Keyboard and mouse
+  are handled by FreeRDP on its embedded X window.
+- **External**: launches ``mstsc.exe`` (Windows) or a normal ``xfreerdp``
+  window; the tab becomes a session monitor (status, probe, reconnect).
 
-The tab itself becomes a *session monitor*: live status (process running /
-exited), latency probe (X.224 negotiation), and controls (reconnect, probe,
-open session). This keeps the GUI honest — RDP renders in its own window —
-while everything (saved settings, credentials, gateway, reconnect) is managed
-centrally. Embedding FreeRDP's framebuffer in-process is a documented future
-extension point (see docs/PROTOCOLS.md).
+Display mode is chosen in Settings → Connection → "RDP display":
+``auto`` (built-in when possible, default), ``embedded`` or ``external``.
 """
 
 from __future__ import annotations
@@ -21,8 +19,10 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from collections.abc import Callable
 
-from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtCore import QProcess, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -105,16 +105,103 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
     return args
 
 
+def build_embedded_args(defn: Session, password: str | None, parent_xid: int) -> list[str]:
+    """FreeRDP args for the built-in mode: render inside our X window.
+
+    ``/parent-window`` makes FreeRDP create its framebuffer as a *child* of
+    the given X11 window, so the desktop appears inside RDP Studio itself;
+    ``-decorations`` drops the title bar (we provide the tab chrome).
+    """
+    args = build_freerdp_args(defn, password)
+    if defn.rdp_fullscreen:  # fullscreen is meaningless inside a tab
+        args.remove("/f")
+    args += [f"/parent-window:{parent_xid}", "-decorations"]
+    return args
+
+
+def embedded_support(
+    find_client: Callable | None = None,
+    platform_name: str | None = None,
+    display: str | None = None,
+) -> tuple[bool, str]:
+    """Whether the built-in (embedded) RDP display is possible.
+
+    Requires: a FreeRDP binary (mstsc cannot embed), the Qt X11 platform
+    plugin (window embedding is an X11 mechanism) and an X display.
+    Returns ``(ok, reason)`` — the reason doubles as a UI hint.
+    """
+    client = (find_client or find_rdp_client)()
+    if client is None:
+        return False, "No FreeRDP client found (install `freerdp3-x11` or `freerdp2-x11`)."
+    if client[1] != "freerdp":
+        return False, "Only FreeRDP can render inside the app (mstsc cannot be embedded)."
+    name = platform_name
+    if name is None:
+        app = QGuiApplication.instance()
+        name = app.platformName() if app is not None else ""
+    if name != "xcb":
+        return False, f"Built-in display needs X11 (current Qt platform: {name or 'none'})."
+    disp = display if display is not None else os.environ.get("DISPLAY")
+    if not disp:
+        return False, "No X display ($DISPLAY) available."
+    return True, ""
+
+
+class _EmbeddedSurface(QWidget):
+    """Native X11 window that hosts the embedded FreeRDP child window."""
+
+    resized = Signal()  # emitted when the tab was resized while connected
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setStyleSheet("background: #101418;")
+        self._launch_size: tuple[int, int] | None = None
+
+    def set_launch_size(self, size: tuple[int, int]) -> None:
+        self._launch_size = size
+
+    def size_changed(self) -> bool:
+        """True if the widget moved >=32 px away from the launch size."""
+        if self._launch_size is None:
+            return False
+        dw = abs(self.width() - self._launch_size[0])
+        dh = abs(self.height() - self._launch_size[1])
+        return dw >= 32 or dh >= 32
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._launch_size is not None and self.size_changed():
+            self.resized.emit()
+        if getattr(self, "_hint", None) is not None:
+            # keep the hint centred over the desktop
+            self._hint.setGeometry(
+                0,
+                (self.height() - self._hint.height()) // 2,
+                self.width(),
+                self._hint.height(),
+            )
+
+
 class RdpSessionController(SessionController):
-    """Launches + monitors the native RDP client for one saved RDP session."""
+    """Runs the RDP session — built-in (embedded in this app) or external."""
+
+    widgetChanged = Signal()  # display mode switched; tab must swap the widget
 
     def __init__(self, definition: Session, ctx: SessionContext, parent=None) -> None:
         super().__init__(definition, ctx, parent)
         self._proc: QProcess | None = None
+        self._resized_restart = False
         self._build_ui()
+        # resolved up-front so the tab shows the right page before start()
+        self._mode: str = self.resolve_mode()
 
     # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        # --- external mode: session monitor page --------------------------
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -171,8 +258,23 @@ class RdpSessionController(SessionController):
         note.setObjectName("muted")
         layout.addWidget(note)
         layout.addStretch(1)
+        self._page_ext = page
 
-        self._page = page
+        # --- built-in mode: the desktop renders in this widget ------------
+        emb = QWidget()
+        el = QVBoxLayout(emb)
+        el.setContentsMargins(0, 0, 0, 0)
+        self._surface = _EmbeddedSurface()
+        self._surface.resized.connect(self._on_surface_resized)
+        self._emb_hint = QLabel("", self._surface)
+        self._emb_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._emb_hint.setStyleSheet("color: #9fb2c8; font-size: 13px; background: rgba(16,20,24,180);")
+        self._emb_hint.setWordWrap(True)
+        self._emb_hint.hide()
+        self._surface._hint = self._emb_hint
+        el.addWidget(self._surface, 1)
+        self._page_emb = emb
+
         client = find_rdp_client()
         if client is None:
             self._btn_connect.setEnabled(False)
@@ -186,10 +288,36 @@ class RdpSessionController(SessionController):
         return capability_set(external_window=True)
 
     def widget(self) -> QWidget:
-        return self._page
+        if self._mode == "embedded":
+            return self._page_emb
+        return self._page_ext
 
     # ------------------------------------------------------------------
+    # mode
+    # ------------------------------------------------------------------
+    def resolve_mode(self) -> str:
+        pref = getattr(self.ctx.settings, "rdp_client", "auto")
+        if pref == "external":
+            return "external"
+        ok, reason = embedded_support()
+        if pref == "embedded" and not ok:
+            log.warning("built-in RDP requested but unavailable: %s", reason)
+        return "embedded" if ok else "external"
+
+    # ------------------------------------------------------------------
+    # lifecycle
+    # ------------------------------------------------------------------
     def start(self) -> None:
+        new_mode = self.resolve_mode()
+        if new_mode != self._mode:
+            self._mode = new_mode
+            self.widgetChanged.emit()  # the tab must show the other page
+        if self._mode == "embedded":
+            self._start_embedded()
+        else:
+            self._start_external()
+
+    def _start_external(self) -> None:
         client = find_rdp_client()
         if client is None:
             self.set_state(SessionState.FAILED)
@@ -221,25 +349,64 @@ class RdpSessionController(SessionController):
             return
         self._proc.started.connect(self._on_proc_started)
 
-    def _resolve_secret(self) -> str | None:
-        defn = self.definition
-        if defn.password:
-            return defn.password  # plain password saved on the session (no vault)
-        if defn.credential_id:
-            try:
-                cred = self.ctx.vault.get(defn.credential_id)
-                if cred and cred.secret:
-                    return cred.secret
-            except Exception:  # vault locked
-                return None
-        return None
+    def _fall_back_to_external(self, why: str) -> None:
+        log.warning("built-in RDP unavailable at start (%s) — using external window", why)
+        self._mode = "external"
+        self.widgetChanged.emit()
+        self._start_external()
+
+    def _start_embedded(self) -> None:
+        client = find_rdp_client()
+        if client is None or client[1] != "freerdp":
+            self._fall_back_to_external("no FreeRDP client")
+            return
+        path = client[0]
+        password = self._resolve_secret()
+        xid = int(self._surface.winId())
+        if not xid:
+            self._fall_back_to_external("no native X11 window id")
+            return
+        self._surface.set_launch_size((self._surface.width(), self._surface.height()))
+        self.set_state(SessionState.CONNECTING)
+        self._set_emb_hint("Connecting…")
+        self._status_info({"client": os.path.basename(path), "embedded": True})
+        self._proc = QProcess(self)
+        self._proc.finished.connect(self._on_proc_finished)
+        self._proc.errorOccurred.connect(self._on_proc_error)
+        try:
+            self._proc.start(path, build_embedded_args(self.definition, password, xid))
+        except Exception as exc:  # noqa: BLE001
+            self._on_error_text(str(exc))
+            return
+        self._proc.started.connect(self._on_proc_started)
+
+    def _on_surface_resized(self) -> None:
+        """Restart the embedded client so the desktop follows the tab size."""
+        if self._mode != "embedded" or self._proc is None:
+            return
+        if self._proc.state() != QProcess.ProcessState.Running:
+            return
+        if self._state not in (SessionState.CONNECTED, SessionState.CONNECTING):
+            return
+        log.info("RDP tab resized — restarting embedded client to refit")
+        self._surface.set_launch_size((self._surface.width(), self._surface.height()))
+        self._resized_restart = True
+        self._proc.kill()
+
+    def _set_emb_hint(self, text: str) -> None:
+        self._emb_hint.setText(text)
+        self._emb_hint.setVisible(bool(text))
 
     def _on_proc_started(self) -> None:
         self.set_state(SessionState.CONNECTED)
-        self._status.setText(
-            "RDP session window is open (external client). "
-            "This tab monitors the connection."
-        )
+        self._set_emb_hint("")
+        if self._mode == "embedded":
+            self._status.setText("Built-in RDP window active.")
+        else:
+            self._status.setText(
+                "RDP session window is open (external client). "
+                "This tab monitors the connection."
+            )
         self._btn_connect.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self.titleChanged.emit(self.definition.display_name())
@@ -247,15 +414,26 @@ class RdpSessionController(SessionController):
 
     def _on_proc_finished(self) -> None:
         code = self._proc.exitCode() if self._proc else 0
+        resized = self._resized_restart
+        self._resized_restart = False
         self._btn_connect.setEnabled(True)
         self._btn_stop.setEnabled(False)
-        reason = f"RDP client exited (code {code})"
+        if resized:
+            reason = "refitting to new window size"
+        else:
+            reason = f"RDP client exited (code {code})"
         if self._state in (SessionState.CONNECTED, SessionState.RECONNECTING) and self.definition.auto_reconnect:
             self.set_state(SessionState.RECONNECTING)
-            self._status.setText(reason + " — auto-reconnecting…")
-            self.reconnectScheduled.emit(1, 3.0)
-            QTimer.singleShot(3000, lambda: self.start() if self._state == SessionState.RECONNECTING else None)
+            if self._mode == "embedded":
+                self._set_emb_hint(reason + " — reconnecting…")
+            else:
+                self._status.setText(reason + " — auto-reconnecting…")
+            self.reconnectScheduled.emit(1, 1.0 if resized else 3.0)
+            delay = 500 if resized else 3000
+            QTimer.singleShot(delay, lambda: self.start() if self._state == SessionState.RECONNECTING else None)
         else:
+            if self._mode == "embedded":
+                self._set_emb_hint("Disconnected — use Reconnect in the tab bar.")
             self._status.setText(reason)
             self.emit_finished_once(reason)
 
@@ -275,6 +453,8 @@ class RdpSessionController(SessionController):
     def _on_error_text(self, message: str) -> None:
         self.set_state(SessionState.FAILED)
         self._status.setText(message)
+        if self._mode == "embedded":
+            self._set_emb_hint(message)
         self._btn_connect.setEnabled(True)
         self._btn_stop.setEnabled(False)
         self.statusInfo.emit({"error": message})
@@ -288,6 +468,20 @@ class RdpSessionController(SessionController):
 
     def request_reconnect(self) -> None:
         self.start()
+
+    # ------------------------------------------------------------------
+    def _resolve_secret(self) -> str | None:
+        defn = self.definition
+        if defn.password:
+            return defn.password  # plain password saved on the session (no vault)
+        if defn.credential_id:
+            try:
+                cred = self.ctx.vault.get(defn.credential_id)
+                if cred and cred.secret:
+                    return cred.secret
+            except Exception:  # vault locked
+                return None
+        return None
 
     # -- probe -------------------------------------------------------------
     def run_probe(self) -> None:
@@ -319,7 +513,7 @@ class RdpSessionController(SessionController):
 class RdpPlugin(ProtocolPlugin):
     id = "rdp"
     title = "RDP"
-    description = "Remote Desktop to Windows hosts (mstsc / FreeRDP), with server health probes."
+    description = "Remote Desktop to Windows hosts — built-in display (FreeRDP embedded) or mstsc/FreeRDP window."
     default_port = 3389
     icon_name = "windows"
     tags = ["rdp", "windows", "remote-desktop"]

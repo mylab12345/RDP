@@ -91,12 +91,31 @@ class SessionTab(QWidget):
         header.setAutoFillBackground(True)
         layout.addWidget(header)
 
-        layout.addWidget(controller.widget(), 1)
+        self._content = controller.widget()
+        layout.addWidget(self._content, 1)
+
+        # protocols that can switch display mode at runtime (e.g. RDP
+        # built-in → external) tell us to swap the content widget
+        widget_changed = getattr(controller, "widgetChanged", None)
+        if widget_changed is not None:
+            widget_changed.connect(self._swap_content)
 
         controller.stateChanged.connect(self._on_state)
         controller.statusInfo.connect(self._on_status)
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
+
+    def _swap_content(self) -> None:
+        """Replace the tab content widget (e.g. RDP display mode changed)."""
+        old = self._content
+        if old is None:
+            return
+        layout = self.layout()
+        layout.removeWidget(old)
+        old.hide()
+        self._content = self.controller.widget()
+        layout.addWidget(self._content, 1)
+        self._content.show()
 
     def _on_state(self, state: str) -> None:
         self.chip.setText(state)

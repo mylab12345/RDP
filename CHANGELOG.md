@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Built-in RDP display** (self-contained, no separate window): on Linux,
+  FreeRDP is launched with `/parent-window` so the remote desktop renders
+  *inside* RDP Studio's tab. Keyboard/mouse are handled by the embedded
+  client; resizing the tab refits the desktop. Choose the display in
+  **Settings → Connection → RDP display**: *Built-in* / *External window* /
+  *Automatic* (default). Falls back to the external window on Windows,
+  Wayland, or when FreeRDP is missing.
 - Simple connect flow: sessions take a plain **username + password** field
   directly — no vault required (leave the password empty to be asked at
   connect time). Saved passwords are stored in the local sessions file and are

@@ -105,6 +105,17 @@ class SettingsDialog(QDialog):
         hi = self.host_key_policy.findData(ctx.settings.host_key_policy)
         self.host_key_policy.setCurrentIndex(hi if hi >= 0 else 0)
         cform.addRow("Host key policy", self.host_key_policy)
+        self.rdp_client = QComboBox()
+        self.rdp_client.addItem("Built-in — RDP renders inside this app", "embedded")
+        self.rdp_client.addItem("External — separate RDP window", "external")
+        self.rdp_client.addItem("Automatic (built-in when possible)", "auto")
+        ri = self.rdp_client.findData(ctx.settings.rdp_client)
+        self.rdp_client.setCurrentIndex(ri if ri >= 0 else 2)
+        self.rdp_client.setToolTip(
+            "Built-in needs Linux + X11 + FreeRDP (freerdp3-x11 / freerdp2-x11).\n"
+            "On Windows or Wayland the external window is used automatically."
+        )
+        cform.addRow("RDP display", self.rdp_client)
         layout.addWidget(conn)
 
         # --- security --------------------------------------------------------------
@@ -145,6 +156,7 @@ class SettingsDialog(QDialog):
         s.default_keepalive = self.keepalive.value()
         s.reconnect_max_attempts = self.max_attempts.value()
         s.host_key_policy = self.host_key_policy.currentData()
+        s.rdp_client = self.rdp_client.currentData()
         s.vault_autolock_minutes = self.autolock.value()
         s.kdf_iterations = self.kdf.value()
         s.save(paths.settings_file())
