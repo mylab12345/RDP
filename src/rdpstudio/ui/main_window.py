@@ -1,11 +1,11 @@
-"""Main window: tabbed sessions, sidebar, toolbar, quick connect."""
+"""Main window: tabbed sessions, sidebar, toolbar, quick connect — modern 2026."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QToolBar,
     QVBoxLayout,
     QWidget,
+    QFrame,
 )
 
 from .. import APP_NAME, __version__
@@ -36,12 +37,11 @@ from ..core.plugin import (
 )
 from . import theme
 from .sidebar import SessionTree
-from .theme import icon
+from .theme import icon, palette
 from .widgets import STATE_COLORS, StateChip, toast
 
 log = get_logger("ui.main")
 
-# Refuse absurd "session export" files rather than trying to parse them.
 _MAX_IMPORT_BYTES = 32 * 1024 * 1024
 
 _MAIN = None
@@ -61,7 +61,7 @@ def get_main_window(widget=None) -> MainWindow | None:
 
 
 class SessionTab(QWidget):
-    """One tab: hosts a SessionController + a slim status header."""
+    """One tab: hosts a SessionController + a modern status header."""
 
     def __init__(self, controller: SessionController, main: MainWindow) -> None:
         super().__init__()
@@ -71,43 +71,63 @@ class SessionTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # Modern header — card-like, with chip + info + action buttons
         header = QWidget()
+        header.setObjectName("header")
+        header.setMinimumHeight(44)
         h = QHBoxLayout(header)
-        h.setContentsMargins(10, 4, 8, 4)
+        h.setContentsMargins(12, 6, 12, 6)
+        h.setSpacing(8)
+
         self.chip = StateChip("connecting", "info")
+        h.addWidget(self.chip)
+
         self.info = QLabel("")
         self.info.setObjectName("muted")
-        h.addWidget(self.chip)
-        h.addSpacing(8)
+        self.info.setStyleSheet("font-size: 12.5px;")
         h.addWidget(self.info, 1)
 
-        self.btn_reconnect = QPushButton("Reconnect")
+        self.btn_reconnect = QPushButton("↻ Reconnect")
+        self.btn_reconnect.setObjectName("primary")
         self.btn_reconnect.clicked.connect(controller.request_reconnect)
         self.btn_reconnect.setVisible(False)
+        self.btn_reconnect.setMinimumHeight(32)
         h.addWidget(self.btn_reconnect)
 
         caps = controller.capabilities()
+
+        def make_action_btn(text, icon_name, tip, cb):
+            b = QPushButton(text)
+            if icon_name:
+                b.setIcon(icon(icon_name))
+            b.setObjectName("subtle")
+            b.setToolTip(tip)
+            b.clicked.connect(cb)
+            b.setMinimumHeight(32)
+            return b
+
         if caps.sftp:
-            b = QPushButton("Files")
-            b.clicked.connect(controller.open_sftp)
+            b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             h.addWidget(b)
         if caps.tunnels:
-            b = QPushButton("Tunnels")
-            b.clicked.connect(controller.open_tunnels)
+            b = make_action_btn("Tunnels", "plug", "Manage port forwards", controller.open_tunnels)
             h.addWidget(b)
         if caps.monitor:
-            b = QPushButton("Monitor")
-            b.setToolTip("Live CPU, memory, disk and network for this host")
-            b.clicked.connect(controller.open_monitor)
+            b = make_action_btn("Monitor", "server", "Live CPU, memory, disk and network", controller.open_monitor)
             h.addWidget(b)
-        header.setAutoFillBackground(True)
+
         layout.addWidget(header)
+
+        # Divider
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setObjectName("hairline")
+        line.setFixedHeight(1)
+        layout.addWidget(line)
 
         self._content = controller.widget()
         layout.addWidget(self._content, 1)
 
-        # protocols that can switch display mode at runtime (e.g. RDP
-        # built-in → external) tell us to swap the content widget
         widget_changed = getattr(controller, "widgetChanged", None)
         if widget_changed is not None:
             widget_changed.connect(self._swap_content)
@@ -118,7 +138,6 @@ class SessionTab(QWidget):
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
 
     def _swap_content(self) -> None:
-        """Replace the tab content widget (e.g. RDP display mode changed)."""
         old = self._content
         if old is None:
             return
@@ -137,11 +156,21 @@ class SessionTab(QWidget):
     def _on_status(self, info: dict) -> None:
         if "connected" in info:
             c = info["connected"]
-            self.info.setText(
-                f"{c.get('username', '')}@{c.get('host', '')}"
-                + (f"  ·  {c['cipher']}" if c.get("cipher") else "")
-                + (f"  ·  {c['remote_version'].split(chr(10))[0]}" if c.get("remote_version") else "")
-            )
+            user = c.get("username", "")
+            host = c.get("host", "")
+            cipher = c.get("cipher", "")
+            ver = c.get("remote_version", "").split("\n")[0] if c.get("remote_version") else ""
+            parts = []
+            if user and host:
+                parts.append(f"{user}@{host}")
+            elif host:
+                parts.append(host)
+            if cipher:
+                parts.append(cipher)
+            if ver:
+                # Trim long version strings
+                parts.append(ver[:32])
+            self.info.setText("  ·  ".join(parts))
         if "status_text" in info and info["status_text"]:
             self.chip.setText(info["status_text"][:40])
         if info.get("error"):
@@ -167,42 +196,44 @@ class MainWindow(QMainWindow):
         self.ctx = ctx
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icon("logo"))
-        self.resize(1280, 800)
-        self.controllers: dict[int, SessionTab] = {}  # tabIndex -> tab (rebuilt lazily)
+        self.resize(1360, 860)
+        self.setMinimumSize(1024, 640)
+        self.controllers: dict[int, SessionTab] = {}
 
         self._build_menu()
         self._build_toolbar()
         self._build_body()
 
         status = QStatusBar()
+        status.setSizeGripEnabled(False)
         self.setStatusBar(status)
+
+        # Vault status with modern pill
         self.vault_label = QLabel("")
+        self.vault_label.setObjectName("caption")
         status.addWidget(self.vault_label)
+
         self.status_label = QLabel("")
+        self.status_label.setObjectName("caption")
         status.addPermanentWidget(self.status_label)
+
         self._refresh_vault_label()
 
-        # autolock timer
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(30_000)
         self._lock_timer.timeout.connect(self._autolock)
         self._lock_timer.start()
 
-        # geometry restore
         geo = ctx.settings.geometry
         if isinstance(geo, dict) and geo.get("size"):
-            from PySide6.QtCore import QSize
+            from PySide6.QtCore import QSize, QPoint
 
             self.resize(QSize(int(geo["size"][0]), int(geo["size"][1])))
             if geo.get("pos"):
-                from PySide6.QtCore import QPoint
-
                 self.move(QPoint(int(geo["pos"][0]), int(geo["pos"][1])))
             if geo.get("maximized"):
                 self.showMaximized()
 
-    # ------------------------------------------------------------------
-    # construction
     # ------------------------------------------------------------------
     def _build_menu(self) -> None:
         m_file = self.menuBar().addMenu("&Session")
@@ -273,60 +304,148 @@ class MainWindow(QMainWindow):
     def _build_toolbar(self) -> None:
         bar = QToolBar()
         bar.setMovable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        bar.setIconSize(QSize(18, 18))
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
 
-        a = bar.addAction(icon("plus"), "New")
+        # Primary actions — modern text+icon
+        a = bar.addAction(icon("plus"), "New Session")
+        a.setToolTip("Create a new saved session (Ctrl+N)")
         a.triggered.connect(self.new_session)
 
-        # One-click native local terminal — no dialog, no saved session.
         a = bar.addAction(icon("console"), "Terminal")
         a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
         a.triggered.connect(self.open_local_terminal)
 
+        bar.addSeparator()
+
+        # Quick connect — modern search-like input
+        quick_wrap = QWidget()
+        ql = QHBoxLayout(quick_wrap)
+        ql.setContentsMargins(8, 2, 8, 2)
+        ql.setSpacing(8)
+
+        lbl = QLabel("⌕")
+        lbl.setObjectName("muted")
+        lbl.setStyleSheet("font-size: 14px;")
+        ql.addWidget(lbl)
+
         self.quick = QLineEdit()
         self.quick.setPlaceholderText("Quick connect: user@host[:port]  ⏎")
-        self.quick.setFixedWidth(260)
+        self.quick.setFixedWidth(300)
+        self.quick.setObjectName("search")
         self.quick.returnPressed.connect(self.quick_connect)
-        bar.addWidget(self.quick)
+        ql.addWidget(self.quick)
+
+        bar.addWidget(quick_wrap)
 
         bar.addSeparator()
-        a = bar.addAction(icon("shield"), "Vault")
-        a.triggered.connect(self.open_vault)
-        a = bar.addAction(icon("plug"), "Tunnels")
-        a.triggered.connect(self.open_tunnels_dialog)
-        a = bar.addAction(icon("server"), "Monitor")
-        a.triggered.connect(self.open_monitor_dialog)
-        a = bar.addAction(icon("windows"), "RDP server")
-        a.triggered.connect(self.open_rdp_server_manager)
-        a = bar.addAction(icon("gear"), "Settings")
-        a.triggered.connect(self.open_settings)
+
+        # Tools — grouped, subtle
+        def add_tool(icon_name, text, tip, cb):
+            act = bar.addAction(icon(icon_name), text)
+            act.setToolTip(tip)
+            act.triggered.connect(cb)
+            return act
+
+        add_tool("shield", "Vault", "Credential vault (Ctrl+Shift+K)", self.open_vault)
+        add_tool("plug", "Tunnels", "Port forwarding (Ctrl+Shift+P)", self.open_tunnels_dialog)
+        add_tool("server", "Monitor", "Remote monitoring (Ctrl+Shift+M)", self.open_monitor_dialog)
+        add_tool("windows", "RDP", "RDP server manager", self.open_rdp_server_manager)
+        add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
+
         self.addToolBar(bar)
 
     def _build_body(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setHandleWidth(1)
         self.sidebar = SessionTree(self.ctx.store)
         splitter.addWidget(self.sidebar)
+
+        # Tabs container — modern card wrapper
+        tabs_wrap = QWidget()
+        tabs_wrap.setObjectName("card")
+        tl = QVBoxLayout(tabs_wrap)
+        tl.setContentsMargins(6, 6, 6, 6)
+        tl.setSpacing(0)
 
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True)
+        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+
+        # Corner new-tab button — modern plus
         corner = QWidget()
         cl = QHBoxLayout(corner)
-        cl.setContentsMargins(6, 2, 6, 2)
-        plus = QPushButton("+")
-        plus.setFlat(True)
+        cl.setContentsMargins(4, 2, 8, 2)
+        plus = QPushButton("＋ New Tab")
+        plus.setObjectName("ghost")
         plus.setToolTip("New session (Ctrl+N)")
         plus.clicked.connect(self.new_session)
         cl.addWidget(plus)
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
 
-        splitter.addWidget(self.tabs)
+        # Empty state when no tabs
+        self._empty = QWidget()
+        el = QVBoxLayout(self._empty)
+        el.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        el.setSpacing(16)
+        el.setContentsMargins(40, 40, 40, 40)
+
+        logo = QLabel("◐")
+        logo.setStyleSheet("font-size: 48px; color: #5c677e;")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        el.addWidget(logo)
+
+        title = QLabel(f"Welcome to {APP_NAME}")
+        title.setObjectName("h1")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        el.addWidget(title)
+
+        subtitle = QLabel("Open a saved session from the sidebar, create a new one, or use quick connect above.\n"
+                          "Press Ctrl+Shift+T for an instant local terminal.")
+        subtitle.setObjectName("muted")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setWordWrap(True)
+        el.addWidget(subtitle)
+
+        btn_row = QHBoxLayout()
+        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_row.setSpacing(10)
+        b1 = QPushButton("＋ New Session")
+        b1.setObjectName("primary")
+        b1.clicked.connect(self.new_session)
+        b2 = QPushButton("▢ Terminal")
+        b2.setObjectName("subtle")
+        b2.clicked.connect(self.open_local_terminal)
+        btn_row.addWidget(b1)
+        btn_row.addWidget(b2)
+        el.addLayout(btn_row)
+
+        # Stack: empty vs tabs — we'll show empty when count==0
+        self._tabs_container = QWidget()
+        tcl = QVBoxLayout(self._tabs_container)
+        tcl.setContentsMargins(0, 0, 0, 0)
+        tcl.addWidget(self.tabs, 1)
+
+        # Use a simple widget that switches
+        self._center_stack = QWidget()
+        csl = QVBoxLayout(self._center_stack)
+        csl.setContentsMargins(0, 0, 0, 0)
+        csl.setSpacing(0)
+        csl.addWidget(self._empty, 1)
+        csl.addWidget(self._tabs_container, 1)
+        self._empty.setVisible(True)
+        self._tabs_container.setVisible(False)
+
+        tl.addWidget(self._center_stack, 1)
+        splitter.addWidget(tabs_wrap)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([280, 1000])
+        splitter.setSizes([300, 1060])
         self.setCentralWidget(splitter)
 
         # sidebar events
@@ -338,8 +457,11 @@ class MainWindow(QMainWindow):
         self.sidebar.newSessionRequested.connect(self.new_session)
         self.sidebar.newFolderRequested.connect(self.sidebar.prompt_new_folder)
 
-    # ------------------------------------------------------------------
-    # session lifecycle
+    def _update_empty_state(self):
+        has_tabs = self.tabs.count() > 0
+        self._empty.setVisible(not has_tabs)
+        self._tabs_container.setVisible(has_tabs)
+
     # ------------------------------------------------------------------
     def connect_session(self, session_id: str) -> None:
         defn = self.ctx.store.get(session_id)
@@ -367,21 +489,21 @@ class MainWindow(QMainWindow):
 
         controller.titleChanged.connect(_set_title)
         controller.start()
+        self._update_empty_state()
         return tab
 
     def close_tab(self, index: int) -> None:
         widget = self.tabs.widget(index)
-        # Remove from the tab bar first so the UI feels instant even if the
-        # controller takes a moment to tear its transport down.
         self.tabs.removeTab(index)
         if isinstance(widget, SessionTab):
             try:
                 widget.controller.stop("closed by user")
-            except Exception:  # noqa: BLE001 - a broken teardown must not
-                log.exception("error stopping session controller")  # strand the tab
+            except Exception:
+                log.exception("error stopping session controller")
             widget.controller.deleteLater()
         if widget is not None:
             widget.deleteLater()
+        self._update_empty_state()
 
     def current_controller(self) -> SessionController | None:
         widget = self.tabs.currentWidget()
@@ -394,7 +516,8 @@ class MainWindow(QMainWindow):
         if isinstance(widget, SessionTab):
             caps = widget.controller.capabilities()
             if caps.shell:
-                widget.controller.widget().setFocus()
+                # Delay focus to let tab switch animation finish
+                QTimer.singleShot(0, lambda: widget.controller.widget().setFocus())
 
     # -- dialogs -------------------------------------------------------------
     def new_session(self, *args) -> None:
@@ -408,11 +531,6 @@ class MainWindow(QMainWindow):
                 self.connect_session(dlg.session.id)
 
     def open_local_terminal(self, *args) -> SessionTab | None:
-        """Open a native local shell tab immediately (Ctrl+Shift+T).
-
-        Deliberately *not* persisted: a scratch terminal is not a saved
-        connection, so it never clutters the sidebar.
-        """
         from ..core.models import PROTOCOL_LOCAL
 
         defn = Session(protocol=PROTOCOL_LOCAL, name="Terminal")
@@ -475,7 +593,6 @@ class MainWindow(QMainWindow):
     def open_tunnels_dialog(self) -> None:
         controller = self.current_controller()
         if controller is None or not controller.capabilities().tunnels:
-            # pick any live ssh tab
             for i in range(self.tabs.count()):
                 w = self.tabs.widget(i)
                 if isinstance(w, SessionTab) and w.controller.capabilities().tunnels:
@@ -492,7 +609,6 @@ class MainWindow(QMainWindow):
         TunnelsDialog(self.ctx, controller, self).show()
 
     def open_monitor_dialog(self) -> None:
-        """Monitor the current tab's host, or any live monitorable session."""
         controller = self.current_controller()
         if controller is None or not controller.capabilities().monitor:
             for i in range(self.tabs.count()):
@@ -541,7 +657,8 @@ class MainWindow(QMainWindow):
             f"<b>{APP_NAME}</b> {__version__}<br><br>"
             "Cross-platform remote-access workbench.<br>"
             "SSH/SFTP to Linux hosts, RDP to Windows hosts.<br><br>"
-            "Python · Qt (PySide6) · paramiko · pyte",
+            "Python · Qt (PySide6) · paramiko · pyte<br><br>"
+            "<span style='color: #8a94ac;'>Modern UI • Fast terminal • Secure vault</span>",
         )
 
     def _import_ssh_config(self) -> None:
@@ -563,7 +680,7 @@ class MainWindow(QMainWindow):
                 raise ValueError(
                     f"file is too large to be a session export ({size // 1_048_576} MB)"
                 )
-            with open(path, encoding="utf-8") as fh:  # context manager: no leaked fd
+            with open(path, encoding="utf-8") as fh:
                 payload = json.load(fh)
             if not isinstance(payload, dict):
                 raise ValueError("expected a JSON object")
@@ -605,19 +722,18 @@ class MainWindow(QMainWindow):
         else:
             subprocess.Popen(["xdg-open", str(path)])
 
-    # -- vault status ----------------------------------------------------------
     def _refresh_vault_label(self) -> None:
         try:
             unlocked = self.ctx.vault.unlocked
             exists = self.ctx.vault.exists
-        except Exception:  # noqa: BLE001
+        except Exception:
             unlocked, exists = False, False
         if unlocked:
             self.vault_label.setText(" 🔓 vault unlocked")
         elif exists:
             self.vault_label.setText(" 🔒 vault locked")
         else:
-            self.vault_label.setText(" ⚪ no vault (optional — passwords can be saved per session)")
+            self.vault_label.setText(" ○ no vault — passwords saved per session")
 
     def _autolock(self) -> None:
         changed = self.ctx.vault.lock_if_due(self.ctx.settings.vault_autolock_minutes)
@@ -625,15 +741,13 @@ class MainWindow(QMainWindow):
             self._refresh_vault_label()
             toast(self, "Vault auto-locked after inactivity", "warn")
 
-    # -- close ---------------------------------------------------------------
     def closeEvent(self, event) -> None:  # noqa: N802
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
-                # One misbehaving protocol must not block application exit.
                 try:
                     w.controller.stop("app closed")
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.exception("error stopping session on shutdown")
         settings = self.ctx.settings
         settings.geometry = {

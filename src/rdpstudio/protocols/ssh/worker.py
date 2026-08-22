@@ -3,6 +3,12 @@
 An :class:`SshWorker` is a QObject moved to a dedicated ``QThread``. All
 paramiko blocking work (connect, auth, shell pump, forwards) happens there;
 the GUI thread talks to it through queued slots and receives Qt signals.
+
+FIX: The original pump blocked the QThread event loop, so queued
+``write_input`` slots never fired — typing appeared frozen after connect.
+Now ``connect_and_shell`` starts the pump in a dedicated Python thread and
+returns immediately, leaving the QThread event loop free.  ``write_input``
+and ``resize_pty`` are thread-safe and callable directly from any thread.
 """
 
 from __future__ import annotations
@@ -97,13 +103,22 @@ class SshWorker(QObject):
         self._stop = threading.Event()
         self._shell_requested = False
         self._pty_size = term_size
+        self._pump_thread: threading.Thread | None = None
 
     # ------------------------------------------------------------------
-    # slots invoked (queued) from the GUI thread
+    # Public API — thread-safe where noted. Qt slots remain for queued
+    # connections, but direct calls are now preferred for input/resize.
     # ------------------------------------------------------------------
     @Slot()
     def connect_and_shell(self) -> None:
-        """Connect (incl. jump chain + auth), open PTY shell, start pump."""
+        """Connect (incl. jump chain + auth), open PTY shell, start pump thread.
+
+        The old implementation called ``_pump()`` directly here, which blocked
+        the QThread's event loop forever — queued ``write_input`` slots (i.e.
+        typing) never fired, so the terminal appeared frozen after connect.
+        Now we spin the pump off into a dedicated Python thread and return
+        immediately, leaving the QThread event loop free to dispatch slots.
+        """
         try:
             self._client = self._connect(self.material, self.host, self.port)
         except Exception as exc:  # noqa: BLE001
@@ -120,10 +135,17 @@ class SshWorker(QObject):
             self.failed.emit(f"could not open shell: {exc}")
             self._cleanup()
             return
-        self._pump()
 
-    @Slot(bytes)
+        # Pump in its own thread — QThread event loop stays alive.
+        self._pump_thread = threading.Thread(
+            target=self._pump, name=f"ssh-pump-{self.host}", daemon=True
+        )
+        self._pump_thread.start()
+
     def write_input(self, data: bytes) -> None:
+        """Thread-safe: can be called from GUI thread directly or via queued slot."""
+        if not data:
+            return
         with self._write_lock:
             if self._write_bytes < _MAX_PENDING_WRITES:
                 self._write_bytes += len(data)
@@ -131,8 +153,13 @@ class SshWorker(QObject):
             else:
                 log.warning("dropping input: pending write buffer full")
 
-    @Slot(int, int)
+    @Slot(bytes)
+    def write_input_slot(self, data: bytes) -> None:
+        # Kept as a Qt slot for queued connections — delegates to thread-safe impl.
+        self.write_input(data)
+
     def resize_pty(self, cols: int, rows: int) -> None:
+        """Thread-safe resize — stores size and tries to resize live channel."""
         self._pty_size = (cols, rows)
         chan = self._chan
         if chan is not None:
@@ -140,6 +167,10 @@ class SshWorker(QObject):
                 chan.resize_pty(cols, rows)
             except Exception:  # noqa: BLE001
                 pass
+
+    @Slot(int, int)
+    def resize_pty_slot(self, cols: int, rows: int) -> None:
+        self.resize_pty(cols, rows)
 
     @Slot(dict)
     def start_forward(self, fwd_dict: dict) -> None:
@@ -158,6 +189,16 @@ class SshWorker(QObject):
     @Slot(str)
     def shutdown(self, reason: str = "") -> None:
         self._stop.set()
+        chan = self._chan
+        if chan is not None:
+            try:
+                chan.close()
+            except Exception:  # noqa: BLE001
+                pass
+        # Give pump thread a moment to exit gracefully
+        pt = self._pump_thread
+        if pt is not None and pt is not threading.current_thread():
+            pt.join(timeout=1.0)
         self._cleanup()
         self.disconnected.emit(reason if reason else "")
 
@@ -328,7 +369,8 @@ class SshWorker(QObject):
     def _pump(self) -> None:
         """select() loop: channel -> output signal, queued writes -> channel."""
         chan = self._chan
-        assert chan is not None
+        if chan is None:
+            return
         chan.settimeout(0.0)
         last_alive = time.monotonic()
         while not self._stop.is_set():
@@ -407,3 +449,4 @@ class SshWorker(QObject):
                     pass
         self._hop_clients = []
         self._client = None
+        self._pump_thread = None
