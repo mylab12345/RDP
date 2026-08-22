@@ -98,7 +98,8 @@ class SessionDialog(QDialog):
 
         # Header card: protocol + name/group
         header_card = self._make_card("General")
-        head = QFormLayout(header_card)
+        header_content = self._card_content(header_card)
+        head = QFormLayout(header_content)
         head.setSpacing(12)
         head.setContentsMargins(16, 16, 16, 16)
         self.protocol = QComboBox()
@@ -119,7 +120,8 @@ class SessionDialog(QDialog):
 
         # Common connection card
         common_card = self._make_card("Connection")
-        common_layout = QVBoxLayout(common_card)
+        common_content = self._card_content(common_card)
+        common_layout = QVBoxLayout(common_content)
         common_layout.setContentsMargins(16, 16, 16, 16)
         common_layout.addWidget(self._build_common())
         scroll_layout.addWidget(common_card)
@@ -181,7 +183,7 @@ class SessionDialog(QDialog):
         self._on_protocol()
 
     def _make_card(self, title: str) -> QWidget:
-        """Create a modern card with title."""
+        """Create a modern card with title — returns the card itself."""
         card = QWidget()
         card.setObjectName("card")
         outer = QVBoxLayout(card)
@@ -197,9 +199,17 @@ class SessionDialog(QDialog):
             sep.setObjectName("hairline")
             sep.setFixedHeight(1)
             outer.addWidget(sep)
-        inner = QWidget()
-        outer.addWidget(inner)
-        return inner if title else card
+        # content area where caller will add its own layout
+        content = QWidget()
+        outer.addWidget(content)
+        # Store content as attribute so caller can add layout to it,
+        # but return card so card is added to parent layout (not orphaned).
+        card._content_widget = content  # type: ignore[attr-defined]
+        return card
+
+    def _card_content(self, card: QWidget) -> QWidget:
+        """Get the inner content widget of a card."""
+        return getattr(card, "_content_widget", card)
 
     # Keep original card method for compatibility but wrap
     def _make_card_simple(self) -> QGroupBox:

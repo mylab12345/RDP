@@ -191,11 +191,13 @@ class SettingsDialog(QDialog):
         self._xwayland_useful = False
         ok, reason = embedded_support()
         if ok:
-            self.rdp_status.setText("✓ In-app RDP active — desktops render inside the app.")
+            self.rdp_status.setText("✓ In-app display active — remote desktops render inside RDP Studio.")
         elif embed_blocked_on_wayland():
             self._xwayland_useful = True
             self.rdp_status.setText(
-                "Wayland detected: in-app RDP needs X11. The app can restart through XWayland."
+                "Wayland session detected: in-app RDP needs X11. RDP Studio can restart\n"
+                "through XWayland — it also does so automatically at startup when saved\n"
+                "RDP sessions exist."
             )
         elif reason:
             self.rdp_status.setText(reason)
