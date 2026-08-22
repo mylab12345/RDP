@@ -32,6 +32,8 @@ class Settings:
     reconnect_max_delay: float = 60.0
     # accept-new (TOFU) | strict
     host_key_policy: str = "accept-new"
+    # RDP display: auto (built-in when possible) | embedded | external
+    rdp_client: str = "auto"
 
     # security
     vault_autolock_minutes: int = 15

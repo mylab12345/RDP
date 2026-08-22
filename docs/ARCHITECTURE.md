@@ -89,12 +89,21 @@ so the tab shows a live countdown chip.
 
 ### RDP
 
-`RdpSessionController` locates the platform client (`find_rdp_client`):
-- Windows → generate a `.rdp` file (UTF-16) and launch `mstsc.exe`
-- Linux → launch `sdl-freerdp3`/`xfreerdp` with flags (drive/clipboard/gateway,
-  `+auto-reconnect`, `/cert:tofu` unless the user opted out)
+`RdpSessionController` runs the session in one of two display modes
+(Settings → Connection → **RDP display**: `auto` (default) / `embedded` /
+`external`):
 
-The tab becomes a monitor (process state, X.224 probe results, reconnect).
+- **Built-in (embedded, Linux/X11)** — the FreeRDP client is launched with
+  `/parent-window:<xid> -decorations`, so the remote desktop renders *inside
+  the app's tab* (no separate RDP window). The tab hosts a native X11
+  surface (`_EmbeddedSurface`); resizing the tab restarts the client so the
+  desktop refits. Requires FreeRDP + the Qt `xcb` platform + `$DISPLAY`.
+- **External** — Windows → generate a `.rdp` file (UTF-16) and launch
+  `mstsc.exe`; Linux → launch `sdl-freerdp3`/`xfreerdp` with flags
+  (drive/clipboard/gateway, `+auto-reconnect`, `/cert:tofu` unless the user
+  opted out). The tab becomes a monitor (process state, reconnect).
+
+In both modes the tab also shows X.224 probe results.
 `negotiate.py` speaks enough MS-RDPBCGR to distinguish a live RDP server and
 its negotiated security (Standard/TLS/CredSSP) — the same handshake mstsc
 performs before TLS starts.
@@ -120,7 +129,9 @@ performs before TLS starts.
   the tab, dialogs, quick-connect and sidebar are protocol-agnostic.
 - **Importers**: `rdpstudio.importers` pattern (ssh_config included; PuTTY
   registry importer can follow the same shape).
-- **In-process RDP rendering** (future): FreeRDP exposes no stable embeddable
-  client library across platforms; a `rdpgfx` channel decoder + QOpenGLWidget
-  surface is the natural evolution of `negotiate.py`, keeping the plugin
-  contract unchanged.
+- **In-process RDP rendering** (future): the built-in mode embeds FreeRDP's
+  own X11 window (`/parent-window`), which needs FreeRDP + X11. A fully
+  in-process renderer (a `rdpgfx` channel decoder + QOpenGLWidget surface,
+  e.g. via FreeRDP's C API or a pure-Python stack) would remove that
+  requirement and also work on Wayland/Windows; `negotiate.py` is the first
+  step of that path, and the plugin contract stays unchanged.

@@ -280,6 +280,11 @@ class SessionDialog(QDialog):
         fit_row.addWidget(self.rdp_fit_screen)
         fit_row.addStretch(1)
         form.addRow("", fit_row)
+        emb_note = QLabel(
+            "Built-in display (Settings → RDP display): the desktop renders inside this app (Linux + X11 + FreeRDP)."
+        )
+        emb_note.setObjectName("muted")
+        form.addRow(emb_note)
         layout.addWidget(display)
 
         redir = QGroupBox("Local devices")
