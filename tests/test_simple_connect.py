@@ -24,33 +24,35 @@ def test_freerdp_args_fit_screen():
 def test_freerdp_password_never_on_cmdline_by_default():
     """The secret must not be readable via `ps` / /proc/<pid>/cmdline."""
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args, password_via_stdin
+    from rdpstudio.protocols.rdp.session import build_freerdp_args, uses_args_file
 
     s = Session(protocol="rdp", host="win.lab", username="admin", password="s3cret")
     args = build_freerdp_args(s, password="s3cret")
     assert "s3cret" not in " ".join(args)
-    assert "/from-stdin" in args
-    assert password_via_stdin(s, "s3cret") is True
+    assert "/from-stdin" not in args  # FreeRDP 3.x aborts on piped stdin
+    assert "/args-from" not in " ".join(args)  # argv stays clean; file added at launch
+    assert uses_args_file(s, "s3cret") is True
 
     # vault-style password: same treatment
     s2 = Session(protocol="rdp", host="win.lab", username="admin")
     args2 = build_freerdp_args(s2, password="vpass")
     assert "vpass" not in " ".join(args2)
-    assert "/from-stdin" in args2
 
     # explicit opt-in still supported (documented as insecure)
     s2.rdp_pass_on_cmdline = True
     assert "/p:vpass" in build_freerdp_args(s2, password="vpass")
-    assert password_via_stdin(s2, "vpass") is False
+    assert uses_args_file(s2, "vpass") is False
 
 
 def test_freerdp_no_stdin_flag_without_password():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args, password_via_stdin
+    from rdpstudio.protocols.rdp.session import build_freerdp_args, uses_args_file
 
     s = Session(protocol="rdp", host="win.lab", username="admin")
-    assert "/from-stdin" not in build_freerdp_args(s, password=None)
-    assert password_via_stdin(s, None) is False
+    args = build_freerdp_args(s, password=None)
+    assert "/from-stdin" not in args
+    assert "/p:" not in " ".join(args)
+    assert uses_args_file(s, None) is False
 
 
 # --- mstsc .rdp file ---------------------------------------------------------

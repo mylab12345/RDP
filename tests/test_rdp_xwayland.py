@@ -400,9 +400,17 @@ def test_e2e_relaunch_switches_to_xcb(tmp_path):
 
     def run(home_dir):
         env = dict(os.environ)
+        # Isolate Wayland socket lookup: point XDG_RUNTIME_DIR to an empty dir
+        # so WAYLAND_DISPLAY cannot resolve to the host compositor. Otherwise
+        # on a real Wayland desktop (wayland-0 exists) Qt would succeed and
+        # show a GUI, causing a 60s timeout instead of the expected quick
+        # platform failure.
+        fake_runtime = tmp_path / "fake-runtime"
+        fake_runtime.mkdir(exist_ok=True)
         env.update(
             RDPSTUDIO_HOME=str(home_dir),
-            WAYLAND_DISPLAY="wayland-0",
+            WAYLAND_DISPLAY="wayland-fake-nonexistent",
+            XDG_RUNTIME_DIR=str(fake_runtime),
             XDG_SESSION_TYPE="wayland",
             DISPLAY=":99",  # XWayland socket that does not exist
         )
@@ -411,7 +419,7 @@ def test_e2e_relaunch_switches_to_xcb(tmp_path):
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "rdpstudio"],
-                env=env, capture_output=True, text=True, timeout=60,
+                env=env, capture_output=True, text=True, timeout=15,
             )
         except subprocess.TimeoutExpired:
             pytest.fail("app started a GUI instead of deciding — relaunch logic broken?")

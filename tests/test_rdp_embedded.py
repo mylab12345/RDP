@@ -93,9 +93,9 @@ def test_build_embedded_args():
     assert "/parent-window:4660" in args
     assert "-decorations" in args
     assert "/smart-sizing" in args
-    # password goes over stdin, never argv
+    # password never rides argv — delivered via /args-from:file: (0600)
     assert "s3cret" not in " ".join(args)
-    assert "/from-stdin" in args
+    assert "/from-stdin" not in args
     assert "/v:w" in args
     assert "/u:u" in args
 
@@ -173,8 +173,16 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     ctx = _ctx(tmp_path)
     ctx.settings.rdp_client = "embedded"
     argv_file = tmp_path / "argv.txt"
+    # client is started as: xfreerdp /args-from:file:<f> — dump both the
+    # launcher argv and the args-file contents so assertions cover both
     script = tmp_path / "fake-freerdp.sh"
-    script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {argv_file}\nsleep 30\n")
+    script.write_text(
+        "#!/bin/sh\n"
+        "{ printf '%s\\n' \"$@\"; "
+        "for a in \"$@\"; do case \"$a\" in /args-from:file:*) cat \"${a#/args-from:file:}\";; esac; done; } "
+        f"> {argv_file}\n"
+        "sleep 30\n"
+    )
     script.chmod(0o755)
     monkeypatch.setattr(rdp_session, "find_rdp_client", lambda: (str(script), "freerdp"))
     monkeypatch.setattr(rdp_session, "find_embedded_client", lambda: str(script))
@@ -188,13 +196,16 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     ctrl.start()
     import time
 
-    for _ in range(200):  # wait for the fake client to record its arguments
+    # wait until the fake client recorded the launcher argv AND flushed the
+    # expanded args-file contents (cat runs as a second process after printf)
+    for _ in range(200):
         qtapp.processEvents()
-        if argv_file.exists() and ctrl._proc is not None:
+        if argv_file.exists() and "/parent-window" in argv_file.read_text():
             break
         time.sleep(0.05)
     assert ctrl._proc is not None, "embedded client did not start"
     argv = argv_file.read_text().splitlines()
+    assert any(a.startswith("/args-from:file:") for a in argv)  # secret-safe delivery
     assert "/parent-window:2748" in argv  # 0xABC == 2748
     assert "-decorations" in argv
     assert "/v:w" in argv

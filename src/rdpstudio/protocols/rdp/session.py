@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.log import get_logger, redact_secret
+from ...core.log import get_logger
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
@@ -84,26 +85,27 @@ def find_rdp_client() -> tuple[str, str] | None:
 
 
 def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
-    """FreeRDP command line for ``defn``.
+    """FreeRDP command line for ``defn`` — **never contains the secret**.
 
-    Security: the password is **not** placed on the command line unless the
-    user explicitly opts in via ``rdp_pass_on_cmdline``. Process arguments are
-    world-readable on Linux (``/proc/<pid>/cmdline``, plain ``ps``), so any
-    local user could otherwise read the credential (CWE-214). By default we
-    hand the secret to FreeRDP over stdin instead — see
-    :func:`password_via_stdin`.
+    The password is delivered through a private ``/args-from:file:`` args
+    file (see :func:`write_args_file`) unless the user explicitly opts in
+    via ``rdp_pass_on_cmdline`` (then ``/p:`` lands on argv, visible in
+    ``ps`` — a documented opt-in, CWE-214).
+
+    Why not ``/from-stdin``: FreeRDP ≥3.x reads stdin credentials through
+    its terminal passphrase helper, which aborts with
+    ``ERRCONNECT_CONNECT_CANCELLED`` (client exit 145) when stdin is a pipe
+    instead of a TTY — exactly what QProcess gives it. ``/args-from`` is the
+    supported non-TTY path and is what Remmina-class wrappers use too.
     """
     host, port = defn.endpoint()
     args = ["/v:" + (f"{host}:{port}" if port != 3389 else host)]
     if defn.username:
         domain_prefix = f"{defn.domain}\\" if defn.domain else ""
         args.append(f"/u:{domain_prefix}{defn.username}")
-    if password:
-        if defn.rdp_pass_on_cmdline:
-            args.append(f"/p:{password}")
-        else:
-            # FreeRDP reads the password from stdin; nothing lands in `ps`.
-            args.append("/from-stdin")
+    if password and defn.rdp_pass_on_cmdline:
+        # explicit opt-in only; default path routes the secret via args file
+        args.append(f"/p:{password}")
     args.append(f"/size:{defn.rdp_width}x{defn.rdp_height}")
     args.append(f"/bpp:{defn.rdp_color_depth}")
     args.append("/clipboard" if defn.rdp_clipboard else "-clipboard")
@@ -124,8 +126,30 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
 
 
 def password_via_stdin(defn: Session, password: str | None) -> bool:
-    """Whether the secret must be written to the client's stdin."""
+    """Deprecated alias for :func:`uses_args_file` (old stdin mechanism)."""
+    return uses_args_file(defn, password)
+
+
+def uses_args_file(defn: Session, password: str | None) -> bool:
+    """Whether the secret must be delivered via a private args file."""
     return bool(password) and not defn.rdp_pass_on_cmdline
+
+
+def write_args_file(args: list[str]) -> Path:
+    """Persist FreeRDP arguments one-per-line for ``/args-from:file:``.
+
+    The file is created ``0600`` so the credential inside is private; the
+    controller unlinks it shortly after the client starts. This keeps the
+    secret out of ``ps``/``/proc/*/cmdline`` while avoiding the broken
+    piped-stdin credential path of FreeRDP 3.x.
+    """
+    import tempfile
+
+    fd, name = tempfile.mkstemp(prefix="rdpstudio-args-", suffix=".cmd")
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(args) + "\n")
+    return Path(name)
 
 
 def build_embedded_args(defn: Session, password: str | None, parent_xid: int) -> list[str]:
@@ -140,6 +164,17 @@ def build_embedded_args(defn: Session, password: str | None, parent_xid: int) ->
         args.remove("/f")
     args += [f"/parent-window:{parent_xid}", "-decorations"]
     return args
+
+
+def _redact_args(args: list[str]) -> str:
+    """Command line for logs with any ``/p:`` secret masked."""
+    out = []
+    for a in args:
+        if a.startswith("/p:"):
+            out.append("/p:***")
+        else:
+            out.append(a)
+    return " ".join(out)
 
 
 class _EmbeddedSurface(QWidget):
@@ -191,6 +226,11 @@ class RdpSessionController(SessionController):
         self._proc: QProcess | None = None
         self._resized_restart = False
         self._probe_thread: threading.Thread | None = None
+        self._args_file: Path | None = None  # /args-from:file: (holds the secret)
+        self._embed_retry: bool = False
+        self._proc_stderr: str = ""
+        self._proc_stdout: str = ""
+        self._proc_start_time: float = 0.0
         self._sigProbeResult.connect(self._on_probe_result)
         self._build_ui()
         # resolved up-front so the tab shows the right page before start()
@@ -345,31 +385,25 @@ class RdpSessionController(SessionController):
             self._status.setText("No RDP client executable found on this machine.")
             return
         path, kind = client
-        password = self._resolve_secret()
         self.set_state(SessionState.CONNECTING)
         self._status.setText(f"Launching {os.path.basename(path)}…")
         self._status_info({"client": os.path.basename(path)})
-        self._proc = QProcess(self)
-        self._proc.finished.connect(self._on_proc_finished)
-        self._proc.errorOccurred.connect(self._on_proc_error)
         try:
             if kind == "mstsc":
                 rdp_file = write_rdp_file(self.definition)
-                self._proc.start(
-                    path,
-                    [
-                        str(rdp_file),
-                        f"/w:{self.definition.rdp_width}",
-                        f"/h:{self.definition.rdp_height}",
-                    ],
-                )
+                log.info("launching mstsc: %s %s", path, rdp_file)
+                self._launch_client(path, direct_argv=[
+                    str(rdp_file),
+                    f"/w:{self.definition.rdp_width}",
+                    f"/h:{self.definition.rdp_height}",
+                ])
             else:
-                self._proc.start(path, build_freerdp_args(self.definition, password))
-                self._feed_password(password)
+                args = build_freerdp_args(self.definition, self._resolve_secret())
+                log.info("launching freerdp: %s %s", path, _redact_args(args))
+                self._launch_client(path, args)
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return
-        self._proc.started.connect(self._on_proc_started)
 
     def _fall_back_to_external(self, why: str) -> None:
         log.warning("built-in RDP unavailable at start (%s) — using external window", why)
@@ -402,40 +436,83 @@ class RdpSessionController(SessionController):
         if path is None:
             self._fall_back_to_external("no X11 FreeRDP client (need xfreerdp for /parent-window)")
             return
-        password = self._resolve_secret()
+        # Ensure the surface has a native window; defer if not yet mapped.
         xid = int(self._surface.winId())
         if not xid:
-            self._fall_back_to_external("no native X11 window id")
+            # Widget not yet native (e.g. not shown) — retry once after event loop.
+            if not self._embed_retry:
+                self._embed_retry = True
+
+                def _retry() -> None:
+                    self._embed_retry = False
+                    self._start_embedded()
+
+                QTimer.singleShot(100, _retry)
+            else:
+                self._fall_back_to_external("no native X11 window id")
             return
         self._surface.set_launch_size((self._surface.width(), self._surface.height()))
         self.set_state(SessionState.CONNECTING)
         self._set_emb_hint("Connecting…")
         self._status_info({"client": os.path.basename(path), "embedded": True})
-        self._proc = QProcess(self)
-        self._proc.finished.connect(self._on_proc_finished)
-        self._proc.errorOccurred.connect(self._on_proc_error)
         try:
-            self._proc.start(path, build_embedded_args(self.definition, password, xid))
-            self._feed_password(password)
+            args = build_embedded_args(self.definition, self._resolve_secret(), xid)
+            log.info(
+                "launching embedded freerdp (Remmina-style X11 reparent): %s %s (xid=%s)",
+                path, _redact_args(args), xid,
+            )
+            self._launch_client(path, args)
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return
-        self._proc.started.connect(self._on_proc_started)
 
-    def _feed_password(self, password: str | None) -> None:
-        """Hand the secret to FreeRDP over stdin (never via argv).
+    def _launch_client(self, path: str, args: list[str], direct_argv: list[str] | None = None) -> None:
+        """Wire up and start the RDP client process.
 
-        Paired with the ``/from-stdin`` flag added by
-        :func:`build_freerdp_args`; a no-op when the user opted into the
-        command-line form or there is no password to send.
+        Default delivery is FreeRDP's native ``/args-from:file:<f>``: the full
+        argument list (including ``/p:<secret>``) is written to a 0600 file so
+        nothing sensitive appears in the process list. Only an explicit
+        ``rdp_pass_on_cmdline`` opt-in puts the secret on argv directly.
         """
-        if self._proc is None or not password_via_stdin(self.definition, password):
+        import time as _time
+
+        self._cleanup_args_file()
+        self._proc = QProcess(self)
+        self._proc_stderr = ""
+        self._proc_stdout = ""
+        self._proc_start_time = _time.monotonic()
+        # capture client output for diagnostics (exit code 145 etc.)
+        self._proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
+        self._proc.readyReadStandardError.connect(self._on_proc_stderr)
+        self._proc.readyReadStandardOutput.connect(self._on_proc_stdout)
+        self._proc.started.connect(self._on_proc_started)
+        self._proc.finished.connect(self._on_proc_finished)
+        self._proc.errorOccurred.connect(self._on_proc_error)
+        try:
+            if direct_argv is not None or self.definition.rdp_pass_on_cmdline:
+                # mstsc (.rdp file) or explicit ps-visible opt-in
+                self._proc.start(path, direct_argv if direct_argv is not None else args)
+            else:
+                password = self._resolve_secret()
+                full_args = list(args)
+                if password:
+                    full_args.append(f"/p:{password}")
+                self._args_file = write_args_file(full_args)
+                log.info("client launched via private args file (%s)", self._args_file.name)
+                self._proc.start(path, ["/args-from:file:" + str(self._args_file)])
+        except Exception as exc:  # noqa: BLE001
+            self._on_error_text(str(exc))
             return
-        assert password is not None
-        redact_secret(password)
-        self._proc.write(password.encode("utf-8") + b"\n")
-        # FreeRDP reads one line and then expects EOF on stdin.
-        self._proc.closeWriteChannel()
+
+    def _cleanup_args_file(self) -> None:
+        """Remove the private args file (secret) as soon as it's consumed."""
+        f = self._args_file
+        self._args_file = None
+        if f is not None:
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _on_surface_resized(self) -> None:
         """Restart the embedded client so the desktop follows the tab size."""
@@ -454,7 +531,32 @@ class RdpSessionController(SessionController):
         self._emb_hint.setText(text)
         self._emb_hint.setVisible(bool(text))
 
+    def _on_proc_stderr(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            data = bytes(self._proc.readAllStandardError()).decode(errors="ignore")
+            self._proc_stderr += data
+            # keep buffer bounded
+            if len(self._proc_stderr) > 8000:
+                self._proc_stderr = self._proc_stderr[-8000:]
+        except Exception:
+            pass
+
+    def _on_proc_stdout(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            data = bytes(self._proc.readAllStandardOutput()).decode(errors="ignore")
+            self._proc_stdout += data
+            if len(self._proc_stdout) > 8000:
+                self._proc_stdout = self._proc_stdout[-8000:]
+        except Exception:
+            pass
+
     def _on_proc_started(self) -> None:
+        # Give the client a moment to parse /args-from, then shred the file.
+        QTimer.singleShot(4000, self._cleanup_args_file)
         self.set_state(SessionState.CONNECTED)
         self._set_emb_hint("")
         if self._mode == "embedded":
@@ -470,16 +572,82 @@ class RdpSessionController(SessionController):
         self.ctx.publish("session/connected", {"protocol": "rdp", "host": self.definition.host})
 
     def _on_proc_finished(self) -> None:
+        # drain any remaining output; shred the args file if still around
+        self._on_proc_stderr()
+        self._on_proc_stdout()
+        self._cleanup_args_file()
         code = self._proc.exitCode() if self._proc else 0
+        status = self._proc.exitStatus() if self._proc else QProcess.ExitStatus.NormalExit
+        # QProcess reports crash separately
+        import time as _time
+
+        elapsed = _time.monotonic() - self._proc_start_time if self._proc_start_time else 999
         resized = self._resized_restart
         self._resized_restart = False
         self._btn_connect.setEnabled(True)
         self._btn_stop.setEnabled(False)
+        # build diagnostic tail (first error line or last 500 chars)
+        diag = (self._proc_stderr or self._proc_stdout).strip()
+        # pick most relevant line
+        diag_line = ""
+        if diag:
+            for line in reversed(diag.splitlines()):
+                low = line.lower()
+                if "error" in low or "fail" in low or "errno" in low or "could not" in low or "unable" in low:
+                    diag_line = line.strip()[:300]
+                    break
+            if not diag_line:
+                # fallback to last non-empty line
+                for line in reversed(diag.splitlines()):
+                    if line.strip():
+                        diag_line = line.strip()[:300]
+                        break
         if resized:
             reason = "refitting to new window size"
         else:
-            reason = f"RDP client exited (code {code})"
-        if self._state in (SessionState.CONNECTED, SessionState.RECONNECTING) and self.definition.auto_reconnect:
+            # map known FreeRDP quirks
+            if status == QProcess.ExitStatus.CrashExit:
+                reason = f"RDP client crashed (code {code})"
+                if diag_line:
+                    reason += f": {diag_line}"
+            elif code == 0 and diag and "error" in diag.lower():
+                reason = f"RDP failed: {diag_line or diag[:300]}"
+            elif code == 145:
+                # 145 is a generic FreeRDP early-exit (bad args, missing X display, bad parent-window)
+                reason = "RDP client exited (code 145)"
+                if diag_line:
+                    reason += f": {diag_line}"
+                else:
+                    reason += " — FreeRDP could not start (often: invalid /parent-window or no X display, or bad /size). Try Settings → Connection → RDP display = External, or run `xfreerdp /help` to check args."
+                log.warning("freerdp 145 failure: args may be invalid; stderr=%r stdout=%r", self._proc_stderr[:2000], self._proc_stdout[:500])
+                # auto-fallback from embedded → external on 145 if it happened quickly
+                if self._mode == "embedded" and elapsed < 3.0:
+                    log.warning("embedded RDP failed quickly (%.1fs) with 145 — falling back to external window", elapsed)
+                    self._fall_back_to_external("embedded client exited 145 (likely bad parent-window/X display)")
+                    return
+            elif code != 0:
+                reason = f"RDP client exited (code {code})"
+                if diag_line:
+                    reason += f": {diag_line}"
+                # rapid failure = likely config error, don't spam reconnect
+                if elapsed < 2.0 and diag_line:
+                    reason += " — check host/port and FreeRDP args"
+            else:
+                reason = f"RDP client exited (code {code})"
+                if diag_line and "error" in diag_line.lower():
+                    reason += f": {diag_line}"
+        # log full diagnostics
+        if diag:
+            log.warning("RDP client finished code=%s status=%s elapsed=%.1fs stderr=%r", code, status, elapsed, self._proc_stderr[-2000:])
+        # rapid non-zero exit should NOT auto-reconnect (would loop); treat as FAILED
+        rapid_failure = (not resized) and code != 0 and elapsed < 2.0 and self._mode == "embedded" and code == 145
+        should_reconnect = (
+            self._state in (SessionState.CONNECTED, SessionState.RECONNECTING)
+            and self.definition.auto_reconnect
+            and not rapid_failure
+            and not (code != 0 and elapsed < 1.5)  # don't loop on instant config errors
+        )
+        if should_reconnect:
             self.set_state(SessionState.RECONNECTING)
             if self._mode == "embedded":
                 self._set_emb_hint(reason + " — reconnecting…")
@@ -489,8 +657,11 @@ class RdpSessionController(SessionController):
             delay = 500 if resized else 3000
             QTimer.singleShot(delay, lambda: self.start() if self._state == SessionState.RECONNECTING else None)
         else:
+            if code != 0 and not resized:
+                self.set_state(SessionState.FAILED)
+                self.statusInfo.emit({"error": reason})
             if self._mode == "embedded":
-                self._set_emb_hint("Disconnected — use Reconnect in the tab bar.")
+                self._set_emb_hint(reason)
             self._status.setText(reason)
             self.emit_finished_once(reason)
 
@@ -508,6 +679,7 @@ class RdpSessionController(SessionController):
         self._on_error_text(names.get(error, "error"))
 
     def _on_error_text(self, message: str) -> None:
+        self._cleanup_args_file()
         self.set_state(SessionState.FAILED)
         self._status.setText(message)
         if self._mode == "embedded":
@@ -517,6 +689,7 @@ class RdpSessionController(SessionController):
         self.statusInfo.emit({"error": message})
 
     def stop(self, reason: str = "closed by user") -> None:
+        self._cleanup_args_file()
         if self._proc is not None:
             self._proc.kill()
         self._btn_connect.setEnabled(True)

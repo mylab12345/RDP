@@ -9,11 +9,10 @@ block_cipher = None
 ROOT = Path(SPECPATH).parent  # noqa: F821
 
 a = Analysis(
-    [str(ROOT / "src" / "rdpstudio" / "__main__.py")],
+    [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=[
-        (str(ROOT / "src" / "rdpstudio" / "resources" / "*.qss"), "rdpstudio/resources"),
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.svg"), "rdpstudio/resources/icons"),
     ],
     hiddenimports=[

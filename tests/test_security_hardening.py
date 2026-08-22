@@ -16,13 +16,28 @@ pytestmark = pytest.mark.usefixtures("home")
 
 # --- credentials must never reach the process command line -------------------
 def test_rdp_password_not_in_argv_by_default():
+    import stat as _stat
+
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args, password_via_stdin
+    from rdpstudio.protocols.rdp.session import (
+        build_freerdp_args,
+        uses_args_file,
+        write_args_file,
+    )
 
     s = Session(protocol="rdp", host="h", username="u", password="hunter2")
     args = build_freerdp_args(s, "hunter2")
     assert "hunter2" not in " ".join(args)
-    assert password_via_stdin(s, "hunter2") is True
+    assert "/from-stdin" not in args  # broken on piped stdin (FreeRDP 3.x)
+    assert uses_args_file(s, "hunter2") is True
+
+    # secret travels in a 0600 args file for /args-from:file:
+    f = write_args_file(build_freerdp_args(s, "hunter2") + ["/p:hunter2"])
+    try:
+        assert _stat.S_IMODE(f.stat().st_mode) & 0o077 == 0
+        assert "hunter2" in f.read_text()
+    finally:
+        f.unlink(missing_ok=True)
 
 
 # --- state files must be private --------------------------------------------
