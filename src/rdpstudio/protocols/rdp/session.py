@@ -57,6 +57,14 @@ from .rdpfile import write_rdp_file
 
 log = get_logger("rdp.session")
 
+# FreeRDP / Windows RD Session Host limits for the remote desktop resolution.
+# Kept in sync with the Session dialog's spin-box ranges.
+_MIN_RDP_W, _MIN_RDP_H = 640, 480
+_MAX_RDP_W, _MAX_RDP_H = 7680, 4320
+# Below this the surface is not laid out yet (widget not mapped); fall back
+# to the session's saved resolution instead of launching a tiny desktop.
+_MIN_MAPPED_W, _MIN_MAPPED_H = 320, 200
+
 
 def find_rdp_client() -> tuple[str, str] | None:
     """Locate an RDP client binary: (path, kind) where kind is mstsc|freerdp."""
@@ -152,14 +160,27 @@ def write_args_file(args: list[str]) -> Path:
     return Path(name)
 
 
-def build_embedded_args(defn: Session, password: str | None, parent_xid: int) -> list[str]:
+def build_embedded_args(
+    defn: Session, password: str | None, parent_xid: int, size: tuple[int, int] | None = None
+) -> list[str]:
     """FreeRDP args for the built-in mode: render inside our X window.
 
     ``/parent-window`` makes FreeRDP create its framebuffer as a *child* of
     the given X11 window, so the desktop appears inside RDP Studio itself;
     ``-decorations`` drops the title bar (we provide the tab chrome).
+
+    ``size`` (optional) is the *detected* display area of the embedded
+    surface.  When given it replaces the session's fixed ``/size:`` so the
+    remote desktop is created at exactly the resolution of the tab — the
+    whole screen is visible, no scrolling or clipping.  Clamped to the
+    FreeRDP/Windows-supported range.
     """
     args = build_freerdp_args(defn, password)
+    if size is not None:
+        w = min(max(int(size[0]), _MIN_RDP_W), _MAX_RDP_W)
+        h = min(max(int(size[1]), _MIN_RDP_H), _MAX_RDP_H)
+        args = [a for a in args if not a.startswith("/size:")]
+        args.append(f"/size:{w}x{h}")
     if defn.rdp_fullscreen:  # fullscreen is meaningless inside a tab
         args.remove("/f")
     args += [f"/parent-window:{parent_xid}", "-decorations"]
@@ -456,10 +477,13 @@ class RdpSessionController(SessionController):
         self._set_emb_hint("Connecting…")
         self._status_info({"client": os.path.basename(path), "embedded": True})
         try:
-            args = build_embedded_args(self.definition, self._resolve_secret(), xid)
+            # Fit the remote desktop to the detected display area of the tab
+            # so the entire screen is visible inside the app.
+            size = self._detected_size()
+            args = build_embedded_args(self.definition, self._resolve_secret(), xid, size=size)
             log.info(
-                "launching embedded freerdp (Remmina-style X11 reparent): %s %s (xid=%s)",
-                path, _redact_args(args), xid,
+                "launching embedded freerdp (Remmina-style X11 reparent): %s %s (xid=%s, size=%dx%d)",
+                path, _redact_args(args), xid, size[0], size[1],
             )
             self._launch_client(path, args)
         except Exception as exc:  # noqa: BLE001
@@ -530,6 +554,22 @@ class RdpSessionController(SessionController):
     def _set_emb_hint(self, text: str) -> None:
         self._emb_hint.setText(text)
         self._emb_hint.setVisible(bool(text))
+
+    def _detected_size(self) -> tuple[int, int]:
+        """Size of the embedded surface (the tab's display area).
+
+        The remote desktop is launched at this resolution so the whole screen
+        fits the tab.  Falls back to the session's saved resolution while the
+        widget is not laid out yet (tiny/unmapped), and clamps to the range
+        Windows/FreeRDP accept.
+        """
+        w, h = self._surface.width(), self._surface.height()
+        if w < _MIN_MAPPED_W or h < _MIN_MAPPED_H:
+            w, h = self.definition.rdp_width, self.definition.rdp_height
+        return (
+            min(max(w, _MIN_RDP_W), _MAX_RDP_W),
+            min(max(h, _MIN_RDP_H), _MAX_RDP_H),
+        )
 
     def _on_proc_stderr(self) -> None:
         if self._proc is None:

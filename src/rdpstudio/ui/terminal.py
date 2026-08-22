@@ -16,7 +16,7 @@ import binascii
 import re
 
 import pyte
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QClipboard, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QMenu, QScrollBar, QWidget
 
@@ -245,6 +245,7 @@ class TerminalView(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(self._cell_w * 20, self._cell_h * 6)
+        self._font_size = self._font.pointSize()  # Ctrl+wheel zoom base
 
         self.vbar = QScrollBar(Qt.Orientation.Vertical, self)
         self.vbar.rangeChanged.connect(self._sync_scrollbar)
@@ -268,6 +269,7 @@ class TerminalView(QWidget):
         self._cell_h = max(6, self._fm.height())
         self._ascent = self._fm.ascent()
         self._font_variants.clear()
+        self._font_size = size
         self._relayout()
 
     # -- data flow --------------------------------------------------------
@@ -575,6 +577,27 @@ class TerminalView(QWidget):
         self.scroll_to_bottom()
 
     # -- keyboard --------------------------------------------------------------
+    def event(self, event) -> bool:  # noqa: N802
+        """Make Tab behave like a real terminal.
+
+        Qt's ``QWidget::event()`` steals plain Tab/Shift+Tab for *focus
+        traversal* whenever a next focusable widget exists (inside a tabbed
+        window that is always true — the toolbar's quick-connect box), so the
+        terminal's ``keyPressEvent`` never saw Tab and the shell's completion
+        never fired.  Route Tab/Backtab to the key handler like xterm does;
+        Ctrl+Tab (switch tabs) and Alt+Tab (window switching) are untouched.
+        """
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab) and not (
+                mods
+                & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+            ):
+                self.keyPressEvent(event)
+                return True
+        return super().event(event)
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         data = encode_key_event(event, self.core.screen)
         if data:
@@ -590,9 +613,25 @@ class TerminalView(QWidget):
             self.write_user(commit.encode("utf-8"))
 
     def wheelEvent(self, event) -> None:  # noqa: N802
+        # Ctrl+wheel zooms the terminal font (up = bigger, down = smaller).
+        # Scoped to the terminal widget only — the RDP surface never sees it.
+        mods = event.modifiers()
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta:
+                steps = abs(delta) // 120 or 1
+                self._zoom_font(steps if delta > 0 else -steps)
+                event.accept()
+                return
         steps = event.angleDelta().y() // 40
         if steps:
             self.scroll_lines(-steps * 3)
+
+    def _zoom_font(self, step: int) -> None:
+        """Zoom the terminal font in/out by ``step`` points (Ctrl+wheel)."""
+        size = max(6, min(48, self._font_size + step))
+        self._font_size = size
+        self.apply_font(self._font.family(), size)
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         self._blink_state = True

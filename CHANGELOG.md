@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **RDP fits the terminal.** The built-in (in-app) RDP display detects the
+  size of the tab's display area and launches the remote desktop at exactly
+  that resolution, so the whole screen is visible with no scrolling or
+  clipping — and re-fits automatically when the tab is resized. The detected
+  size replaces the session's fixed resolution and is clamped to the
+  FreeRDP/Windows-supported range.
+- **Ctrl+wheel font zoom in terminals.** Ctrl+scroll up grows the terminal
+  font, Ctrl+scroll down shrinks it (6–48 pt). Scoped to terminal widgets
+  only — the RDP view is unaffected.
+- **Tab now autocompletes in the terminal.** Qt was silently consuming Tab
+  for focus traversal (it jumped to the toolbar instead of the shell), so
+  shell completion never fired inside the app; Tab/Shift+Tab are now routed
+  to the shell like in a normal terminal, while Ctrl+Tab still switches tabs.
 - **One-click local terminal** — toolbar button, `Session → New local terminal`
   and `Ctrl+Shift+T` open a native shell (real PTY on POSIX, ConPTY on Windows)
   in a tab. Scratch terminals are not written to the saved-session list.

@@ -100,6 +100,33 @@ def test_build_embedded_args():
     assert "/u:u" in args
 
 
+def test_build_embedded_args_detected_size_overrides_session_resolution():
+    """Fit mode: the detected display size replaces the saved /size so the
+    whole remote screen is visible inside the tab."""
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import build_embedded_args
+
+    s = Session(protocol="rdp", host="w", rdp_width=1600, rdp_height=900)
+    args = build_embedded_args(s, None, 7, size=(1234, 720))
+    size_args = [a for a in args if a.startswith("/size:")]
+    assert size_args == ["/size:1234x720"]
+    # exactly one /size on the command line (the session default was replaced)
+    assert len([a for a in args if a.startswith("/size:")]) == 1
+
+
+def test_build_embedded_args_detected_size_clamped():
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import build_embedded_args
+
+    s = Session(protocol="rdp", host="w")
+    # below the FreeRDP/Windows minimum → clamped up
+    args = build_embedded_args(s, None, 7, size=(100, 100))
+    assert "/size:640x480" in args
+    # beyond the maximum → clamped down
+    args = build_embedded_args(s, None, 7, size=(10000, 5000))
+    assert "/size:7680x4320" in args
+
+
 def test_embedded_args_drop_fullscreen():
     from rdpstudio.core.models import Session
     from rdpstudio.protocols.rdp.session import build_embedded_args
@@ -108,6 +135,32 @@ def test_embedded_args_drop_fullscreen():
     args = build_embedded_args(s, None, 7)
     assert "/f" not in args
     assert "/parent-window:7" in args
+
+
+def test_detected_size_follows_surface(tmp_path, qtapp):
+    """The embedded desktop resolution tracks the tab's display area, falling
+    back to the saved session resolution only while the widget is unmapped."""
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import RdpSessionController
+
+    ctx = _ctx(tmp_path)
+    ctx.settings.rdp_client = "embedded"
+    ctrl = RdpSessionController(Session(protocol="rdp", host="w", rdp_width=1600, rdp_height=900), ctx, qtapp)
+
+    # surface is laid out → remote desktop matches it exactly
+    ctrl._surface.resize(1280, 700)
+    assert ctrl._detected_size() == (1280, 700)
+
+    # clamped to the supported range
+    ctrl._surface.resize(400, 300)  # below the FreeRDP/Windows minimum
+    assert ctrl._detected_size() == (640, 480)
+    ctrl._surface.resize(9000, 9000)  # beyond the maximum
+    assert ctrl._detected_size() == (7680, 4320)
+
+    # tiny/unmapped widget → fall back to the saved session resolution
+    ctrl._surface.resize(10, 10)
+    ctrl.definition.rdp_width, ctrl.definition.rdp_height = 1600, 900
+    assert ctrl._detected_size() == (1600, 900)
 
 
 # --- mode selection -------------------------------------------------------------
@@ -192,6 +245,8 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     assert ctrl._mode == "embedded"
     # offscreen Qt has no native X window — fake the window id
     monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)
+    # the tab's display area is what the remote desktop must fit
+    ctrl._surface.resize(1920, 1080)
 
     ctrl.start()
     import time
@@ -209,7 +264,10 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     assert "/parent-window:2748" in argv  # 0xABC == 2748
     assert "-decorations" in argv
     assert "/v:w" in argv
-    assert "/size:1600x900" in argv
+    # fit-to-display: the remote screen matches the detected tab size, so the
+    # entire desktop is visible inside the app (not the fixed session default)
+    assert "/size:1920x1080" in argv
+    assert "/size:1600x900" not in argv
     ctrl.stop("done")
     for _ in range(100):  # wait for the fake client to actually die
         qtapp.processEvents()
