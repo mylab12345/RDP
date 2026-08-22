@@ -22,14 +22,14 @@ plugin architecture for adding protocols — all in one clean, dark-themed GUI.
 | Area | What you get |
 |---|---|
 | **SSH (Linux)** | Interactive shells in tabs with a real VT emulator (pyte-based: colors, scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives |
-| **RDP (Windows)** | RDP sessions via the native client (mstsc on Windows, FreeRDP on Linux) with saved settings, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
+| **RDP (Windows)** | RDP sessions via the native client (mstsc on Windows, FreeRDP on Linux) with saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
-| **Credentials** | AES-256-GCM encrypted vault under a master passphrase (PBKDF2-SHA256, 310k iterations default), auto-lock, redacted logging; SSH key generation (Ed25519/ECDSA/RSA) with passphrases stored in the vault |
+| **Credentials** | Simple path: type a **username + password** per session (stored in the sessions file — no vault required). Power path: AES-256-GCM encrypted vault under a master passphrase (PBKDF2-SHA256, 310k iterations default), auto-lock, redacted logging; SSH key generation (Ed25519/ECDSA/RSA) with passphrases stored in the vault |
 | **File transfer** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, drag-friendly workflow |
 | **Port forwarding** | Local, remote and **dynamic (SOCKS5)** tunnels per session, runtime start/stop, forward events surfaced in the UI |
 | **Reconnect** | Exponential backoff + jitter, attempt limits, live status chips; FreeRDP `+auto-reconnect` for RDP |
 | **Clipboard** | Copy-on-select, middle-click paste, Ctrl+Shift+C/V, multi-line paste confirmation, OSC-52 (`\x1b]52`) support, RDP clipboard redirection |
-| **Security** | TOFU host-key verification with loud changed-key warnings (own `known_hosts`), no secrets in session store, atomic encrypted vault writes (0600) |
+| **Security** | TOFU host-key verification with loud changed-key warnings (own `known_hosts`), vault secrets never in session store (a plain password is only written if you explicitly save it), passwords never exported, atomic encrypted vault writes (0600) |
 | **Extensible** | Every protocol is a plugin; third parties register protocols via the `rdpstudio.protocols` entry point (see [docs/PROTOCOLS.md](docs/PROTOCOLS.md)) |
 
 Runs on **Linux and Windows** (and the codebase is macOS-friendly), Python ≥ 3.10, Qt 6.
@@ -66,13 +66,16 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 ## Quick start
 
 1. Launch `rdpstudio`.
-2. Create a vault: **Tools → Credential vault** (Ctrl+Shift+K) → *New* → set a
-   master password → add a credential.
-3. **Session → New session** (Ctrl+N) → pick *SSH terminal* or *RDP remote
-   desktop* → fill host/user → pick the vault credential → *Save*.
-4. Double-click the session in the sidebar. Use **Files** / **Tunnels** on the
+2. **Session → New session** (Ctrl+N) → pick *SSH terminal* or *RDP remote
+   desktop* → fill **Host**, **Username** and **Password** → *Save*. No vault
+   needed — the password is stored with the session (leave it empty and you'll
+   be asked at connect time). For RDP, tick **Fit display to screen** to scale
+   the remote desktop to the window.
+3. Double-click the session in the sidebar. Use **Files** / **Tunnels** on the
    tab header for SFTP and port forwarding.
-5. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.
+4. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.
+5. *(Optional)* **Tools → Credential vault** (Ctrl+Shift+K) → keep passwords in
+   an encrypted vault instead of the session file.
 
 ## Scope note on RDP
 

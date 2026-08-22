@@ -43,6 +43,9 @@ class SessionDialog(QDialog):
         self.ctx = ctx
         self.session = session or Session(protocol=PROTOCOL_SSH)
         self.is_new = session is None
+        if self.is_new:
+            # fresh sessions start at the protocol's default port (22 / 3389)
+            self.session.port = default_port_for(self.session.protocol)
         self.setWindowTitle("New session" if self.is_new else f"Edit “{self.session.display_name()}”")
         self.setModal(True)
         self.setMinimumWidth(560)
@@ -67,16 +70,16 @@ class SessionDialog(QDialog):
         head.addRow("Folder", self.group)
         root.addLayout(head)
 
-        # --- stack -----------------------------------------------------------
-        self.stack = QStackedWidget()
-        root.addWidget(self.stack, 1)
-
-        self._common = self._build_common()
+        # --- common connection fields (always visible: host/user/password) ---
         common_wrap = QWidget()
         cl = QVBoxLayout(common_wrap)
         cl.setContentsMargins(0, 0, 0, 0)
-        cl.addWidget(self._common)
-        self.stack.addWidget(common_wrap)
+        cl.addWidget(self._build_common())
+        root.addWidget(common_wrap)
+
+        # --- protocol-specific options ---------------------------------------
+        self.stack = QStackedWidget()
+        root.addWidget(self.stack, 1)
 
         self._ssh_page = self._build_ssh_page()
         self.stack.addWidget(self._ssh_page)
@@ -85,6 +88,7 @@ class SessionDialog(QDialog):
         self._local_page = self._build_local_page()
         self.stack.addWidget(self._local_page)
 
+        self._last_pid: str | None = None
         self.protocol.currentIndexChanged.connect(self._on_protocol)
 
         buttons = QDialogButtonBox(
@@ -109,6 +113,13 @@ class SessionDialog(QDialog):
         self.port.setRange(1, 65535)
         self.port.setValue(self.session.port or 22)
         self.username = QLineEdit(self.session.username)
+        self.password = QLineEdit(self.session.password)
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("leave empty to be asked at connect")
+        self.password.setToolTip(
+            "Optional. Stored in plain text in the sessions file — no vault needed.\n"
+            "Leave empty and you'll be asked each time you connect."
+        )
         self.description = QLineEdit(self.session.description)
         self.tags = QLineEdit(" ".join(self.session.tags))
         self.tags.setPlaceholderText("prod, web, …")
@@ -116,6 +127,7 @@ class SessionDialog(QDialog):
         form.addRow("Host", self.host)
         form.addRow("Port", self.port)
         form.addRow("Username", self.username)
+        form.addRow("Password", self.password)
         form.addRow("Description", self.description)
         form.addRow("Tags", self.tags)
         return page
@@ -124,8 +136,8 @@ class SessionDialog(QDialog):
         box = QGroupBox("Authentication")
         form = QFormLayout(box)
         self.auth = QComboBox()
-        self.auth.addItem("Vault credential", AUTH_CREDENTIAL)
-        self.auth.addItem("Password (prompt at connect)", AUTH_PASSWORD)
+        self.auth.addItem("Password (field above)", AUTH_PASSWORD)
+        self.auth.addItem("Vault credential (optional)", AUTH_CREDENTIAL)
         self.auth.addItem("Private key", AUTH_KEY)
         self.auth.addItem("SSH agent", AUTH_AGENT)
         form.addRow("Method", self.auth)
@@ -257,7 +269,17 @@ class SessionDialog(QDialog):
         form.addRow("Resolution", res)
         self.rdp_fullscreen = QCheckBox("Fullscreen")
         self.rdp_fullscreen.setChecked(self.session.rdp_fullscreen)
-        form.addRow("", self.rdp_fullscreen)
+        self.rdp_fit_screen = QCheckBox("Fit display to screen")
+        self.rdp_fit_screen.setChecked(self.session.rdp_fit_screen)
+        self.rdp_fit_screen.setToolTip(
+            "Scale the remote desktop to fill the RDP window "
+            "(FreeRDP /smart-sizing · mstsc smart sizing)"
+        )
+        fit_row = QHBoxLayout()
+        fit_row.addWidget(self.rdp_fullscreen)
+        fit_row.addWidget(self.rdp_fit_screen)
+        fit_row.addStretch(1)
+        form.addRow("", fit_row)
         layout.addWidget(display)
 
         redir = QGroupBox("Local devices")
@@ -278,7 +300,7 @@ class SessionDialog(QDialog):
         self.rdp_cert_ignore = QCheckBox("Accept any certificate (not recommended)")
         self.rdp_cert_ignore.setChecked(self.session.rdp_cert_ignore)
         self.rdp_pass_cmd = QCheckBox(
-            "Pass password on FreeRDP command line (visible in `ps`; prompts otherwise)"
+            "Pass vault password on FreeRDP command line (visible in `ps`; prompts otherwise)"
         )
         self.rdp_pass_cmd.setChecked(self.session.rdp_pass_on_cmdline)
         aform.addRow(self.rdp_cert_ignore)
@@ -309,10 +331,21 @@ class SessionDialog(QDialog):
     # ------------------------------------------------------------------
     def _on_protocol(self) -> None:
         pid = self.protocol.currentData()
-        self.port.setValue(self.session.port or default_port_for(pid))
-        self.host.setEnabled(pid != PROTOCOL_LOCAL)
-        self.port.setEnabled(pid != PROTOCOL_LOCAL)
-        self.username.setEnabled(pid != PROTOCOL_LOCAL)
+        prev = self._last_pid
+        self._last_pid = pid
+        if prev and pid != prev:
+            # protocol switched: if the port is still at the previous
+            # protocol's default, move it to the new protocol's default
+            # (22 ⇄ 3389); keep user-typed ports
+            if self.port.value() == default_port_for(prev):
+                self.port.setValue(default_port_for(pid))
+        else:
+            self.port.setValue(self.session.port or default_port_for(pid))
+        is_local = pid == PROTOCOL_LOCAL
+        self.host.setEnabled(not is_local)
+        self.port.setEnabled(not is_local)
+        self.username.setEnabled(not is_local)
+        self.password.setEnabled(not is_local)
         widget = {
             PROTOCOL_SSH: self._ssh_page,
             PROTOCOL_RDP: self._rdp_page,
@@ -334,6 +367,7 @@ class SessionDialog(QDialog):
         s.host = self.host.text().strip()
         s.port = self.port.value()
         s.username = self.username.text().strip()
+        s.password = self.password.text()
         s.description = self.description.text().strip()
         s.tags = [t for t in self.tags.text().replace(",", " ").split() if t]
 
@@ -356,6 +390,7 @@ class SessionDialog(QDialog):
             s.rdp_height = self.rdp_height.value()
             s.rdp_color_depth = self.rdp_bpp.currentData() or 32
             s.rdp_fullscreen = self.rdp_fullscreen.isChecked()
+            s.rdp_fit_screen = self.rdp_fit_screen.isChecked()
             s.rdp_clipboard = self.rdp_clipboard.isChecked()
             s.rdp_drives = self.rdp_drives.isChecked()
             s.rdp_cert_ignore = self.rdp_cert_ignore.isChecked()

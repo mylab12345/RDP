@@ -105,7 +105,7 @@ performs before TLS starts.
 
 | File | Contents |
 |---|---|
-| `sessions.json` | saved sessions/groups — **no secrets**, only `credential_id` references |
+| `sessions.json` | saved sessions/groups — no vault secrets (only `credential_id` references); an opt-in plain per-session password is the one stored secret |
 | `vault.bin` | AES-256-GCM envelope (PBKDF2-SHA256; AAD binds KDF params) |
 | `known_hosts` | our own TOFU store (never touched without verification) |
 | `settings.json` | appearance/terminal/security prefs + window geometry |

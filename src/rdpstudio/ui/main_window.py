@@ -517,7 +517,7 @@ class MainWindow(QMainWindow):
         elif exists:
             self.vault_label.setText(" 🔒 vault locked")
         else:
-            self.vault_label.setText(" ⚪ no vault — set a master password (Ctrl+Shift+K)")
+            self.vault_label.setText(" ⚪ no vault (optional — passwords can be saved per session)")
 
     def _autolock(self) -> None:
         changed = self.ctx.vault.lock_if_due(self.ctx.settings.vault_autolock_minutes)
