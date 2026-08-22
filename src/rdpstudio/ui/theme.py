@@ -72,23 +72,43 @@ GLYPH_FALLBACK = {
 
 
 def icon(name: str) -> QIcon:
-    """Load an SVG icon; falls back to a text glyph when SVG is unavailable."""
-    if name in _icon_cache:
-        return _icon_cache[name]
+    """Load an SVG icon; falls back to a drawn text glyph when unavailable."""
+    cached = _icon_cache.get(name)
+    if cached is not None:
+        return cached
     path = ICONS / f"{name}.svg"
-    ic = QIcon(str(path))
-    if ic.isNull() or len(ic.availableSizes()) == 0:
-        from PySide6.QtGui import QPixmap
-        from PySide6.QtWidgets import QLabel
-
-        glyph = GLYPH_FALLBACK.get(name, "•")
-        label = QLabel(glyph)
-        pix = QPixmap(24, 24)
-        pix.fill(QColor(0, 0, 0, 0))
-        label.render(pix)
-        ic = QIcon(pix)
+    ic = QIcon(str(path)) if path.exists() else QIcon()
+    if ic.isNull() or not ic.availableSizes():
+        ic = _glyph_icon(GLYPH_FALLBACK.get(name, "•"))
     _icon_cache[name] = ic
     return ic
+
+
+def _glyph_icon(glyph: str) -> QIcon:
+    """Render a text glyph into a pixmap.
+
+    The previous implementation built a throwaway ``QLabel`` per icon and
+    called ``render()`` on it — that leaks a widget, needs a QApplication,
+    and actually drew nothing (the label was never sized or laid out).
+    Painting the text directly is cheaper and produces a visible glyph.
+    """
+    from PySide6.QtCore import Qt as _Qt
+    from PySide6.QtGui import QGuiApplication, QPainter, QPixmap
+
+    if QGuiApplication.instance() is None:
+        # No GUI yet (e.g. imported by a headless test): constructing a
+        # QPixmap here would abort the process outright.
+        return QIcon()
+    pix = QPixmap(24, 24)
+    pix.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pix)
+    painter.setPen(QColor(PALETTE["dark"]["fg"]))
+    font = painter.font()
+    font.setPointSize(14)
+    painter.setFont(font)
+    painter.drawText(pix.rect(), _Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.end()
+    return QIcon(pix)
 
 
 def palette(theme: str = "dark") -> dict[str, str]:

@@ -10,11 +10,12 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import signal
 import struct
 import subprocess
 import threading
 
-from PySide6.QtCore import QProcess, QTimer, Signal
+from PySide6.QtCore import QProcess, Signal
 from PySide6.QtWidgets import QWidget
 
 from ...core.log import get_logger
@@ -86,16 +87,35 @@ class LocalShellController(SessionController):
     def start(self) -> None:
         self.set_state(SessionState.CONNECTING)
         cmd = None
-        raw = self.definition.options.get("command", "")
+        raw = str(self.definition.options.get("command", "") or "").strip()
         if raw:
-            cmd = shlex.split(raw)
-        if POSIX:
-            self._start_pty(cmd)
-        else:
-            self._start_windows(cmd)
+            try:
+                cmd = shlex.split(raw)
+            except ValueError as exc:  # unbalanced quotes
+                self._fail(f"invalid command {raw!r}: {exc}")
+                return
+            if not cmd:
+                cmd = None
+        try:
+            if POSIX:
+                self._start_pty(cmd)
+            else:
+                self._start_windows(cmd)
+        except (OSError, ValueError) as exc:
+            # A missing shell used to leave the tab claiming "connected"
+            # with a dead, silent terminal.
+            self._fail(f"cannot start shell: {exc}")
+            return
         self.set_state(SessionState.CONNECTED)
-        self.titleChanged.emit("Local shell")
+        self.titleChanged.emit(self.definition.display_name() or "Terminal")
         self.ctx.publish("session/connected", {"protocol": "local"})
+
+    def _fail(self, message: str) -> None:
+        log.error("local shell failed: %s", message)
+        self.set_state(SessionState.FAILED)
+        self.statusInfo.emit({"error": message, "status_text": message})
+        self.term.feed(b"\r\n\x1b[31m" + message.encode("utf-8", "replace") + b"\x1b[0m\r\n")
+        self.emit_finished_once(message)
 
     # -- POSIX PTY --------------------------------------------------------
     def _start_pty(self, cmd: list[str] | None) -> None:
@@ -115,8 +135,15 @@ class LocalShellController(SessionController):
                 close_fds=True,
                 env=env,
             )
-        finally:
+        except OSError:
+            # Popen failed (no such shell, EPERM, ...): release *both* ends,
+            # otherwise every failed launch leaked a PTY pair.
             os.close(slave)
+            os.close(master)
+            raise
+        finally:
+            if self._proc is not None:
+                os.close(slave)
         self._master = master
         self._thread = threading.Thread(target=self._read_loop, args=(master,), daemon=True)
         self._thread.start()
@@ -217,36 +244,83 @@ class LocalShellController(SessionController):
             self.term.feed(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
 
     # -- teardown ------------------------------------------------------------
+    def _close_master(self) -> None:
+        """Close the PTY master exactly once.
+
+        The reader thread blocks in ``os.read(master)``. Closing the fd while
+        it is in flight lets the kernel hand the same number to an unrelated
+        open() — the reader would then stream a random file into the terminal.
+        So we only close after the reader has observed EOF (or been joined).
+        """
+        fd, self._master = self._master, None
+        if fd is None:
+            return
+        thread, self._thread = self._thread, None
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    def _reap(self) -> None:
+        """Terminate the child's whole process group and release the fd."""
+        proc, self._proc = self._proc, None
+        if proc is not None and proc.poll() is None:
+            # start_new_session=True put the shell in its own process group;
+            # signal the group so pipelines/children die with it instead of
+            # being reparented to init.
+            try:
+                os.killpg(proc.pid, signal.SIGHUP)
+            except (OSError, AttributeError, ProcessLookupError):
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (OSError, AttributeError, ProcessLookupError):
+                    proc.kill()
+                try:
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:  # pragma: no cover - zombie
+                    pass
+        self._close_master()
+
     def _finished(self, reason: str) -> None:
         if self._state == SessionState.CLOSED:
             return
-        self._master = None
+        self._reap()
         self.emit_finished_once(reason)
 
     def stop(self, reason: str = "closed by user") -> None:
-        if self._proc is not None:
+        self._reap()
+        winpty, self._winpty = self._winpty, None
+        if winpty is not None:
             try:
-                self._proc.terminate()
-                QTimer.singleShot(500, self._proc.kill)
+                winpty.terminate(force=True)
             except Exception:  # noqa: BLE001
                 pass
-        if self._winpty is not None:
-            try:
-                self._winpty.terminate(force=True)
-            except Exception:  # noqa: BLE001
-                pass
-        if self._qproc is not None:
-            self._qproc.kill()
-        if self._master is not None:
-            try:
-                os.close(self._master)
-            except OSError:
-                pass
+        qproc, self._qproc = self._qproc, None
+        if qproc is not None:
+            qproc.kill()
+            qproc.waitForFinished(1000)
         self.emit_finished_once(reason)
 
     def request_reconnect(self) -> None:
-        if self._state == SessionState.CLOSED:
-            self.start()
+        """Restart the shell in the same tab (the Reconnect button)."""
+        if self._state != SessionState.CLOSED:
+            return
+        # Clear per-run state so start() builds a fresh PTY instead of
+        # reusing the dead one.
+        self._reap()
+        self._winpty = None
+        self._qproc = None
+        self._finished_emitted = False
+        self.start()
 
 
 class LocalShellPlugin(ProtocolPlugin):

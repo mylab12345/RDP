@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -71,9 +73,24 @@ def build_rdp_text(defn: Session) -> str:
     return "\r\n".join(out) + "\r\n"
 
 
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
 def write_rdp_file(defn: Session, directory: Path | None = None) -> Path:
-    directory = directory or Path(tempfile.gettempdir()) / "rdpstudio"
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{defn.display_name().replace(' ', '_')}_{defn.id}.rdp"
-    path.write_text(build_rdp_text(defn), encoding="utf-16-le")
+    """Write a .rdp file for mstsc, private to the current user.
+
+    The filename is derived from a user-controlled display name, so it is
+    sanitised: an unfiltered name could contain ``/`` or ``..`` and escape the
+    target directory (CWE-22).  The file lands in a per-user directory with
+    restrictive permissions because it embeds the username/host layout.
+    """
+    directory = directory or Path(tempfile.gettempdir()) / f"rdpstudio-{os.getuid() if hasattr(os, 'getuid') else 'user'}"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safe = _SAFE_NAME.sub("_", defn.display_name()).strip("._") or "session"
+    path = directory / f"{safe[:64]}_{_SAFE_NAME.sub('_', defn.id)}.rdp"
+    # Create with 0600 *before* writing, so the content is never briefly
+    # world-readable.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(build_rdp_text(defn).encode("utf-16-le"))
     return path

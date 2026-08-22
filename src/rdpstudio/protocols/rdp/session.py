@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import threading
 
 from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.log import get_logger
+from ...core.log import get_logger, redact_secret
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
@@ -83,16 +84,26 @@ def find_rdp_client() -> tuple[str, str] | None:
 
 
 def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
+    """FreeRDP command line for ``defn``.
+
+    Security: the password is **not** placed on the command line unless the
+    user explicitly opts in via ``rdp_pass_on_cmdline``. Process arguments are
+    world-readable on Linux (``/proc/<pid>/cmdline``, plain ``ps``), so any
+    local user could otherwise read the credential (CWE-214). By default we
+    hand the secret to FreeRDP over stdin instead — see
+    :func:`password_via_stdin`.
+    """
     host, port = defn.endpoint()
     args = ["/v:" + (f"{host}:{port}" if port != 3389 else host)]
     if defn.username:
         domain_prefix = f"{defn.domain}\\" if defn.domain else ""
         args.append(f"/u:{domain_prefix}{defn.username}")
-    if password and (defn.password or defn.rdp_pass_on_cmdline):
-        # a password saved on the session is passed automatically (that is
-        # what makes the simple no-vault flow work without a terminal prompt);
-        # vault passwords are only passed when the opt-in flag is set
-        args.append(f"/p:{password}")
+    if password:
+        if defn.rdp_pass_on_cmdline:
+            args.append(f"/p:{password}")
+        else:
+            # FreeRDP reads the password from stdin; nothing lands in `ps`.
+            args.append("/from-stdin")
     args.append(f"/size:{defn.rdp_width}x{defn.rdp_height}")
     args.append(f"/bpp:{defn.rdp_color_depth}")
     args.append("/clipboard" if defn.rdp_clipboard else "-clipboard")
@@ -110,6 +121,11 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
         if defn.rdp_gateway_user:
             args.append(f"/gu:{defn.rdp_gateway_user}")
     return args
+
+
+def password_via_stdin(defn: Session, password: str | None) -> bool:
+    """Whether the secret must be written to the client's stdin."""
+    return bool(password) and not defn.rdp_pass_on_cmdline
 
 
 def build_embedded_args(defn: Session, password: str | None, parent_xid: int) -> list[str]:
@@ -167,11 +183,15 @@ class RdpSessionController(SessionController):
     """Runs the RDP session — built-in (embedded in this app) or external."""
 
     widgetChanged = Signal()  # display mode switched; tab must swap the widget
+    # probe thread → GUI thread (auto connection ⇒ queued)
+    _sigProbeResult = Signal(str)
 
     def __init__(self, definition: Session, ctx: SessionContext, parent=None) -> None:
         super().__init__(definition, ctx, parent)
         self._proc: QProcess | None = None
         self._resized_restart = False
+        self._probe_thread: threading.Thread | None = None
+        self._sigProbeResult.connect(self._on_probe_result)
         self._build_ui()
         # resolved up-front so the tab shows the right page before start()
         self._mode: str = self.resolve_mode()
@@ -345,6 +365,7 @@ class RdpSessionController(SessionController):
                 )
             else:
                 self._proc.start(path, build_freerdp_args(self.definition, password))
+                self._feed_password(password)
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return
@@ -395,10 +416,26 @@ class RdpSessionController(SessionController):
         self._proc.errorOccurred.connect(self._on_proc_error)
         try:
             self._proc.start(path, build_embedded_args(self.definition, password, xid))
+            self._feed_password(password)
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return
         self._proc.started.connect(self._on_proc_started)
+
+    def _feed_password(self, password: str | None) -> None:
+        """Hand the secret to FreeRDP over stdin (never via argv).
+
+        Paired with the ``/from-stdin`` flag added by
+        :func:`build_freerdp_args`; a no-op when the user opted into the
+        command-line form or there is no password to send.
+        """
+        if self._proc is None or not password_via_stdin(self.definition, password):
+            return
+        assert password is not None
+        redact_secret(password)
+        self._proc.write(password.encode("utf-8") + b"\n")
+        # FreeRDP reads one line and then expects EOF on stdin.
+        self._proc.closeWriteChannel()
 
     def _on_surface_resized(self) -> None:
         """Restart the embedded client so the desktop follows the tab size."""
@@ -506,25 +543,42 @@ class RdpSessionController(SessionController):
     # -- probe -------------------------------------------------------------
     def run_probe(self) -> None:
         host, port = self.definition.endpoint()
+        if self._probe_thread is not None and self._probe_thread.is_alive():
+            return  # a probe is already running
         self._probe_label.setText(f"Probing {host}:{port}…")
+        self._btn_probe.setEnabled(False)
 
         def work() -> None:
+            # Runs on a plain daemon thread: probe() does blocking socket I/O
+            # for up to 5 s, which used to freeze the entire GUI because
+            # QTimer.singleShot(0, ...) still executes on the GUI thread.
             try:
                 result = probe(host, port, timeout=5.0)
             except RdpProbeError as exc:
-                self._probe_label.setText(f"✗ {exc}")
+                self._sigProbeResult.emit(f"✗ {exc}")
+                return
+            except Exception as exc:  # noqa: BLE001 - never kill the thread
+                self._sigProbeResult.emit(f"✗ {exc}")
                 return
             if result.failure_code is not None:
-                self._probe_label.setText(
+                self._sigProbeResult.emit(
                     f"RDP server answered; refused requested security: {result.failure_name}"
                 )
             else:
-                self._probe_label.setText(
+                self._sigProbeResult.emit(
                     f"✓ RDP server OK — security: {result.selected_protocol_name}, "
                     f"{result.latency_ms:.0f} ms"
                 )
 
-        QTimer.singleShot(0, work)
+        self._probe_thread = threading.Thread(
+            target=work, daemon=True, name=f"rdp-probe-{host}"
+        )
+        self._probe_thread.start()
+
+    def _on_probe_result(self, text: str) -> None:
+        """Queued back onto the GUI thread by ``_sigProbeResult``."""
+        self._probe_label.setText(text)
+        self._btn_probe.setEnabled(True)
 
     def _status_info(self, info: dict) -> None:
         self.statusInfo.emit(info)

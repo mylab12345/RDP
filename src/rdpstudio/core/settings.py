@@ -77,6 +77,14 @@ class Settings:
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".settings-")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(self.to_dict(), indent=2))
-        os.replace(tmp, path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(self.to_dict(), indent=2))
+            os.replace(tmp, path)
+        except BaseException:
+            # Never leave a stray .settings-XXXX temp file behind on error.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise

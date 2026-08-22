@@ -64,10 +64,15 @@ class SessionStore:
             self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False))
 
     def _atomic_write(self, text: str) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".sessions-", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
+            # This file can hold plain-text session passwords, so it must not
+            # be readable by other users (mkstemp is already 0600; make the
+            # intent explicit and survive a pre-existing laxer file).
+            os.chmod(tmp, 0o600)
             os.replace(tmp, self.path)
         except BaseException:
             try:

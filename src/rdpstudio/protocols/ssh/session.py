@@ -59,7 +59,7 @@ class SshSessionController(SessionController):
 
     # ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
-        return capability_set(shell=True, sftp=True, tunnels=True)
+        return capability_set(shell=True, sftp=True, tunnels=True, monitor=True)
 
     def widget(self) -> QWidget:
         return self.term
@@ -294,6 +294,13 @@ class SshSessionController(SessionController):
         win = get_main_window(self.ctx.parent_widget)
         if win is not None:
             win.open_tunnels_for_controller(self)
+
+    def open_monitor(self) -> None:
+        from ...ui.main_window import get_main_window
+
+        win = get_main_window(self.ctx.parent_widget)
+        if win is not None:
+            win.open_monitor_for_controller(self)
 
     def transport_provider(self):
         """Callable for SftpEngine: returns live transport (engine thread)."""

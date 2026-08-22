@@ -33,14 +33,17 @@ def _win_reg_query(path: str, value: str) -> str | None:
     try:
         out = subprocess.run(
             ["reg", "query", path, "/v", value],
-            capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if out.returncode != 0:
             return None
         for line in out.stdout.splitlines():
             if value in line:
                 return line.split()[-1]
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     return None
 
@@ -91,7 +94,8 @@ def status() -> RdpServerStatus:
                 ["systemctl", "is-active", "xrdp"], capture_output=True, text=True, timeout=10
             )
             active = out.stdout.strip() == "active"
-        except OSError:
+        except (OSError, subprocess.SubprocessError):
+            # systemctl missing (containers) or hung — fall back to the probe
             active = st.listening
         st.enabled = active
         st.detail = f"xrdp installed; service {'active' if active else 'inactive'}; port 3389 {'listening' if st.listening else 'not listening'}"

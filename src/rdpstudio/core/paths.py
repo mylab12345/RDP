@@ -11,6 +11,7 @@ macOS:    ~/Library/Application Support/RDPStudio
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -30,11 +31,27 @@ def _base_dir() -> Path:
     return Path(xdg) / "rdpstudio"
 
 
-def app_dir() -> Path:
-    """Root state directory (created on demand)."""
-    path = _base_dir()
-    path.mkdir(parents=True, exist_ok=True)
+def _secure_mkdir(path: Path) -> Path:
+    """Create ``path`` (and parents) private to the current user.
+
+    State files hold saved passwords, private keys and host-key trust, so the
+    directory must never be group/world readable (CWE-276). Existing
+    directories are tightened too — upgrading from an older, laxer version
+    should not leave secrets exposed.
+    """
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name == "posix":
+        try:
+            if stat.S_IMODE(path.stat().st_mode) & 0o077:
+                path.chmod(0o700)
+        except OSError:  # pragma: no cover - unusual filesystems
+            pass
     return path
+
+
+def app_dir() -> Path:
+    """Root state directory (created on demand, private to this user)."""
+    return _secure_mkdir(_base_dir())
 
 
 def sessions_file() -> Path:
@@ -54,24 +71,16 @@ def known_hosts_file() -> Path:
 
 
 def keys_dir() -> Path:
-    path = app_dir() / "keys"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _secure_mkdir(app_dir() / "keys")
 
 
 def logs_dir() -> Path:
-    path = app_dir() / "logs"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _secure_mkdir(app_dir() / "logs")
 
 
 def downloads_dir() -> Path:
-    path = app_dir() / "downloads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _secure_mkdir(app_dir() / "downloads")
 
 
 def cache_dir() -> Path:
-    path = app_dir() / "cache"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _secure_mkdir(app_dir() / "cache")

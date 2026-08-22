@@ -34,6 +34,20 @@ from ..core.models import (
 from ..core.plugin import SessionContext, registry
 from .forward_editor import ForwardListEditor
 
+# Offered in the RDP "Display" dropdown (16:9 / 16:10 ladder people recognise).
+RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
+_RDP_STEP = 8
+
+
+def _display_mode_of(session: Session):
+    """Map a stored session onto one of the simple Display choices."""
+    if session.rdp_fullscreen:
+        return "fullscreen"
+    if session.rdp_fit_screen:
+        return "fit"
+    size = (session.rdp_width, session.rdp_height)
+    return f"{size[0]}x{size[1]}" if size in RDP_RESOLUTIONS else "custom"
+
 
 class SessionDialog(QDialog):
     """Create or edit a saved session."""
@@ -52,6 +66,9 @@ class SessionDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setSpacing(10)
+
+        # Widgets that only appear when "Advanced options" is expanded.
+        self._advanced: list[QWidget] = []
 
         # --- header row: protocol + name/group -----------------------------
         head = QFormLayout()
@@ -91,6 +108,20 @@ class SessionDialog(QDialog):
         self._last_pid: str | None = None
         self.protocol.currentIndexChanged.connect(self._on_protocol)
 
+        # --- advanced toggle -------------------------------------------------
+        # Everything most people never touch (gateway, keepalives, colour
+        # depth, forwards, …) is registered in ``self._advanced`` and hidden
+        # until asked for, so the default dialog is username/password short.
+        self.btn_advanced = QPushButton("Advanced options  ▸")
+        self.btn_advanced.setFlat(True)
+        self.btn_advanced.setCheckable(True)
+        self.btn_advanced.setChecked(False)
+        self.btn_advanced.toggled.connect(self._on_advanced)
+        adv_row = QHBoxLayout()
+        adv_row.addWidget(self.btn_advanced)
+        adv_row.addStretch(1)
+        root.addLayout(adv_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -99,12 +130,27 @@ class SessionDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+        self._on_advanced(False)
+
         idx = self.protocol.findData(self.session.protocol)
         if idx >= 0:
             self.protocol.setCurrentIndex(idx)
         self._on_protocol()
 
     # ------------------------------------------------------------------
+    def _mark_advanced(self, *widgets: QWidget) -> None:
+        """Register widgets to be shown only in advanced mode."""
+        self._advanced.extend(w for w in widgets if w is not None)
+
+    def _on_advanced(self, expanded: bool) -> None:
+        self.btn_advanced.setText(
+            "Advanced options  ▾" if expanded else "Advanced options  ▸"
+        )
+        for widget in self._advanced:
+            widget.setVisible(expanded)
+        # let the dialog shrink back down when collapsing
+        self.adjustSize()
+
     def _build_common(self) -> QWidget:
         page = QWidget()
         form = QFormLayout(page)
@@ -125,11 +171,21 @@ class SessionDialog(QDialog):
         self.tags.setPlaceholderText("prod, web, …")
 
         form.addRow("Host", self.host)
-        form.addRow("Port", self.port)
+        self._port_label = QLabel("Port")
+        form.addRow(self._port_label, self.port)
         form.addRow("Username", self.username)
         form.addRow("Password", self.password)
-        form.addRow("Description", self.description)
-        form.addRow("Tags", self.tags)
+        self._desc_label = QLabel("Description")
+        form.addRow(self._desc_label, self.description)
+        self._tags_label = QLabel("Tags")
+        form.addRow(self._tags_label, self.tags)
+        # Host + username + password are the whole story for most sessions;
+        # the rest only shows up under "Advanced options".
+        self._mark_advanced(
+            self._port_label, self.port,
+            self._desc_label, self.description,
+            self._tags_label, self.tags,
+        )
         return page
 
     def _build_auth_box(self) -> QGroupBox:
@@ -140,19 +196,25 @@ class SessionDialog(QDialog):
         self.auth.addItem("Vault credential (optional)", AUTH_CREDENTIAL)
         self.auth.addItem("Private key", AUTH_KEY)
         self.auth.addItem("SSH agent", AUTH_AGENT)
-        form.addRow("Method", self.auth)
+        self._auth_label = QLabel("Method")
+        form.addRow(self._auth_label, self.auth)
 
         self.credential = QComboBox()
         self._reload_credentials()
-        form.addRow("Credential", self.credential)
+        self._credential_label = QLabel("Credential")
+        form.addRow(self._credential_label, self.credential)
 
         self.key_path = QLineEdit(self.session.key_path)
-        key_row = QHBoxLayout()
-        key_row.addWidget(self.key_path, 1)
+        key_row = QWidget()
+        key_layout = QHBoxLayout(key_row)
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.addWidget(self.key_path, 1)
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse_key)
-        key_row.addWidget(browse)
-        form.addRow("Key file", key_row)
+        key_layout.addWidget(browse)
+        self._key_label = QLabel("Key file")
+        form.addRow(self._key_label, key_row)
+        self._key_row = key_row
 
         self.auth.currentIndexChanged.connect(self._on_auth)
         idx = self.auth.findData(self.session.auth or AUTH_PASSWORD)
@@ -238,6 +300,9 @@ class SessionDialog(QDialog):
         fl.addWidget(self.forwards)
         layout.addWidget(fwd_box)
         layout.addStretch(1)
+        # Jump hosts, keepalives, compression and port forwarding are
+        # power-user territory — keep the default SSH form to auth only.
+        self._mark_advanced(behaviour, fwd_box)
         return page
 
     def _build_rdp_page(self) -> QWidget:
@@ -248,44 +313,67 @@ class SessionDialog(QDialog):
 
         display = QGroupBox("Display")
         form = QFormLayout(display)
-        res = QHBoxLayout()
+
+        # Simple path: one "Display" dropdown covering what people actually
+        # pick, instead of two spinboxes + a colour-depth combo + 2 checkboxes.
+        self.rdp_display_mode = QComboBox()
+        self.rdp_display_mode.addItem("Fit to window (recommended)", "fit")
+        self.rdp_display_mode.addItem("Fullscreen", "fullscreen")
+        for w, h in RDP_RESOLUTIONS:
+            # Data is a plain "WxH" string: QVariant round-tripping of Python
+            # tuples through findData() is not reliable across bindings.
+            self.rdp_display_mode.addItem(f"{w} × {h}", f"{w}x{h}")
+        self.rdp_display_mode.addItem("Custom…", "custom")
+        preset = self.rdp_display_mode.findData(_display_mode_of(self.session))
+        self.rdp_display_mode.setCurrentIndex(preset if preset >= 0 else 0)
+        self.rdp_display_mode.currentIndexChanged.connect(self._on_rdp_display_mode)
+        form.addRow("Display", self.rdp_display_mode)
+
+        # Custom size + colour depth: only shown for "Custom…" / advanced.
         self.rdp_width = QSpinBox()
         self.rdp_width.setRange(640, 7680)
+        self.rdp_width.setSingleStep(_RDP_STEP)
         self.rdp_width.setValue(self.session.rdp_width)
         self.rdp_height = QSpinBox()
         self.rdp_height.setRange(480, 4320)
+        self.rdp_height.setSingleStep(_RDP_STEP)
         self.rdp_height.setValue(self.session.rdp_height)
+        self.rdp_bpp = QComboBox()
+        for bpp in (16, 24, 32):
+            self.rdp_bpp.addItem(f"{bpp}-bit colour", bpp)
+        bi = self.rdp_bpp.findData(self.session.rdp_color_depth)
+        self.rdp_bpp.setCurrentIndex(bi if bi >= 0 else 2)
+
+        custom = QWidget()
+        res = QHBoxLayout(custom)
+        res.setContentsMargins(0, 0, 0, 0)
         res.addWidget(self.rdp_width)
         res.addWidget(QLabel("×"))
         res.addWidget(self.rdp_height)
-        res.addWidget(QLabel("  Color depth"))
-        self.rdp_bpp = QComboBox()
-        for bpp in (16, 24, 32):
-            self.rdp_bpp.addItem(f"{bpp}-bit", bpp)
-        bi = self.rdp_bpp.findData(self.session.rdp_color_depth)
-        self.rdp_bpp.setCurrentIndex(bi if bi >= 0 else 2)
+        res.addSpacing(10)
         res.addWidget(self.rdp_bpp)
         res.addStretch(1)
-        form.addRow("Resolution", res)
+        self._rdp_custom_label = QLabel("Size")
+        form.addRow(self._rdp_custom_label, custom)
+        self._rdp_custom = custom
+
+        # Kept as real state (the rest of the app reads these) but driven by
+        # the dropdown above rather than shown as separate checkboxes.
         self.rdp_fullscreen = QCheckBox("Fullscreen")
         self.rdp_fullscreen.setChecked(self.session.rdp_fullscreen)
+        self.rdp_fullscreen.setVisible(False)
         self.rdp_fit_screen = QCheckBox("Fit display to screen")
         self.rdp_fit_screen.setChecked(self.session.rdp_fit_screen)
-        self.rdp_fit_screen.setToolTip(
-            "Scale the remote desktop to fill the RDP window "
-            "(FreeRDP /smart-sizing · mstsc smart sizing)"
-        )
-        fit_row = QHBoxLayout()
-        fit_row.addWidget(self.rdp_fullscreen)
-        fit_row.addWidget(self.rdp_fit_screen)
-        fit_row.addStretch(1)
-        form.addRow("", fit_row)
+        self.rdp_fit_screen.setVisible(False)
+
         emb_note = QLabel(
-            "Built-in display (Settings → RDP display): the desktop renders inside this app (Linux + X11 + FreeRDP)."
+            "The desktop renders inside this app when possible (Linux + X11 + FreeRDP)."
         )
         emb_note.setObjectName("muted")
+        emb_note.setWordWrap(True)
         form.addRow(emb_note)
         layout.addWidget(display)
+        self._mark_advanced(emb_note)
 
         redir = QGroupBox("Local devices")
         rform = QFormLayout(redir)
@@ -297,15 +385,19 @@ class SessionDialog(QDialog):
         rform.addRow(self.rdp_drives)
 
         self.domain = QLineEdit(self.session.domain)
-        rform.addRow("Domain", self.domain)
+        self.domain.setPlaceholderText("optional (Active Directory domain)")
+        self._domain_label = QLabel("Domain")
+        rform.addRow(self._domain_label, self.domain)
         layout.addWidget(redir)
+        self._mark_advanced(self._domain_label, self.domain)
 
         adv = QGroupBox("Security / gateway")
         aform = QFormLayout(adv)
         self.rdp_cert_ignore = QCheckBox("Accept any certificate (not recommended)")
         self.rdp_cert_ignore.setChecked(self.session.rdp_cert_ignore)
         self.rdp_pass_cmd = QCheckBox(
-            "Pass vault password on FreeRDP command line (visible in `ps`; prompts otherwise)"
+            "Pass password on the FreeRDP command line (insecure — visible to other "
+            "local users in `ps`; by default it is sent over stdin)"
         )
         self.rdp_pass_cmd.setChecked(self.session.rdp_pass_on_cmdline)
         aform.addRow(self.rdp_cert_ignore)
@@ -323,7 +415,23 @@ class SessionDialog(QDialog):
         aform.addRow("RD gateway host:port / user", gw)
         layout.addWidget(adv)
         layout.addStretch(1)
+        # Certificates, cmdline-password opt-in and RD gateway: advanced only.
+        self._mark_advanced(adv)
+        self._on_rdp_display_mode()
         return page
+
+    def _on_rdp_display_mode(self) -> None:
+        """Sync the hidden fullscreen/fit/size state to the Display choice."""
+        mode = self.rdp_display_mode.currentData()
+        self.rdp_fullscreen.setChecked(mode == "fullscreen")
+        self.rdp_fit_screen.setChecked(mode == "fit")
+        if isinstance(mode, str) and "x" in mode:
+            width, _, height = mode.partition("x")
+            self.rdp_width.setValue(int(width))
+            self.rdp_height.setValue(int(height))
+        custom = mode == "custom"
+        self._rdp_custom_label.setVisible(custom)
+        self._rdp_custom.setVisible(custom)
 
     def _build_local_page(self) -> QWidget:
         page = QWidget()
@@ -359,9 +467,25 @@ class SessionDialog(QDialog):
         self.stack.setCurrentWidget(widget)
 
     def _on_auth(self) -> None:
+        """Show only the fields the chosen auth method actually uses."""
         method = self.auth.currentData()
-        self.credential.setEnabled(method in (AUTH_CREDENTIAL, AUTH_KEY))
-        self.key_path.setEnabled(method == AUTH_KEY)
+        wants_credential = method in (AUTH_CREDENTIAL, AUTH_KEY)
+        wants_key = method == AUTH_KEY
+        # Hide rather than grey out: an empty, irrelevant row is pure noise.
+        self._credential_label.setVisible(wants_credential)
+        self.credential.setVisible(wants_credential)
+        self._key_label.setVisible(wants_key)
+        self._key_row.setVisible(wants_key)
+        self.credential.setEnabled(wants_credential)
+        self.key_path.setEnabled(wants_key)
+        # The plain password field is meaningless for key/agent auth.
+        uses_password = method in (AUTH_PASSWORD, AUTH_CREDENTIAL)
+        self.password.setEnabled(uses_password)
+        self.password.setPlaceholderText(
+            "leave empty to be asked at connect"
+            if uses_password
+            else "not used with this method"
+        )
 
     # ------------------------------------------------------------------
     def _on_save(self) -> None:

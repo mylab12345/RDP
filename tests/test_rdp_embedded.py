@@ -93,7 +93,9 @@ def test_build_embedded_args():
     assert "/parent-window:4660" in args
     assert "-decorations" in args
     assert "/smart-sizing" in args
-    assert "/p:s3cret" in args
+    # password goes over stdin, never argv
+    assert "s3cret" not in " ".join(args)
+    assert "/from-stdin" in args
     assert "/v:w" in args
     assert "/u:u" in args
 

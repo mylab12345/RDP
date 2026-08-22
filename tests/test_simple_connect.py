@@ -21,20 +21,36 @@ def test_freerdp_args_fit_screen():
     assert "/smart-sizing" not in args
 
 
-def test_freerdp_args_saved_password_is_passed():
+def test_freerdp_password_never_on_cmdline_by_default():
+    """The secret must not be readable via `ps` / /proc/<pid>/cmdline."""
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args
+    from rdpstudio.protocols.rdp.session import build_freerdp_args, password_via_stdin
 
-    # a password saved on the session is passed to the client automatically
     s = Session(protocol="rdp", host="win.lab", username="admin", password="s3cret")
     args = build_freerdp_args(s, password="s3cret")
-    assert "/p:s3cret" in args
+    assert "s3cret" not in " ".join(args)
+    assert "/from-stdin" in args
+    assert password_via_stdin(s, "s3cret") is True
 
-    # vault-style password (not saved on the session) still needs the opt-in flag
-    s2 = Session(protocol="rdp", host="win.lab", username="admin", rdp_pass_on_cmdline=False)
-    assert "/p:" not in " ".join(build_freerdp_args(s2, password="vpass"))
+    # vault-style password: same treatment
+    s2 = Session(protocol="rdp", host="win.lab", username="admin")
+    args2 = build_freerdp_args(s2, password="vpass")
+    assert "vpass" not in " ".join(args2)
+    assert "/from-stdin" in args2
+
+    # explicit opt-in still supported (documented as insecure)
     s2.rdp_pass_on_cmdline = True
     assert "/p:vpass" in build_freerdp_args(s2, password="vpass")
+    assert password_via_stdin(s2, "vpass") is False
+
+
+def test_freerdp_no_stdin_flag_without_password():
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import build_freerdp_args, password_via_stdin
+
+    s = Session(protocol="rdp", host="win.lab", username="admin")
+    assert "/from-stdin" not in build_freerdp_args(s, password=None)
+    assert password_via_stdin(s, None) is False
 
 
 # --- mstsc .rdp file ---------------------------------------------------------
