@@ -37,21 +37,48 @@ def test_embedded_support_matrix():
     ok, why = embedded_support(find_client=lambda: None, platform_name="xcb", display=":0")
     assert not ok and "FreeRDP" in why
 
-    # FreeRDP + X11 + display → ok
+    # X11 FreeRDP + X11 + display → ok
     ok, why = embedded_support(
-        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"), platform_name="xcb", display=":0"
+        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"),
+        platform_name="xcb",
+        display=":0",
+        find_embedded=lambda: "/usr/bin/xfreerdp3",
     )
     assert ok and why == ""
 
-    # Wayland / offscreen → no X11 embedding
+    # SDL/Wayland FreeRDP flavour cannot embed — hint must say what to install
     ok, why = embedded_support(
-        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"), platform_name="wayland", display=":0"
+        find_client=lambda: ("/usr/bin/sdl-freerdp3", "freerdp"),
+        platform_name="xcb",
+        display=":0",
+        find_embedded=lambda: None,
+    )
+    assert not ok and "freerdp3-x11" in why
+
+    # Wayland with XWayland available → actionable restart hint
+    ok, why = embedded_support(
+        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"),
+        platform_name="wayland",
+        display=":0",
+        find_embedded=lambda: "/usr/bin/xfreerdp3",
+    )
+    assert not ok and "XWayland" in why
+
+    # Wayland without any X server → plain X11 explanation
+    ok, why = embedded_support(
+        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"),
+        platform_name="wayland",
+        display="",
+        find_embedded=lambda: "/usr/bin/xfreerdp3",
     )
     assert not ok and "X11" in why
 
     # no $DISPLAY
     ok, why = embedded_support(
-        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"), platform_name="xcb", display=""
+        find_client=lambda: ("/usr/bin/xfreerdp3", "freerdp"),
+        platform_name="xcb",
+        display="",
+        find_embedded=lambda: "/usr/bin/xfreerdp3",
     )
     assert not ok and "DISPLAY" in why
 
@@ -148,6 +175,7 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {argv_file}\nsleep 30\n")
     script.chmod(0o755)
     monkeypatch.setattr(rdp_session, "find_rdp_client", lambda: (str(script), "freerdp"))
+    monkeypatch.setattr(rdp_session, "find_embedded_client", lambda: str(script))
     monkeypatch.setattr(rdp_session, "embedded_support", lambda *a, **k: (True, ""))
 
     ctrl = RdpSessionController(Session(protocol="rdp", host="w", port=3389, username="u"), ctx, qtapp)

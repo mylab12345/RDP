@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QVBoxLayout,
@@ -113,9 +114,23 @@ class SettingsDialog(QDialog):
         self.rdp_client.setCurrentIndex(ri if ri >= 0 else 2)
         self.rdp_client.setToolTip(
             "Built-in needs Linux + X11 + FreeRDP (freerdp3-x11 / freerdp2-x11).\n"
-            "On Windows or Wayland the external window is used automatically."
+            "On Wayland desktops RDP Studio restarts through XWayland to get it;\n"
+            "on Windows the external mstsc window is used."
         )
         cform.addRow("RDP display", self.rdp_client)
+        self.rdp_status = QLabel("")
+        self.rdp_status.setObjectName("muted")
+        self.rdp_status.setWordWrap(True)
+        cform.addRow(self.rdp_status)
+        self.btn_xwayland = QPushButton("Restart via XWayland now")
+        self.btn_xwayland.setToolTip(
+            "Restart RDP Studio as an X11 client through XWayland so remote\n"
+            "desktops render inside the app (in-tab, like MobaXterm)."
+        )
+        self.btn_xwayland.clicked.connect(self._restart_via_xwayland)
+        self._refresh_rdp_status()
+        if self._xwayland_useful:
+            cform.addRow(self.btn_xwayland)
         layout.addWidget(conn)
 
         # --- security --------------------------------------------------------------
@@ -142,6 +157,45 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
+
+    def _refresh_rdp_status(self) -> None:
+        """Explain — and offer to fix — the current in-app RDP situation."""
+        from ..protocols.rdp.embed import embed_blocked_on_wayland, embedded_support
+
+        self._xwayland_useful = False
+        ok, reason = embedded_support()
+        if ok:
+            self.rdp_status.setText("✓ In-app display active — remote desktops render inside RDP Studio.")
+        elif embed_blocked_on_wayland():
+            self._xwayland_useful = True
+            self.rdp_status.setText(
+                "Wayland session detected: in-app RDP needs X11. RDP Studio can restart\n"
+                "through XWayland — it also does so automatically at startup when saved\n"
+                "RDP sessions exist."
+            )
+        elif reason:
+            self.rdp_status.setText(reason)
+        else:  # pragma: no cover - defensive
+            self.rdp_status.setText("")
+        self.btn_xwayland.setVisible(self._xwayland_useful)
+
+    def _restart_via_xwayland(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from ..protocols.rdp.embed import relaunch_under_x11
+
+        answer = QMessageBox.question(
+            self,
+            "Restart via XWayland",
+            "RDP Studio will restart through XWayland (the X11 compatibility\n"
+            "layer of your desktop) so remote desktops render inside the app.\n\n"
+            "Open sessions will be closed. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        relaunch_under_x11()
 
     def _save(self) -> None:
         s = self.ctx.settings

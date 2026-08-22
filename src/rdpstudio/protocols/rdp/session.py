@@ -3,12 +3,14 @@
 RDP remoting is provided by FreeRDP (Linux) or the native client (mstsc on
 Windows):
 
-- **Built-in (embedded, Linux/X11)**: the FreeRDP client is launched with
+- **Built-in (embedded)**: the FreeRDP client is launched with
   ``/parent-window:<xid>`` so the remote desktop renders *inside this
-  application's window* — no separate RDP window appears. Keyboard and mouse
-  are handled by FreeRDP on its embedded X window.
-- **External**: launches ``mstsc.exe`` (Windows) or a normal ``xfreerdp``
-  window; the tab becomes a session monitor (status, probe, reconnect).
+  application's window* — no separate RDP window appears, like MobaXterm's
+  in-tab RDP. Keyboard and mouse are handled by FreeRDP on its embedded X
+  window. On Wayland desktops the app restarts itself through XWayland
+  (see :mod:`.embed`) to make this possible.
+- **External**: launches ``mstsc.exe`` (Windows) or a normal ``xfreerdp``/
+  ``sdl-freerdp`` window; the tab becomes a session monitor.
 
 Display mode is chosen in Settings → Connection → "RDP display":
 ``auto`` (built-in when possible, default), ``embedded`` or ``external``.
@@ -19,10 +21,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-from collections.abc import Callable
 
 from PySide6.QtCore import QProcess, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -43,6 +43,13 @@ from ...core.plugin import (
     SessionState,
 )
 from ..base_caps import capability_set
+from .embed import (
+    EMBEDDABLE_CLIENTS,  # noqa: F401  (re-exported for tests/docs)
+    embed_blocked_on_wayland,
+    embedded_support,  # noqa: F401  (re-exported; historical import path)
+    find_embedded_client,
+    relaunch_under_x11,
+)
 from .negotiate import RdpProbeError, probe
 from .rdpfile import write_rdp_file
 
@@ -117,34 +124,6 @@ def build_embedded_args(defn: Session, password: str | None, parent_xid: int) ->
         args.remove("/f")
     args += [f"/parent-window:{parent_xid}", "-decorations"]
     return args
-
-
-def embedded_support(
-    find_client: Callable | None = None,
-    platform_name: str | None = None,
-    display: str | None = None,
-) -> tuple[bool, str]:
-    """Whether the built-in (embedded) RDP display is possible.
-
-    Requires: a FreeRDP binary (mstsc cannot embed), the Qt X11 platform
-    plugin (window embedding is an X11 mechanism) and an X display.
-    Returns ``(ok, reason)`` — the reason doubles as a UI hint.
-    """
-    client = (find_client or find_rdp_client)()
-    if client is None:
-        return False, "No FreeRDP client found (install `freerdp3-x11` or `freerdp2-x11`)."
-    if client[1] != "freerdp":
-        return False, "Only FreeRDP can render inside the app (mstsc cannot be embedded)."
-    name = platform_name
-    if name is None:
-        app = QGuiApplication.instance()
-        name = app.platformName() if app is not None else ""
-    if name != "xcb":
-        return False, f"Built-in display needs X11 (current Qt platform: {name or 'none'})."
-    disp = display if display is not None else os.environ.get("DISPLAY")
-    if not disp:
-        return False, "No X display ($DISPLAY) available."
-    return True, ""
 
 
 class _EmbeddedSurface(QWidget):
@@ -245,16 +224,34 @@ class RdpSessionController(SessionController):
         self._btn_stop = QPushButton("  Disconnect")
         self._btn_stop.clicked.connect(lambda: self.stop("closed by user"))
         self._btn_stop.setEnabled(False)
-        for b in (self._btn_connect, self._btn_probe, self._btn_stop):
+        # offered only when Wayland is the sole obstacle to the built-in
+        # display — restarting through XWayland enables the in-app desktop
+        self._btn_inapp = QPushButton("⧉  Show inside app")
+        self._btn_inapp.setToolTip(
+            "Restart RDP Studio through XWayland (the X11 compatibility layer)\n"
+            "so this remote desktop renders inside the app — no separate window."
+        )
+        self._btn_inapp.clicked.connect(self._restart_for_embedded)
+        self._inapp_possible = embed_blocked_on_wayland()
+        self._btn_inapp.setVisible(self._inapp_possible)
+        for b in (self._btn_connect, self._btn_probe, self._btn_stop, self._btn_inapp):
             b.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             buttons.addWidget(b)
         buttons.addStretch(1)
         layout.addLayout(buttons)
 
-        note = QLabel(
-            "The RDP window opens in its own OS window (mstsc / FreeRDP).\n"
-            "Clipboard and drive redirection follow the session settings."
-        )
+        if self._inapp_possible:
+            note_text = (
+                "In-app RDP needs X11. RDP Studio can restart through XWayland\n"
+                "(the built-in X11 compatibility layer) so the desktop renders\n"
+                "inside this tab — click “Show inside app”."
+            )
+        else:
+            note_text = (
+                "The RDP window opens in its own OS window (mstsc / FreeRDP).\n"
+                "Clipboard and drive redirection follow the session settings."
+            )
+        note = QLabel(note_text)
         note.setObjectName("muted")
         layout.addWidget(note)
         layout.addStretch(1)
@@ -300,8 +297,12 @@ class RdpSessionController(SessionController):
         if pref == "external":
             return "external"
         ok, reason = embedded_support()
-        if pref == "embedded" and not ok:
-            log.warning("built-in RDP requested but unavailable: %s", reason)
+        if not ok:
+            log.warning(
+                "built-in RDP display unavailable (%s) — %s",
+                reason,
+                "falling back to the external window",
+            )
         return "embedded" if ok else "external"
 
     # ------------------------------------------------------------------
@@ -355,12 +356,31 @@ class RdpSessionController(SessionController):
         self.widgetChanged.emit()
         self._start_external()
 
-    def _start_embedded(self) -> None:
-        client = find_rdp_client()
-        if client is None or client[1] != "freerdp":
-            self._fall_back_to_external("no FreeRDP client")
+    def _restart_for_embedded(self) -> None:
+        """Restart the whole app via XWayland so this session can embed."""
+        from PySide6.QtWidgets import QMessageBox
+
+
+        parent = getattr(self.ctx, "parent_widget", None)
+        answer = QMessageBox.question(
+            parent,
+            "Show RDP inside the app",
+            "RDP Studio will restart through XWayland (the X11 compatibility\n"
+            "layer of your desktop) so remote desktops render inside the app\n"
+            "tab — no separate window, like MobaXterm.\n\n"
+            "Open sessions will be closed. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
-        path = client[0]
+        relaunch_under_x11()
+
+    def _start_embedded(self) -> None:
+        path = find_embedded_client()
+        if path is None:
+            self._fall_back_to_external("no X11 FreeRDP client (need xfreerdp for /parent-window)")
+            return
         password = self._resolve_secret()
         xid = int(self._surface.winId())
         if not xid:

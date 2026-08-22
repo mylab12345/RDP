@@ -97,11 +97,18 @@ so the tab shows a live countdown chip.
   `/parent-window:<xid> -decorations`, so the remote desktop renders *inside
   the app's tab* (no separate RDP window). The tab hosts a native X11
   surface (`_EmbeddedSurface`); resizing the tab restarts the client so the
-  desktop refits. Requires FreeRDP + the Qt `xcb` platform + `$DISPLAY`.
+  desktop refits. Requires the **X11** FreeRDP flavour (`xfreerdp*` — the SDL
+  client ignores `/parent-window`) + the Qt `xcb` platform + `$DISPLAY`.
+  On **Wayland** sessions, `protocols/rdp/embed.py` restarts the process with
+  `QT_QPA_PLATFORM=xcb` (XWayland) before the QApplication exists when RDP is
+  in play — guarded by `RDPSTUDIO_XWAYLAND` (no restart loops) and a
+  self-check that drops back to the native platform if xcb can't load.
 - **External** — Windows → generate a `.rdp` file (UTF-16) and launch
   `mstsc.exe`; Linux → launch `sdl-freerdp3`/`xfreerdp` with flags
   (drive/clipboard/gateway, `+auto-reconnect`, `/cert:tofu` unless the user
-  opted out). The tab becomes a monitor (process state, reconnect).
+  opted out). The tab becomes a monitor (process state, reconnect); when the
+  only obstacle to the built-in display is Wayland, it offers a *Show inside
+  app* button that triggers the XWayland restart.
 
 In both modes the tab also shows X.224 probe results.
 `negotiate.py` speaks enough MS-RDPBCGR to distinguish a live RDP server and

@@ -35,9 +35,17 @@ sudo apt install freerdp3-x11     # Debian/Ubuntu (freerdp2-x11 also works)
 sudo dnf install freerdp          # Fedora
 ```
 
-Built-in mode additionally needs an X11 session (it embeds FreeRDP's X11
-window with `/parent-window`). On Wayland-only sessions RDP Studio falls back
-to the external window automatically.
+Built-in mode additionally needs X11 (it embeds FreeRDP's X11 window with
+`/parent-window`), so install the **X11 flavour** (`freerdp3-x11`) — the SDL
+client (`sdl-freerdp`) cannot embed.
+
+**Wayland sessions**: no X11 login session needed — RDP Studio restarts itself
+through **XWayland** automatically (once, at startup, when saved RDP sessions
+exist; otherwise on demand from the RDP tab's *Show inside app* button or
+Settings). Set *RDP display → External* if you prefer the native Wayland
+window, or start with an explicit `QT_QPA_PLATFORM` to opt out of the restart.
+If the xcb platform cannot load in the restarted process, the app falls back
+to its native platform and RDP uses the external window.
 
 ## Windows
 
