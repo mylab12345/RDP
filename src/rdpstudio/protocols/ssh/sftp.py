@@ -279,11 +279,20 @@ class SftpEngine(QObject):
         assert self._sftp is not None
         st = self._sftp.stat(remote)
         name = posixpath.basename(remote)
-        local_path = Path(local_dir) / name
+        # A hostile (or buggy) server can return entries like ".." or
+        # "../../.ssh/authorized_keys" from listdir(); joining those blindly
+        # writes outside the download directory (CWE-22, "Zip-Slip").
+        local_path = _safe_child(local_dir, name)
         if stat.S_ISDIR(st.st_mode):
             local_path.mkdir(parents=True, exist_ok=True)
             for child in self._sftp.listdir(remote):
+                if child in (".", ".."):
+                    continue
                 self._download_rec(posixpath.join(remote, child), str(local_path), job)
+            return
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            # Never materialise devices/fifos/sockets from a remote listing.
+            log.warning("skipping non-regular remote file %s", remote)
             return
         local_path.parent.mkdir(parents=True, exist_ok=True)
         with open(local_path, "wb") as out:
@@ -346,6 +355,19 @@ class SftpEngine(QObject):
             self.opDone.emit("realpath", True, self._sftp.normalize(path))
         except Exception as exc:  # noqa: BLE001
             self.opDone.emit("realpath", False, str(exc))
+
+
+def _safe_child(directory: str, name: str) -> Path:
+    """Resolve ``name`` inside ``directory``, refusing to escape it.
+
+    Guards against remote-controlled names such as ``..``, ``../../x`` and
+    absolute paths.
+    """
+    base = Path(directory).resolve()
+    candidate = (base / posixpath.basename(name)).resolve()
+    if candidate != base and base not in candidate.parents:
+        raise RuntimeError(f"refusing unsafe transfer path: {name!r}")
+    return candidate
 
 
 def _entry_from_attr(attr: paramiko.SFTPAttributes) -> RemoteEntry:

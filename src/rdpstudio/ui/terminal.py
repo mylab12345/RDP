@@ -12,6 +12,7 @@ Split into two layers:
 from __future__ import annotations
 
 import base64
+import binascii
 import re
 
 import pyte
@@ -27,6 +28,11 @@ from ..core.settings import Settings
 _OSC52_RE = re.compile(rb"\x1b\]52;([a-zA-Z0-9]+);([A-Za-z0-9+/=]*)\x07|\x1b\]52;([a-zA-Z0-9]+);([A-Za-z0-9+/=]*)\x1b\\")
 _BPASTE_RE = re.compile(rb"\x1b\[\?2004([hl])")
 
+# Largest escape-sequence prefix we will buffer waiting for its terminator.
+_MAX_PENDING_SEQ = 1024
+# Largest OSC-52 base64 payload accepted from the remote host (~768 KiB text).
+_MAX_OSC52_B64 = 1_048_576
+
 
 class TerminalCore:
     def __init__(self, cols: int = 80, rows: int = 24, history: int = 5000) -> None:
@@ -39,7 +45,13 @@ class TerminalCore:
 
     # ------------------------------------------------------------------
     def feed(self, data: bytes) -> str | None:
-        """Feed transport bytes; returns decoded OSC-52 text if present."""
+        """Feed transport bytes.
+
+        Returns freshly decoded OSC-52 clipboard text, or ``None`` when this
+        chunk carried none.  (It must *not* keep returning the last payload:
+        doing so let a remote host re-assert the local clipboard on every
+        byte of output — an effective clipboard hijack.)
+        """
         data = self._tail + data
         self._tail = b""
 
@@ -48,7 +60,8 @@ class TerminalCore:
         for m in _OSC52_RE.finditer(data):
             b64 = m.group(2) or m.group(4) or ""
             osc52.append(b64)
-        data = _OSC52_RE.sub(b"", data)
+        if osc52:
+            data = _OSC52_RE.sub(b"", data)
 
         # Track bracketed paste mode toggles (pyte does not track 2004).
         for m in _BPASTE_RE.finditer(data):
@@ -56,18 +69,25 @@ class TerminalCore:
 
         # Hold back a potentially incomplete tail sequence (no terminator yet).
         esc = data.rfind(b"\x1b")
-        if esc != -1 and not _seq_complete(data[esc:]) and (len(data) - esc) < 1024:
+        if esc != -1 and not _seq_complete(data[esc:]) and (len(data) - esc) < _MAX_PENDING_SEQ:
             self._tail = data[esc:]
             data = data[:esc]
 
         self.stream.feed(data)
+
+        fresh: str | None = None
         if osc52:
-            try:
-                text = base64.b64decode(osc52[-1]).decode("utf-8", "replace")
-                self.osc52_last_clipboard = text
-            except Exception:  # noqa: BLE001
-                pass
-        return self.osc52_last_clipboard
+            payload = osc52[-1]
+            # Bound the decode: a hostile host could otherwise stream a
+            # multi-megabyte base64 blob straight into the clipboard.
+            if 0 < len(payload) <= _MAX_OSC52_B64:
+                try:
+                    fresh = base64.b64decode(payload, validate=True).decode("utf-8", "replace")
+                except (ValueError, binascii.Error):
+                    fresh = None
+            if fresh is not None:
+                self.osc52_last_clipboard = fresh
+        return fresh
 
     # ------------------------------------------------------------------
     @property
@@ -189,19 +209,40 @@ class TerminalView(QWidget):
         self._sel_end: tuple[int, int] | None = None
         self._dragging = False
         self._blink_state = True
+        self._last_title: str | None = None
         self._dirty = True
+
+        # Render caches — rebuilt only when the theme or font changes.
+        self._palette_cache: dict | None = None
+        self._palette_theme: str | None = None
+        self._font_variants: dict[tuple[bool, bool], QFont] = {}
 
         self._blink_timer = QTimer(self)
         self._blink_timer.setInterval(530)
-        self._blink_timer.timeout.connect(lambda: (self._toggle_blink()))
+        self._blink_timer.timeout.connect(self._toggle_blink)
         self._blink_timer.start()
 
+        # Output coalescing: repaint at most ~60 fps no matter how fast the
+        # remote host writes. A single-shot timer restarted on every chunk
+        # (the old behaviour) could be pushed out indefinitely by a fast
+        # writer — `yes` or a big `cat` would freeze the tab. Keeping the
+        # first deadline guarantees a frame every 16 ms.
         self._coalesce = QTimer(self)
         self._coalesce.setSingleShot(True)
-        self._coalesce.setInterval(8)
-        self._coalesce.timeout.connect(self.update)
+        self._coalesce.setTimerType(Qt.TimerType.PreciseTimer)
+        self._coalesce.setInterval(16)
+        self._coalesce.timeout.connect(self._flush_frame)
+
+        self._syncing_scrollbar = False
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(40)
+        self._resize_timer.timeout.connect(self._relayout)
 
         self.setMouseTracking(True)
+        # We paint every pixel ourselves; tell Qt to skip clearing the widget
+        # background first (one less full-surface fill per frame).
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(self._cell_w * 20, self._cell_h * 6)
 
@@ -226,18 +267,32 @@ class TerminalView(QWidget):
         self._cell_w = max(4, self._fm.horizontalAdvance("M"))
         self._cell_h = max(6, self._fm.height())
         self._ascent = self._fm.ascent()
+        self._font_variants.clear()
         self._relayout()
 
     # -- data flow --------------------------------------------------------
     def feed(self, data: bytes) -> None:
         payload = self.core.feed(data)
         title = getattr(self.core.screen, "title", None)
-        if title:
-            self.titleChanged.emit(str(title))
+        if title and title != self._last_title:
+            # Only emit on change: the old code re-emitted the (unchanged)
+            # title on every chunk, re-labelling the tab thousands of times
+            # a second during heavy output.
+            self._last_title = str(title)
+            self.titleChanged.emit(self._last_title)
         if payload is not None:
             self.clipboardRequested.emit(payload)
         self._dirty = True
-        self._coalesce.start()
+        if not self._coalesce.isActive():
+            self._coalesce.start()
+
+    def _flush_frame(self) -> None:
+        """Repaint once for all output accumulated since the last frame."""
+        if not self._dirty:
+            return
+        self._dirty = False
+        self._sync_scrollbar()
+        self.update()
 
     def write_user(self, data: bytes) -> None:
         self.dataWritten.emit(data)
@@ -262,18 +317,30 @@ class TerminalView(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._relayout()
+        # Debounce: dragging the window edge fires resizeEvent per pixel, and
+        # each one used to resize the pyte screen *and* send a PTY resize to
+        # the remote host — the classic "dragging the window locks up the
+        # terminal" stall. Coalesce into one relayout when motion settles.
+        self._resize_timer.start()
         self.vbar.setGeometry(self.width() - self.vbar.width(), 0, self.vbar.width(), self.height())
 
     def _sync_scrollbar(self, *_) -> None:
-        total = self.core.total_lines()
-        visible = self.core.rows
-        max_scroll = max(0, total - visible)
-        self.vbar.setPageStep(visible)
-        self.vbar.setRange(0, max_scroll)
-        self.vbar.setValue(max_scroll - self._scroll)
+        if self._syncing_scrollbar:
+            return  # setRange/setValue re-enter us through rangeChanged
+        self._syncing_scrollbar = True
+        try:
+            total = self.core.total_lines()
+            visible = self.core.rows
+            max_scroll = max(0, total - visible)
+            self.vbar.setPageStep(visible)
+            self.vbar.setRange(0, max_scroll)
+            self.vbar.setValue(max_scroll - self._scroll)
+        finally:
+            self._syncing_scrollbar = False
 
     def _on_scrollbar(self, value: int) -> None:
+        if self._syncing_scrollbar:
+            return
         self._scroll = self.vbar.maximum() - value
         self.update()
 
@@ -289,11 +356,31 @@ class TerminalView(QWidget):
 
     # -- rendering ----------------------------------------------------------
     def _toggle_blink(self) -> None:
-        if self.hasFocus() and self._scroll == 0:
-            self._blink_state = not self._blink_state
-            self.update()
+        """Blink the cursor by repainting *only* its cell, not the widget."""
+        if not (self.hasFocus() and self._scroll == 0):
+            return
+        self._blink_state = not self._blink_state
+        self.update(self._cursor_rect())
+
+    def _cursor_rect(self) -> QRect:
+        top = len(self.core.screen.history.top)
+        first_row = top - self._scroll
+        cx, cy_abs = self.core.cursor_pos()
+        cy = cy_abs - first_row
+        return QRect(2 + cx * self._cell_w, 2 + cy * self._cell_h, self._cell_w, self._cell_h)
 
     def _palette(self) -> dict:
+        """Theme palette, built once per theme (this runs on every frame)."""
+        theme = self.settings.theme
+        cached = self._palette_cache
+        if cached is not None and self._palette_theme == theme:
+            return cached
+        pal = self._build_palette()
+        self._palette_cache = pal
+        self._palette_theme = theme
+        return pal
+
+    def _build_palette(self) -> dict:
         dark = self.settings.theme == "dark"
         base = {
             "fg": QColor("#d8dee9") if dark else QColor("#1b1f24"),
@@ -312,51 +399,72 @@ class TerminalView(QWidget):
         base["fg_dim"] = base["16"][8]
         return base
 
+    def _font_for(self, bold: bool, italic: bool) -> QFont:
+        """Cached font variant.
+
+        The old code mutated ``self._font`` in place inside the per-cell loop
+        and reset it afterwards, which both cost a font re-resolve per cell
+        and corrupted the base font whenever an early ``continue`` skipped the
+        reset (bold/italic then leaked into every later frame).
+        """
+        key = (bold, italic)
+        font = self._font_variants.get(key)
+        if font is None:
+            font = QFont(self._font)
+            font.setBold(bold)
+            font.setItalic(italic)
+            self._font_variants[key] = font
+        return font
+
     def paintEvent(self, event) -> None:  # noqa: N802
         pal = self._palette()
         painter = QPainter(self)
-        painter.fillRect(self.rect(), pal["bg"])
+        bg_default = pal["bg"]
+        painter.fillRect(event.rect(), bg_default)
         top = len(self.core.screen.history.top)
         first_row = top - self._scroll
         cw, ch = self._cell_w, self._cell_h
+        ascent = self._ascent
+
+        # Only repaint the rows Qt actually invalidated.
+        dirty = event.rect()
+        row_from = max(0, (dirty.top() - 2) // ch)
+        row_to = min(self.core.rows, (dirty.bottom() - 2) // ch + 1)
 
         painter.setFont(self._font)
-        for row in range(self.core.rows):
+        for row in range(row_from, row_to):
             abs_index = first_row + row
             if abs_index < 0:
                 continue
             y = 2 + row * ch
             if abs_index < top:
-                # scrollback line (plain text)
-                text = self.core.line_at(abs_index)
-                painter.setPen(pal["fg_dim"])
-                painter.drawText(2, y + self._ascent, text)
+                # scrollback line (plain text, single draw call)
+                text = self.core.line_at(abs_index).rstrip()
+                if text:
+                    painter.setPen(pal["fg_dim"])
+                    painter.drawText(2, y + ascent, text)
                 continue
-            cells = self.core.cells_at(abs_index) or []
-            x = 2
-            for xoff, cell in enumerate(cells):
-                if cell is None or cell.data == "":
-                    x += 0
-                    continue
-                fg, bg = _colors_for(cell, pal)
-                x = 2 + xoff * cw
+            cells = self.core.cells_at(abs_index)
+            if not cells:
+                continue
+            # Batch consecutive cells that share styling into one drawText:
+            # a full 200-column line then costs a handful of draw calls
+            # instead of 200 (the single biggest terminal lag source).
+            for run in _style_runs(cells, pal):
+                start, text, fg, bg, bold, italic, underline, strike = run
+                x = 2 + start * cw
+                width = cw * len(text)
                 if bg is not None:
-                    painter.fillRect(x, y, cw, ch, bg)
-                pen = QPen(fg)
-                painter.setPen(pen)
-                font = self._font
-                if cell.bold:
-                    font.setBold(True)
-                if cell.italics:
-                    font.setItalic(True)
-                painter.setFont(font)
-                painter.drawText(x, y + self._ascent, cell.data)
-                if cell.underscore:
-                    painter.drawLine(x, y + ch - 2, x + cw, y + ch - 2)
-                if cell.strikethrough:
-                    painter.drawLine(x, y + ch // 2, x + cw, y + ch // 2)
-                font.setBold(False)
-                font.setItalic(False)
+                    painter.fillRect(x, y, width, ch, bg)
+                if not text.strip():
+                    continue
+                painter.setPen(QPen(fg))
+                painter.setFont(self._font_for(bold, italic))
+                painter.drawText(x, y + ascent, text)
+                if underline:
+                    painter.drawLine(x, y + ch - 2, x + width, y + ch - 2)
+                if strike:
+                    painter.drawLine(x, y + ch // 2, x + width, y + ch // 2)
 
         # selection
         if self._sel_start and self._sel_end:
@@ -666,6 +774,52 @@ def _default_mono() -> str:
     if __import__("sys").platform == "win32":
         return "Consolas"
     return "DejaVu Sans Mono"
+
+
+def _style_runs(cells, pal):
+    """Group a row of pyte cells into maximal runs of identical styling.
+
+    Yields ``(start_col, text, fg, bg, bold, italic, underline, strike)``.
+    Trailing blank cells are dropped so a mostly-empty line costs nothing.
+    """
+    end = len(cells)
+    while end > 0:
+        cell = cells[end - 1]
+        if cell is not None and cell.data not in ("", " "):
+            break
+        if cell is not None and cell.bg not in (None, "default"):
+            break  # a coloured blank still has to be painted
+        end -= 1
+
+    run_start = 0
+    run_chars: list[str] = []
+    run_key = None
+    run_style = None
+
+    for index in range(end):
+        cell = cells[index]
+        if cell is None:
+            data, key, style = " ", (None,), (pal["fg"], None, False, False, False, False)
+        else:
+            fg, bg = _colors_for(cell, pal)
+            style = (fg, bg, cell.bold, cell.italics, cell.underscore, cell.strikethrough)
+            key = (
+                fg.rgba(),
+                bg.rgba() if bg is not None else None,
+                cell.bold,
+                cell.italics,
+                cell.underscore,
+                cell.strikethrough,
+            )
+            data = cell.data or " "
+        if key != run_key:
+            if run_chars and run_style is not None:
+                yield (run_start, "".join(run_chars), *run_style)
+            run_start, run_chars, run_key, run_style = index, [data], key, style
+        else:
+            run_chars.append(data)
+    if run_chars and run_style is not None:
+        yield (run_start, "".join(run_chars), *run_style)
 
 
 def _colors_for(cell, pal) -> tuple[QColor, QColor | None]:

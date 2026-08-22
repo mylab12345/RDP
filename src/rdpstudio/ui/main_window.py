@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, __version__
 from ..core import paths
+from ..core.log import get_logger
 from ..core.models import Session
 from ..core.plugin import (
     SessionContext,
@@ -36,6 +38,11 @@ from . import theme
 from .sidebar import SessionTree
 from .theme import icon
 from .widgets import STATE_COLORS, StateChip, toast
+
+log = get_logger("ui.main")
+
+# Refuse absurd "session export" files rather than trying to parse them.
+_MAX_IMPORT_BYTES = 32 * 1024 * 1024
 
 _MAIN = None
 
@@ -87,6 +94,11 @@ class SessionTab(QWidget):
         if caps.tunnels:
             b = QPushButton("Tunnels")
             b.clicked.connect(controller.open_tunnels)
+            h.addWidget(b)
+        if caps.monitor:
+            b = QPushButton("Monitor")
+            b.setToolTip("Live CPU, memory, disk and network for this host")
+            b.clicked.connect(controller.open_monitor)
             h.addWidget(b)
         header.setAutoFillBackground(True)
         layout.addWidget(header)
@@ -199,6 +211,12 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self.new_session)
         m_file.addAction(act)
 
+        act = QAction(icon("console"), "New local &terminal", self)
+        act.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        act.setStatusTip("Open a native local shell in a new tab")
+        act.triggered.connect(self.open_local_terminal)
+        m_file.addAction(act)
+
         imp = m_file.addMenu("&Import")
         a = QAction("From ~/.ssh/config", self)
         a.triggered.connect(self._import_ssh_config)
@@ -224,6 +242,10 @@ class MainWindow(QMainWindow):
         a = QAction(icon("plug"), "&Port forwarding…", self)
         a.setShortcut(QKeySequence("Ctrl+Shift+P"))
         a.triggered.connect(self.open_tunnels_dialog)
+        m_tools.addAction(a)
+        a = QAction(icon("server"), "Remote &monitor…", self)
+        a.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        a.triggered.connect(self.open_monitor_dialog)
         m_tools.addAction(a)
         a = QAction(icon("windows"), "RDP server &manager…", self)
         a.triggered.connect(self.open_rdp_server_manager)
@@ -256,6 +278,11 @@ class MainWindow(QMainWindow):
         a = bar.addAction(icon("plus"), "New")
         a.triggered.connect(self.new_session)
 
+        # One-click native local terminal — no dialog, no saved session.
+        a = bar.addAction(icon("console"), "Terminal")
+        a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
+        a.triggered.connect(self.open_local_terminal)
+
         self.quick = QLineEdit()
         self.quick.setPlaceholderText("Quick connect: user@host[:port]  ⏎")
         self.quick.setFixedWidth(260)
@@ -267,6 +294,8 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.open_vault)
         a = bar.addAction(icon("plug"), "Tunnels")
         a.triggered.connect(self.open_tunnels_dialog)
+        a = bar.addAction(icon("server"), "Monitor")
+        a.triggered.connect(self.open_monitor_dialog)
         a = bar.addAction(icon("windows"), "RDP server")
         a.triggered.connect(self.open_rdp_server_manager)
         a = bar.addAction(icon("gear"), "Settings")
@@ -342,11 +371,17 @@ class MainWindow(QMainWindow):
 
     def close_tab(self, index: int) -> None:
         widget = self.tabs.widget(index)
-        if isinstance(widget, SessionTab):
-            widget.controller.stop("closed by user")
-            widget.controller.deleteLater()
+        # Remove from the tab bar first so the UI feels instant even if the
+        # controller takes a moment to tear its transport down.
         self.tabs.removeTab(index)
-        widget and widget.deleteLater()
+        if isinstance(widget, SessionTab):
+            try:
+                widget.controller.stop("closed by user")
+            except Exception:  # noqa: BLE001 - a broken teardown must not
+                log.exception("error stopping session controller")  # strand the tab
+            widget.controller.deleteLater()
+        if widget is not None:
+            widget.deleteLater()
 
     def current_controller(self) -> SessionController | None:
         widget = self.tabs.currentWidget()
@@ -371,6 +406,17 @@ class MainWindow(QMainWindow):
             self.sidebar.reload()
             if dlg.session.id:
                 self.connect_session(dlg.session.id)
+
+    def open_local_terminal(self, *args) -> SessionTab | None:
+        """Open a native local shell tab immediately (Ctrl+Shift+T).
+
+        Deliberately *not* persisted: a scratch terminal is not a saved
+        connection, so it never clutters the sidebar.
+        """
+        from ..core.models import PROTOCOL_LOCAL
+
+        defn = Session(protocol=PROTOCOL_LOCAL, name="Terminal")
+        return self.open_session(defn)
 
     def edit_session(self, session_id: str) -> None:
         from .session_dialog import SessionDialog
@@ -445,6 +491,25 @@ class MainWindow(QMainWindow):
 
         TunnelsDialog(self.ctx, controller, self).show()
 
+    def open_monitor_dialog(self) -> None:
+        """Monitor the current tab's host, or any live monitorable session."""
+        controller = self.current_controller()
+        if controller is None or not controller.capabilities().monitor:
+            for i in range(self.tabs.count()):
+                w = self.tabs.widget(i)
+                if isinstance(w, SessionTab) and w.controller.capabilities().monitor:
+                    controller = w.controller
+                    break
+        if controller is None or not controller.capabilities().monitor:
+            toast(self, "Open an SSH session first — monitoring runs over SSH.", "warn")
+            return
+        self.open_monitor_for_controller(controller)
+
+    def open_monitor_for_controller(self, controller) -> None:
+        from .monitor_dialog import MonitorDialog
+
+        MonitorDialog(self.ctx, controller, self).show()
+
     def open_sftp_for_controller(self, controller) -> None:
         from .sftp_dialog import SftpDialog
 
@@ -490,16 +555,27 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Import sessions", "", "JSON (*.json)")
         if not path:
             return
-        try:
-            data = open(path, encoding="utf-8").read()
-            import json
+        import json
 
-            payload = json.loads(data)
-            sessions = [Session.from_dict(d) for d in payload.get("sessions", [])]
+        try:
+            size = Path(path).stat().st_size
+            if size > _MAX_IMPORT_BYTES:
+                raise ValueError(
+                    f"file is too large to be a session export ({size // 1_048_576} MB)"
+                )
+            with open(path, encoding="utf-8") as fh:  # context manager: no leaked fd
+                payload = json.load(fh)
+            if not isinstance(payload, dict):
+                raise ValueError("expected a JSON object")
+            raw_sessions = payload.get("sessions", [])
+            if not isinstance(raw_sessions, list):
+                raise ValueError("'sessions' must be a list")
+            sessions = [Session.from_dict(d) for d in raw_sessions if isinstance(d, dict)]
             added = self.ctx.store.import_sessions(sessions)
             for g in payload.get("groups", []):
-                self.ctx.store.ensure_group(g)
-        except Exception as exc:  # noqa: BLE001
+                if isinstance(g, str) and g:
+                    self.ctx.store.ensure_group(g)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             QMessageBox.warning(self, "Import failed", str(exc))
             return
         self.sidebar.reload()
@@ -511,7 +587,12 @@ class MainWindow(QMainWindow):
             return
         import json
 
-        open(path, "w", encoding="utf-8").write(json.dumps(self.ctx.store.export_dict(), indent=2))
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(self.ctx.store.export_dict(), fh, indent=2)
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
         toast(self, "Exported (secrets are NOT included)", "good")
 
     def _open_path(self, path) -> None:
@@ -549,7 +630,11 @@ class MainWindow(QMainWindow):
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
-                w.controller.stop("app closed")
+                # One misbehaving protocol must not block application exit.
+                try:
+                    w.controller.stop("app closed")
+                except Exception:  # noqa: BLE001
+                    log.exception("error stopping session on shutdown")
         settings = self.ctx.settings
         settings.geometry = {
             "size": [self.width(), self.height()],

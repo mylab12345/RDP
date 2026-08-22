@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### Added
+- **One-click local terminal** — toolbar button, `Session → New local terminal`
+  and `Ctrl+Shift+T` open a native shell (real PTY on POSIX, ConPTY on Windows)
+  in a tab. Scratch terminals are not written to the saved-session list.
+- **Remote monitoring** — live CPU, memory, swap, disk, load, logged-in users
+  and network throughput for any SSH session, with sparkline history and a
+  selectable refresh interval. Available from the toolbar, `Tools → Remote
+  monitor…` (`Ctrl+Shift+M`) or the per-tab **Monitor** button. The probe is a
+  single read-only `/proc` script per sample, reusing the existing SSH
+  transport.
+
+### Changed
+- **Simplified SSH/RDP session editor.** The form now shows host, username and
+  password by default; ports, tags, description, jump hosts, keepalives,
+  forwards, gateways and certificate options moved behind one **Advanced
+  options** disclosure. Auth rows appear only when the selected method uses
+  them.
+- **Simplified RDP display setup.** Two spin boxes, a colour-depth combo and
+  two checkboxes are replaced by a single **Display** dropdown (Fit to window /
+  Fullscreen / common resolutions / Custom…).
+
+### Performance
+- Terminal rendering is ~2.3x faster: consecutive same-style cells are batched
+  into single `drawText` calls, the palette and font variants are cached
+  instead of rebuilt every frame, and only the invalidated rows are repainted.
+- Terminal output repaints are capped at ~60 fps and can no longer be starved
+  indefinitely by a fast writer (`yes`, large `cat`).
+- Window resizing is debounced, so dragging an edge no longer sends a PTY
+  resize per pixel.
+- Cursor blink repaints only the cursor cell instead of the whole widget.
+- The RDP **Test server** probe runs off the GUI thread — it previously froze
+  the whole application for up to 5 seconds.
+- Sidebar search is debounced and the tree is rebuilt in a single batch.
+
+### Security
+- RDP passwords are no longer placed on the FreeRDP command line by default;
+  they are passed over stdin, so other local users can no longer read them via
+  `ps` / `/proc/<pid>/cmdline` (CWE-214). The old behaviour remains as an
+  explicit, clearly-labelled opt-in.
+- The configuration directory and `sessions.json` (which may hold plain-text
+  passwords) are created `0700`/`0600`; pre-existing lax permissions are
+  tightened on startup (CWE-276).
+- Generated `.rdp` files are written `0600` and their names sanitised, closing
+  a path-traversal via the session display name (CWE-22).
+- SFTP downloads are confined to the destination directory, so a hostile server
+  cannot escape it with `..` entries ("Zip-Slip"), and non-regular files are
+  skipped.
+- OSC-52 clipboard writes are no longer re-applied on every subsequent chunk
+  (a remote host could hold the local clipboard hostage) and oversized payloads
+  are rejected.
+- Dependency floors raised past known CVEs: `paramiko>=3.4.1`
+  (CVE-2023-48795, Terrapin) and `cryptography>=44.0.1` (CVE-2024-12797).
+
+### Fixed
+- Local shell: the PTY master is no longer closed while the reader thread is
+  still blocked on it (which could stream an unrelated file into the terminal);
+  the child's whole process group is signalled on close; a failed `Popen` no
+  longer leaks a PTY pair; a bad shell command now reports an error instead of
+  showing a dead "connected" tab; Reconnect works after the shell exits.
+- Terminal: bold/italic no longer leak into later frames via the shared font
+  object; the scrollbar sync no longer re-enters itself; the tab title is only
+  re-emitted when it actually changes.
+- Icon fallback no longer leaks a `QLabel` per icon and no longer aborts when
+  used before a `QGuiApplication` exists.
+- Session import validates its input, bounds the file size and no longer leaks
+  a file handle; export reports errors instead of raising.
+- `subprocess` timeouts/missing binaries are handled in the RDP server manager.
+
+## Unreleased
+
 - **In-app RDP on Wayland desktops** (Ubuntu 25+/26.04, Fedora, …): the
   built-in display needs X11 window embedding, so RDP Studio now restarts
   itself through **XWayland** automatically when an RDP session is in play —

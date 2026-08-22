@@ -67,8 +67,6 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 0
 
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QApplication
 
     from . import APP_NAME, ORG_NAME, __version__
@@ -83,7 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     # In the restarted process: if xcb cannot load, fall back gracefully.
     xcb_relaunch_self_check()
 
-    QGuiApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # AA_UseHighDpiPixmaps is deprecated and always-on in Qt 6; setting it
+    # only emits a warning.
     app = QApplication(argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -57,6 +57,13 @@ class SessionTree(QWidget):
         self.search.textChanged.connect(self._on_search)
         layout.addWidget(self.search)
 
+        # Debounce typing: every keystroke used to re-read the store and
+        # rebuild the whole tree, which is visibly janky with many sessions.
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(120)
+        self._search_timer.timeout.connect(self.reload)
+
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setAlternatingRowColors(True)
@@ -79,6 +86,15 @@ class SessionTree(QWidget):
 
     # ------------------------------------------------------------------
     def reload(self) -> None:
+        # setUpdatesEnabled(False) collapses N item insertions into a single
+        # repaint/relayout instead of one per row.
+        self.tree.setUpdatesEnabled(False)
+        try:
+            self._reload()
+        finally:
+            self.tree.setUpdatesEnabled(True)
+
+    def _reload(self) -> None:
         self.tree.clear()
         reg = registry()
         sessions = self.store.sessions()
@@ -123,7 +139,7 @@ class SessionTree(QWidget):
 
     def _on_search(self, text: str) -> None:
         self._filter = text.strip()
-        self.reload()
+        self._search_timer.start()
 
     # -- events -----------------------------------------------------------
     def _double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:

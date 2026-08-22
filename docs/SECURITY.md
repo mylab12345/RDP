@@ -71,3 +71,19 @@ prompt, material resolution).
 
 Please open a private security advisory on GitHub (Security tab) rather than a
 public issue for vulnerabilities.
+
+
+## Hardening notes
+
+These properties are covered by regression tests in
+`tests/test_security_hardening.py`:
+
+| Area | Property |
+|---|---|
+| RDP credentials | The password is passed to FreeRDP over **stdin**, never `argv`. Process arguments are world-readable (`ps`, `/proc/<pid>/cmdline`), so the command-line form is an explicit, clearly-labelled opt-in only (CWE-214). |
+| State on disk | The config directory is `0700` and `sessions.json` is `0600`; pre-existing lax permissions are tightened at startup. A saved session password is plain text by design, so the file must stay private (CWE-276). |
+| `.rdp` files | Written `0600`, with the filename derived from the session name **sanitised** so it cannot traverse out of the target directory (CWE-22). |
+| SFTP transfers | Remote-supplied names are reduced to their basename and re-checked against the destination root, so a hostile server cannot write outside it ("Zip-Slip"). Non-regular files (devices, FIFOs, symlinks) are skipped. |
+| Terminal | OSC-52 clipboard payloads are applied **once**, only when freshly received (a remote host cannot hold the local clipboard hostage), are size-bounded, and are strictly base64-validated. |
+| Monitoring | The probe is a constant, read-only `/proc` script with no interpolation points, run under `shlex.quote`; output is size-capped and every parse failure is contained. |
+| Dependencies | Floors exclude known CVEs: `paramiko>=3.4.1` (CVE-2023-48795 "Terrapin"), `cryptography>=44.0.1` (CVE-2024-12797). |
