@@ -134,6 +134,120 @@ def test_rdp_display_presets_round_trip(qtapp):
     assert _display_mode_of(saved) == "fullscreen"
 
 
+# --- terminal Tab completion ----------------------------------------------------
+def test_tab_reaches_shell_not_focus_traversal(qtapp):
+    """Pressing Tab inside the app must send \\t to the shell (autocomplete),
+    not jump focus to the next widget (Qt steals Tab for focus traversal)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from rdpstudio.ui.main_window import MainWindow
+
+    ctx = _ctx()
+    win = MainWindow(ctx)
+    win.show()
+    qtapp.processEvents()
+    tab = win.open_local_terminal()
+    qtapp.processEvents()
+
+    term = tab.controller.term
+    written: list[bytes] = []
+    term.dataWritten.connect(written.append)
+    term.setFocus()
+    qtapp.processEvents()
+    assert term.hasFocus()
+
+    QTest.keyClick(term, Qt.Key.Key_Tab)
+    qtapp.processEvents()
+
+    assert written == [b"\t"], f"Tab was swallowed by focus traversal: {written}"
+    # focus must stay on the terminal, not jump to the toolbar quick-connect box
+    assert term.hasFocus()
+
+    tab.controller.stop("test over")
+    win.close()
+
+
+def test_tab_completes_command_in_real_shell(qtapp):
+    """End-to-end: `ec<Tab>` expands to `echo` in the local shell."""
+    import time
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from rdpstudio.ui.main_window import MainWindow
+
+    ctx = _ctx()
+    win = MainWindow(ctx)
+    win.show()
+    qtapp.processEvents()
+    tab = win.open_local_terminal()
+    deadline = time.time() + 10
+    while time.time() < deadline:  # wait for the prompt to be live
+        qtapp.processEvents()
+        text = "\n".join(
+            tab.controller.term.core.line_at(i)
+            for i in range(tab.controller.term.core.total_lines())
+        )
+        if "$" in text or "#" in text:
+            break
+        time.sleep(0.05)
+
+    term = tab.controller.term
+    term.setFocus()
+    qtapp.processEvents()
+    QTest.keyClick(term, Qt.Key.Key_E)
+    QTest.keyClick(term, Qt.Key.Key_C)
+    qtapp.processEvents()
+    QTest.keyClick(term, Qt.Key.Key_Tab)
+
+    deadline = time.time() + 10
+    seen = ""
+    while time.time() < deadline:
+        qtapp.processEvents()
+        seen = "\n".join(
+            term.core.line_at(i) for i in range(term.core.total_lines())
+        )
+        if "echo" in seen:
+            break
+        time.sleep(0.05)
+    assert "echo" in seen, f"Tab did not complete the command:\n{seen}"
+
+    tab.controller.stop("test over")
+    win.close()
+
+
+# --- terminal Ctrl+wheel font zoom ----------------------------------------------
+def test_ctrl_wheel_zooms_terminal_font(qtapp):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    from rdpstudio.ui.terminal import TerminalView
+
+    term = TerminalView(_ctx().settings)
+    term.show()
+    qtapp.processEvents()
+    base = term._font_size
+
+    def wheel(dy: int, ctrl: bool) -> None:
+        mods = Qt.KeyboardModifier.ControlModifier if ctrl else Qt.KeyboardModifier.NoModifier
+        ev = QWheelEvent(
+            QPointF(50, 50), QPointF(50, 50), QPoint(0, 0), QPoint(0, dy),
+            Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        term.wheelEvent(ev)
+
+    wheel(120, ctrl=True)
+    assert term._font_size == base + 1
+    assert term.font().pointSize() == base + 1
+    wheel(-120, ctrl=True)
+    assert term._font_size == base
+    # plain wheel (no Ctrl) must NOT change the font size
+    wheel(120, ctrl=False)
+    assert term._font_size == base
+    term.close()
+
+
 # --- remote monitoring ----------------------------------------------------------
 def test_monitor_parses_a_realistic_probe():
     from rdpstudio.protocols.ssh.monitor import parse_probe
