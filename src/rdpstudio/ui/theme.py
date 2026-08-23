@@ -219,14 +219,24 @@ QMenu::indicator {{
     height: 14px;
 }}
 
-/* Toolbar — taller, spacious, modern */
+/* Toolbar — MobaXterm-style: compact single row of icon buttons */
 QToolBar {{
     background: {bg};
     border: none;
     border-bottom: 1px solid {border};
-    spacing: 2px;
-    padding: 6px 12px;
-    min-height: 48px;
+    spacing: 1px;
+    padding: 4px 10px;
+    min-height: 40px;
+}}
+QToolBar#moxaToolbar {{
+    spacing: 1px;
+    padding: 3px 10px;
+    min-height: 38px;
+}}
+QToolBar#moxaToolbar QToolButton {{
+    padding: 6px;
+    min-width: 26px;
+    min-height: 24px;
 }}
 QToolBar::separator {{
     width: 1px;
@@ -368,10 +378,10 @@ QComboBox QAbstractItemView {{
     outline: none;
 }}
 
-/* Tabs — modern pill, indicator */
+/* Tabs — MobaXterm-style: compact flat tabs, accent underline when active */
 QTabWidget::pane {{
     border: 1px solid {border};
-    border-radius: 12px;
+    border-radius: 8px;
     background: {bg2};
     top: -1px;
 }}
@@ -382,18 +392,17 @@ QTabBar {{
 QTabBar::tab {{
     background: transparent;
     color: {fg_dim};
-    padding: 9px 16px;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    margin-right: 4px;
-    margin-bottom: 4px;
+    padding: 7px 14px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-right: 2px;
     font-weight: 500;
-    min-width: 80px;
+    min-width: 64px;
 }}
 QTabBar::tab:selected {{
-    background: {panel};
+    background: {bg2};
     color: {fg};
-    border-color: {border};
+    border-bottom: 2px solid {accent};
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
@@ -402,7 +411,7 @@ QTabBar::tab:hover:!selected {{
 QTabBar::close-button {{
     image: none;
     subcontrol-position: right;
-    width: 18px; height: 18px;
+    width: 16px; height: 16px;
     border-radius: 6px;
     margin-left: 8px;
 }}
@@ -628,6 +637,81 @@ QWidget#header {{
 QWidget#sidebar {{
     background: {bg};
     border-right: 1px solid {border};
+}}
+
+/* MobaXterm-style per-tab command line (below the terminal) */
+QWidget#commandBar {{
+    background: {bg2};
+    border-top: 1px solid {border};
+}}
+QLabel#commandPrompt {{
+    color: {accent};
+    font-size: 13px;
+    font-weight: 700;
+}}
+QLineEdit#commandLine {{
+    background: {bg3};
+    border: 1px solid {border};
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12.5px;
+    min-height: 12px;
+}}
+QLineEdit#commandLine:focus {{
+    border-color: {accent};
+    background: {bg2};
+}}
+
+/* Bottom remote-monitor panel */
+QWidget#monitorPanel {{
+    background: {bg2};
+    border-top: 1px solid {border};
+}}
+QWidget#monitorHeader {{
+    background: {bg3};
+    border-bottom: 1px solid {border};
+    min-height: 26px;
+}}
+QWidget#monitorBody {{
+    background: {bg2};
+}}
+QWidget#monitorSummary {{
+    background: {bg3};
+    border: 1px solid {border};
+    border-radius: 8px;
+    min-width: 150px;
+}}
+QLabel#metricTitle {{
+    color: {fg_dim};
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}}
+QLabel#metricValue {{
+    color: {fg};
+    font-size: 12px;
+    font-weight: 700;
+}}
+QLabel#monitorStatus {{
+    color: {fg_dim};
+    font-size: 11.5px;
+}}
+QProgressBar#metricBar {{
+    background: {panel};
+    border: none;
+    border-radius: 4px;
+    min-height: 0;
+}}
+QProgressBar#metricBar::chunk {{
+    background: {accent};
+    border-radius: 3px;
+}}
+
+/* Status-bar session summary (MobaXterm-style) */
+QLabel#statusSession {{
+    color: {fg_dim};
+    font-size: 12px;
 }}
 """
 

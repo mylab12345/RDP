@@ -43,7 +43,10 @@ echo "###end"
 DEFAULT_INTERVAL_MS = 3000
 # Hard ceiling on probe output; a hostile/broken host cannot balloon memory.
 _MAX_PROBE_BYTES = 256 * 1024
-_PROBE_TIMEOUT = 15.0
+# A monitoring sample should be cheap; if the host is slower than this the
+# connection is effectively dead and the panel reports it instead of
+# stalling (5 s also bounds how long teardown can wait for a probe).
+_PROBE_TIMEOUT = 5.0
 
 
 @dataclass
@@ -249,6 +252,7 @@ class MonitorEngine(QObject):
         self._timer: QTimer | None = None
         self._running = False
         self._last_sample_at: float = 0.0
+        self._probe_chan = None  # channel of an in-flight probe (same thread)
 
     # ------------------------------------------------------------------
     @Slot()
@@ -270,6 +274,15 @@ class MonitorEngine(QObject):
             self._timer.stop()
             self._timer.deleteLater()
             self._timer = None
+        # Unblock a probe that is currently sitting in recv() so teardown
+        # (tab switches, window close) is prompt.  Same thread → no race.
+        chan = self._probe_chan
+        if chan is not None:
+            try:
+                chan.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._probe_chan = None
 
     @Slot(int)
     def set_interval(self, interval_ms: int) -> None:
@@ -284,8 +297,12 @@ class MonitorEngine(QObject):
         try:
             text = self._run_probe()
         except Exception as exc:  # noqa: BLE001 - never kill the poll loop
+            if not self._running:
+                return  # stopped mid-probe — nothing to report
             log.debug("monitor probe failed: %s", exc)
             self.failed.emit(str(exc))
+            return
+        if not self._running:
             return
         try:
             sample, self._prev = parse_probe(text, self._prev)
@@ -314,12 +331,15 @@ class MonitorEngine(QObject):
         if transport is None or not transport.is_active():
             raise RuntimeError("session is not connected")
         chan = transport.open_session(timeout=_PROBE_TIMEOUT)
+        self._probe_chan = chan
         try:
             chan.settimeout(_PROBE_TIMEOUT)
             chan.exec_command(f"sh -c {shlex.quote(PROBE_SCRIPT)}")
             chunks: list[bytes] = []
             size = 0
             while True:
+                if not self._running:
+                    raise RuntimeError("monitor stopped")
                 data = chan.recv(32768)
                 if not data:
                     break
@@ -329,6 +349,7 @@ class MonitorEngine(QObject):
                 chunks.append(data)
             return b"".join(chunks).decode("utf-8", "replace")
         finally:
+            self._probe_chan = None
             try:
                 chan.close()
             except Exception:  # noqa: BLE001

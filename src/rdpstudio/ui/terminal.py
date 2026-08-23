@@ -32,6 +32,49 @@ from PySide6.QtWidgets import (
 
 from ..core.settings import Settings
 
+
+# ----------------------------------------------------------------------
+# pyte hot-path speedups (defensive: never break if pyte internals differ)
+# ----------------------------------------------------------------------
+def _speedup_pyte() -> None:
+    """Memoize HistoryScreen's per-access method wrappers.
+
+    pyte's ``HistoryScreen.__getattribute__`` rebuilds a ``before_event`` /
+    ``after_event`` wrapper closure on *every* attribute access for wrapped
+    screen methods.  On a fast output stream (``cat bigfile``, ``dmesg``)
+    that is hundreds of thousands of throwaway closures per second.  Caching
+    the wrapper per (screen, method) keeps behavior identical while removing
+    the churn.  Applied once at import time; any failure is ignored.
+    """
+    try:
+        import pyte
+
+        hs = pyte.screens.HistoryScreen
+        if getattr(hs, "_rdp_fast_wrapped", False):
+            return
+        wrapped = set(hs._wrapped)
+
+        def fast_getattribute(self, attr):  # noqa: D401 - monkey patch
+            value = object.__getattribute__(self, attr)
+            if attr in wrapped:
+                cache = object.__getattribute__(self, "__dict__").setdefault(
+                    "_rdp_wrappers", {}
+                )
+                w = cache.get(attr)
+                if w is None:
+                    w = hs._make_wrapper(self, attr, value)
+                    cache[attr] = w
+                return w
+            return value
+
+        hs.__getattribute__ = fast_getattribute
+        hs._rdp_fast_wrapped = True
+    except Exception:  # noqa: BLE001 - optimization only
+        pass
+
+
+_speedup_pyte()
+
 # ----------------------------------------------------------------------
 # Pure core
 # ----------------------------------------------------------------------
@@ -52,6 +95,9 @@ class TerminalCore:
         self.bracketed_paste = False
         self.osc52_last_clipboard: str | None = None
         self._tail = b""
+        # Screen rows (0-based) changed since the last drain; populated from
+        # pyte's own ``screen.dirty`` tracking (see :meth:`feed`).
+        self._changed_rows: set[int] = set()
 
     # ------------------------------------------------------------------
     def feed(self, data: bytes) -> str | None:
@@ -66,16 +112,20 @@ class TerminalCore:
         self._tail = b""
 
         # Extract OSC 52 before pyte sees it (pyte would ignore it anyway).
+        # Guarded by a cheap substring check so the (expensive) regex only
+        # runs on chunks that actually contain OSC sequences.
         osc52: list[str] = []
-        for m in _OSC52_RE.finditer(data):
-            b64 = m.group(2) or m.group(4) or ""
-            osc52.append(b64)
-        if osc52:
-            data = _OSC52_RE.sub(b"", data)
+        if b"\x1b]" in data:
+            for m in _OSC52_RE.finditer(data):
+                b64 = m.group(2) or m.group(4) or ""
+                osc52.append(b64)
+            if osc52:
+                data = _OSC52_RE.sub(b"", data)
 
         # Track bracketed paste mode toggles (pyte does not track 2004).
-        for m in _BPASTE_RE.finditer(data):
-            self.bracketed_paste = m.group(1) == b"h"
+        if b"\x1b[?2004" in data:
+            for m in _BPASTE_RE.finditer(data):
+                self.bracketed_paste = m.group(1) == b"h"
 
         # Hold back a potentially incomplete tail sequence (no terminator yet).
         esc = data.rfind(b"\x1b")
@@ -83,7 +133,14 @@ class TerminalCore:
             self._tail = data[esc:]
             data = data[:esc]
 
-        self.stream.feed(data)
+        if data:
+            self.stream.feed(data)
+            # Harvest pyte's dirty-line tracking and reset it — the screen
+            # owner is responsible for clearing it (pyte docs).
+            dirty = getattr(self.screen, "dirty", None)
+            if dirty:
+                self._changed_rows.update(dirty)
+                dirty.clear()
 
         fresh: str | None = None
         if osc52:
@@ -98,6 +155,18 @@ class TerminalCore:
             if fresh is not None:
                 self.osc52_last_clipboard = fresh
         return fresh
+
+    def drain_changed_rows(self) -> set[int]:
+        """Screen rows (0-based) changed by feeds since the last drain.
+
+        Backed by pyte's ``Screen.dirty`` tracking, which is updated on
+        every draw/scroll/erase/reset.  The *cursor* may also have moved
+        without marking content dirty (plain cursor-addressing), so the
+        view adds the old/new cursor rows on top of this set.
+        """
+        rows = self._changed_rows
+        self._changed_rows = set()
+        return rows
 
     # ------------------------------------------------------------------
     @property
@@ -379,12 +448,22 @@ class TerminalView(QWidget):
         self._dragging = False
         self._blink_state = True
         self._last_title: str | None = None
-        self._dirty = True
+        # Viewport rows pending repaint (0-based within the visible window).
+        # Only these rows are invalidated between output bursts, so an
+        # idle prompt repaints one row instead of the whole screen.
+        self._dirty_rows: set[int] = set()
 
         # Render caches — rebuilt only when the theme or font changes.
         self._palette_cache: dict | None = None
         self._palette_theme: str | None = None
         self._font_variants: dict[tuple[bool, bool], QFont] = {}
+        # Color resolution cache: (fg spec, bg spec, reverse) → (QColor, QColor|None).
+        # Keyed against _palette_gen so a theme switch invalidates it.
+        self._color_cache: dict[tuple, tuple] = {}
+        self._palette_gen = 0
+        # Per-screen-row style-run cache: row → (palette_gen, id(line), runs).
+        # A row object identity + palette generation uniquely pins its runs.
+        self._runs_cache: dict[int, tuple] = {}
 
         # Search state
         self._search_query = ""
@@ -401,7 +480,11 @@ class TerminalView(QWidget):
         self._blink_timer.timeout.connect(self._toggle_blink)
         self._blink_timer.start()
 
-        # Output coalescing: repaint at most ~60 fps
+        # Output coalescing: repaint at most ~60 fps.  While a fast writer
+        # (``cat``, ``dmesg``…) keeps output arriving during a paint, the
+        # interval adapts up to ~30 fps so the CPU budget goes to catching
+        # up instead of chasing every 16 ms tick; it returns to 60 fps as
+        # soon as the display catches up, so interactive latency is unchanged.
         self._coalesce = QTimer(self)
         self._coalesce.setSingleShot(True)
         self._coalesce.setTimerType(Qt.TimerType.PreciseTimer)
@@ -421,6 +504,10 @@ class TerminalView(QWidget):
         self._font_size = self._font.pointSize()  # Ctrl+wheel zoom base
 
         self.vbar = QScrollBar(Qt.Orientation.Vertical, self)
+        # Pin the width: before the app stylesheet/style is fully applied, a
+        # bare QScrollBar size-hints ~100 px, which left a wide blank strip
+        # on the right of every terminal (and wasted ~10 columns).
+        self.vbar.setFixedWidth(12)
         self.vbar.setStyleSheet("""
             QScrollBar:vertical {
                 background: transparent;
@@ -594,24 +681,76 @@ class TerminalView(QWidget):
             except Exception:
                 pass
 
+        screen = self.core.screen
+        prev_y = screen.cursor.y
+        prev_top = len(screen.history.top)
         payload = self.core.feed(data)
-        title = getattr(self.core.screen, "title", None)
+        title = getattr(screen, "title", None)
         if title and title != self._last_title:
             self._last_title = str(title)
             self.titleChanged.emit(self._last_title)
         if payload is not None:
             self.clipboardRequested.emit(payload)
-        self._dirty = True
-        if not self._coalesce.isActive():
+        self._mark_changed_rows(prev_y, prev_top)
+        if self._dirty_rows and not self._coalesce.isActive():
             self._coalesce.start()
 
-    def _flush_frame(self) -> None:
-        """Repaint once for all output accumulated since the last frame."""
-        if not self._dirty:
+    def _mark_changed_rows(self, prev_cursor_y: int, prev_top: int) -> None:
+        """Map core-level changes onto viewport rows pending repaint.
+
+        Screen row ``i`` sits at absolute line ``top + i``; the viewport
+        (scrolled back by ``_scroll``) starts at absolute ``top - _scroll``,
+        so screen row ``i`` is visible at viewport row ``i + _scroll`` when
+        ``i < rows - _scroll``.
+        """
+        screen = self.core.screen
+        rows = self.core.rows
+        top = len(screen.history.top)
+        if top != prev_top:
+            # The history edge moved (a line scrolled into/out of it).  The
+            # visible window is pinned at a fixed offset from the live edge,
+            # so *every* visible row now shows different content — repaint
+            # the whole viewport instead of chasing individual rows.
+            self._dirty_rows.update(range(rows))
+            self._runs_cache.clear()
             return
-        self._dirty = False
+        changed = self.core.drain_changed_rows()
+        # A cursor can move (CUP) without touching content — both the old
+        # and the new cursor cell must be repainted.
+        changed.add(prev_cursor_y)
+        changed.add(screen.cursor.y)
+        if not changed:
+            return
+        scroll = self._scroll
+        for i in changed:
+            self._runs_cache.pop(i, None)
+            r = i + scroll
+            if r < rows:
+                self._dirty_rows.add(r)
+
+    def _flush_frame(self) -> None:
+        """Repaint once for all output accumulated since the last frame.
+
+        Only the rows that actually changed are invalidated — an idle shell
+        prompt costs one row of painting instead of the full screen.  When
+        new output arrives *while* the display is still rendering (a fast
+        writer), the frame rate adapts down to ~30 fps until the backlog
+        drains.
+        """
+        if not self._dirty_rows:
+            return
+        r0, r1 = min(self._dirty_rows), max(self._dirty_rows)
+        self._dirty_rows.clear()
+        ch = self._cell_h
+        y0 = 2 + r0 * ch
+        y1 = 2 + (r1 + 1) * ch + 1  # +1: underline/strike lines sit in-row
         self._sync_scrollbar()
-        self.update()
+        self.update(QRect(0, y0, self.width(), max(1, y1 - y0)))
+        if self._dirty_rows:
+            # Output landed during the update — under sustained load.
+            self._coalesce.setInterval(33)
+        else:
+            self._coalesce.setInterval(16)
 
     def write_user(self, data: bytes) -> None:
         self.dataWritten.emit(data)
@@ -631,6 +770,8 @@ class TerminalView(QWidget):
         if (cols, rows) != (self.core.cols, self.core.rows):
             self.core.resize(cols, rows)
             self.sizeChanged.emit(cols, rows)
+            self._runs_cache.clear()  # row geometry changed
+            self._dirty_rows.clear()
         self._sync_scrollbar()
         self.update()
 
@@ -695,7 +836,21 @@ class TerminalView(QWidget):
         pal = self._build_palette()
         self._palette_cache = pal
         self._palette_theme = theme
+        # New palette → old resolved colors and style runs are stale.
+        self._palette_gen += 1
+        self._color_cache.clear()
+        self._runs_cache.clear()
         return pal
+
+    def _colors_cached(self, fg, bg, reverse) -> tuple[QColor, QColor | None]:
+        """Resolve a cell's colors through the per-palette cache."""
+        key = (fg, bg, reverse)
+        hit = self._color_cache.get(key)
+        if hit is not None:
+            return hit
+        out = _colors_for(fg, bg, reverse, self._palette())
+        self._color_cache[key] = out
+        return out
 
     def _build_palette(self) -> dict:
         dark = self.settings.theme == "dark"
@@ -768,10 +923,20 @@ class TerminalView(QWidget):
                     painter.setPen(pal["fg_dim"])
                     painter.drawText(2, y + ascent, text)
                 continue
-            cells = self.core.cells_at(abs_index)
-            if not cells:
+            screen_row = abs_index - top
+            line = self.core.screen.buffer.get(screen_row)
+            if line is None:
                 continue
-            for run in _style_runs(cells, pal):
+            # Per-row style-run cache: stable rows (idle prompts, TUI apps
+            # redrawing a few lines) are drawn from cached runs, skipping
+            # the per-cell color resolution entirely.
+            entry = self._runs_cache.get(screen_row)
+            if entry is not None and entry[0] == self._palette_gen and entry[1] == id(line):
+                runs = entry[2]
+            else:
+                runs = list(_style_runs_row(line, self.core.cols, self._colors_cached))
+                self._runs_cache[screen_row] = (self._palette_gen, id(line), runs)
+            for run in runs:
                 start, text, fg, bg, bold, italic, underline, strike = run
                 x = 2 + start * cw
                 width = cw * len(text)
@@ -1153,10 +1318,17 @@ def _default_mono() -> str:
     return "DejaVu Sans Mono"
 
 
-def _style_runs(cells, pal):
-    end = len(cells)
+def _style_runs_row(line, cols: int, resolve):
+    """Group a screen row's cells into contiguous same-style runs.
+
+    ``line`` is a pyte row (mapping col → cell; missing cells mean the
+    default space).  ``resolve(fg, bg, reverse)`` returns the cached
+    (QColor, QColor|None) pair.  Yields ``(start_col, text, fg, bg, bold,
+    italic, underline, strike)``.
+    """
+    end = cols
     while end > 0:
-        cell = cells[end - 1]
+        cell = line.get(end - 1)
         if cell is not None and cell.data not in ("", " "):
             break
         if cell is not None and cell.bg not in (None, "default"):
@@ -1169,11 +1341,14 @@ def _style_runs(cells, pal):
     run_style = None
 
     for index in range(end):
-        cell = cells[index]
+        cell = line.get(index)
         if cell is None:
-            data, key, style = " ", (None,), (pal["fg"], None, False, False, False, False)
+            fg, bg = resolve("default", "default", False)
+            style = (fg, bg, False, False, False, False)
+            key = (fg.rgba(), None, False, False, False, False)
+            data = " "
         else:
-            fg, bg = _colors_for(cell, pal)
+            fg, bg = resolve(cell.fg, cell.bg, cell.reverse)
             style = (fg, bg, cell.bold, cell.italics, cell.underscore, cell.strikethrough)
             key = (
                 fg.rgba(),
@@ -1194,7 +1369,8 @@ def _style_runs(cells, pal):
         yield (run_start, "".join(run_chars), *run_style)
 
 
-def _colors_for(cell, pal) -> tuple[QColor, QColor | None]:
+def _colors_for(fg_spec, bg_spec, reverse: bool, pal) -> tuple[QColor, QColor | None]:
+    """Resolve raw cell color specs (int index, '#hex', name, 'default')."""
     fg = pal["fg"]
     bg: QColor | None = None
 
@@ -1216,9 +1392,9 @@ def _colors_for(cell, pal) -> tuple[QColor, QColor | None]:
         else:
             bg = c
 
-    resolve(cell.fg, True)
-    resolve(cell.bg, False)
-    if cell.reverse:
+    resolve(fg_spec, True)
+    resolve(bg_spec, False)
+    if reverse:
         fg, bg = (bg or pal["bg"]), QColor(fg)
     return fg, bg
 
