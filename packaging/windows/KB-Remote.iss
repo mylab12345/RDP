@@ -1,11 +1,11 @@
-; Inno Setup script for RDP Studio (Windows).
+; Inno Setup script for KB-Remote (Windows).
 ; Prerequisite: run `pyinstaller packaging/rdpstudio.spec` first.
-; Build:  iscc packaging\windows\RDPStudio.iss
+; Build:  iscc packaging\windows\KB-Remote.iss
 
-#define MyAppName "RDP Studio"
-#define MyAppVersion GetVersionNumbersString("..\..\dist\RDPStudio\rdpstudio.exe")
-#define MyAppPublisher "RDP Studio contributors"
-#define MyAppExeName "rdpstudio.exe"
+#define MyAppName "KB-Remote"
+#define MyAppVersion GetVersionNumbersString("..\..\dist\KB-Remote\kb-remote.exe")
+#define MyAppPublisher "KB-Remote contributors"
+#define MyAppExeName "kb-remote.exe"
 
 [Setup]
 AppId={{8C6F1B2A-77C4-4D9B-9C0D-RDPSTUDIO01}
@@ -16,7 +16,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\..\dist
-OutputBaseFilename=RDPStudio-Setup-{#MyAppVersion}
+OutputBaseFilename=KB-Remote-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -24,7 +24,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 
 [Files]
-Source: "..\..\dist\RDPStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\KB-Remote\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

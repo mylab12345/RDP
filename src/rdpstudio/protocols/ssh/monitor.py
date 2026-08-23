@@ -7,16 +7,18 @@ channels), so monitoring costs one extra channel and no extra login.
 
 Design notes
 ------------
-* The probe is a single ``sh`` script reading ``/proc`` and ``df``; one round
-  trip per sample instead of a dozen. It is strictly read-only and contains
-  no interpolated user data.
-* CPU percentage needs two ``/proc/stat`` readings, so the first sample
-  reports ``cpu_percent = None`` and every later one is a real delta.
+* The probe is a single read-only platform script: POSIX shells for Linux,
+  BSD and macOS, with a PowerShell fallback for Windows OpenSSH. One round
+  trip is used per sample instead of a dozen, and no user data is interpolated.
+* Linux CPU percentage uses two ``/proc/stat`` readings, so the first sample
+  reports ``cpu_percent = None`` and later samples are real deltas; Windows
+  reports the OS-provided instantaneous value.
 * Everything runs on the engine's own thread; results arrive as Qt signals.
 """
 
 from __future__ import annotations
 
+import base64
 import shlex
 import time
 from dataclasses import dataclass, field
@@ -27,17 +29,107 @@ from ...core.log import get_logger
 
 log = get_logger("ssh.monitor")
 
-# Read-only probe. Kept as one script so a sample is a single round trip.
-# Nothing here is user-controlled, so there is no injection surface.
-PROBE_SCRIPT = r"""
-echo "###uptime"; cat /proc/uptime 2>/dev/null
-echo "###loadavg"; cat /proc/loadavg 2>/dev/null
-echo "###stat"; grep -E '^cpu ' /proc/stat 2>/dev/null
-echo "###meminfo"; grep -E '^(MemTotal|MemAvailable|MemFree|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null
-echo "###netdev"; cat /proc/net/dev 2>/dev/null
-echo "###df"; df -kP / 2>/dev/null | tail -n +2
-echo "###who"; who 2>/dev/null | wc -l
+# Read-only probes. Kept as one script per platform so a sample is a
+# single round trip. Nothing here is user-controlled, so there is no injection
+# surface. The POSIX probe supports Linux plus BSD/macOS-style machines; the
+# Windows probe supports Windows OpenSSH hosts through PowerShell.
+POSIX_PROBE_SCRIPT = r"""
+_os=$(uname -s 2>/dev/null || echo unknown)
+
+echo "###uptime"
+if [ -r /proc/uptime ]; then
+  cat /proc/uptime 2>/dev/null
+elif command -v sysctl >/dev/null 2>&1; then
+  _boot=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9][0-9]*\).*/\1/p')
+  _now=$(date +%s 2>/dev/null || echo 0)
+  if [ -n "$_boot" ] && [ "$_now" -gt 0 ] 2>/dev/null; then echo $((_now - _boot)); fi
+fi
+
+echo "###loadavg"
+if [ -r /proc/loadavg ]; then
+  cat /proc/loadavg 2>/dev/null
+elif command -v sysctl >/dev/null 2>&1; then
+  sysctl -n vm.loadavg 2>/dev/null | tr -d '{}'
+elif command -v uptime >/dev/null 2>&1; then
+  uptime 2>/dev/null | sed -n 's/.*load averages*: *//p' | tr ',' ' '
+fi
+
+echo "###stat"
+if [ -r /proc/stat ]; then grep -E '^cpu ' /proc/stat 2>/dev/null; fi
+
+echo "###cpucount"
+if command -v getconf >/dev/null 2>&1; then getconf _NPROCESSORS_ONLN 2>/dev/null; fi
+if command -v sysctl >/dev/null 2>&1; then sysctl -n hw.ncpu 2>/dev/null; fi
+
+echo "###meminfo"
+if [ -r /proc/meminfo ]; then
+  grep -E '^(MemTotal|MemAvailable|MemFree|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null
+else
+  _pagesize=$(getconf PAGESIZE 2>/dev/null || sysctl -n hw.pagesize 2>/dev/null || echo 4096)
+  _total=$(sysctl -n hw.memsize 2>/dev/null || sysctl -n hw.physmem 2>/dev/null || echo 0)
+  _free_pages=$(sysctl -n vm.stats.vm.v_free_count 2>/dev/null || echo 0)
+  if command -v vm_stat >/dev/null 2>&1; then
+    _free_pages=$(vm_stat 2>/dev/null | awk -F: '/Pages free/ {gsub(/[^0-9]/,"",$2); print $2; exit}')
+  fi
+  _total_kb=$((_total / 1024))
+  _free_kb=$((_free_pages * _pagesize / 1024))
+  echo "MemTotal: $_total_kb kB"
+  echo "MemAvailable: $_free_kb kB"
+  echo "SwapTotal: 0 kB"
+  echo "SwapFree: 0 kB"
+fi
+
+echo "###netdev"
+if [ -r /proc/net/dev ]; then cat /proc/net/dev 2>/dev/null; fi
+echo "###netio"
+if [ ! -r /proc/net/dev ] && command -v netstat >/dev/null 2>&1; then
+  netstat -ibn 2>/dev/null | awk 'NR>1 && $1 !~ /^lo/ {rx += $7; tx += $10} END {print rx+0, tx+0}'
+fi
+
+echo "###df"
+df -kP / 2>/dev/null | tail -n +2
+echo "###who"
+who 2>/dev/null | wc -l
 echo "###end"
+"""
+
+WINDOWS_PROBE_SCRIPT = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+Write-Output '###uptime'
+$os = Get-CimInstance Win32_OperatingSystem
+if ($os -and $os.LastBootUpTime) { [int]((Get-Date) - $os.LastBootUpTime).TotalSeconds }
+Write-Output '###loadavg'
+Write-Output '0 0 0'
+Write-Output '###cpu'
+$cpu = Get-CimInstance Win32_Processor
+$avg = 0
+$cores = 0
+if ($cpu) {
+  $avg = [int](($cpu | Measure-Object -Property LoadPercentage -Average).Average)
+  $cores = [int](($cpu | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum)
+}
+Write-Output ("{0} {1}" -f $avg, $cores)
+Write-Output '###meminfo'
+if ($os) {
+  Write-Output ("MemTotal: {0} kB" -f [int64]$os.TotalVisibleMemorySize)
+  Write-Output ("MemAvailable: {0} kB" -f [int64]$os.FreePhysicalMemory)
+  Write-Output ("SwapTotal: {0} kB" -f ([int64]$os.TotalVirtualMemorySize - [int64]$os.TotalVisibleMemorySize))
+  Write-Output ("SwapFree: {0} kB" -f ([int64]$os.FreeVirtualMemory - [int64]$os.FreePhysicalMemory))
+}
+Write-Output '###netio'
+$rx = 0; $tx = 0
+Get-CimInstance Win32_PerfRawData_Tcpip_NetworkInterface | ForEach-Object { $rx += [int64]$_.BytesReceivedPersec; $tx += [int64]$_.BytesSentPersec }
+Write-Output ("{0} {1}" -f $rx, $tx)
+Write-Output '###df'
+$disk = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Sort-Object DeviceID | Select-Object -First 1
+if ($disk) {
+  $total = [int64]($disk.Size / 1KB)
+  $used = [int64](($disk.Size - $disk.FreeSpace) / 1KB)
+  Write-Output ("{0} {1} {2} 0 0" -f $disk.DeviceID, $total, $used)
+}
+Write-Output '###who'
+try { $u = (quser 2>$null | Select-Object -Skip 1 | Measure-Object).Count; Write-Output $u } catch { Write-Output 0 }
+Write-Output '###end'
 """
 
 DEFAULT_INTERVAL_MS = 3000
@@ -163,7 +255,10 @@ def parse_probe(text: str, prev: _Prev | None = None) -> tuple[HostSample, _Prev
         parts = load[0].split()
         s.load1, s.load5, s.load15 = (_to_float(p) for p in parts[:3])
 
-    # CPU: percentage is a delta between two /proc/stat readings.
+    # CPU: Linux reports cumulative /proc/stat counters, so percentage is a
+    # delta between readings. Windows reports an instantaneous percentage in
+    # the dedicated "cpu" section. POSIX machines without /proc may only
+    # report core count and leave cpu_percent as None.
     new = _Prev()
     stat_lines = sec.get("stat", [])
     if stat_lines and stat_lines[0].startswith("cpu"):
@@ -176,6 +271,18 @@ def parse_probe(text: str, prev: _Prev | None = None) -> tuple[HostSample, _Prev
                 dt = total - prev.cpu_total
                 di = idle - prev.cpu_idle
                 s.cpu_percent = _percent(dt - di, dt)
+    direct_cpu = sec.get("cpu", [])
+    if direct_cpu and direct_cpu[0].split():
+        cols = direct_cpu[0].split()
+        s.cpu_percent = _percent(_to_float(cols[0]), 100.0)
+        if len(cols) > 1:
+            s.cpu_cores = _to_int(cols[1])
+    counts = sec.get("cpucount", [])
+    for line in counts:
+        count = _to_int(line.strip().split()[0] if line.strip().split() else "0")
+        if count > 0:
+            s.cpu_cores = count
+            break
 
     for line in sec.get("meminfo", []):
         key, _, rest = line.partition(":")
@@ -191,17 +298,22 @@ def parse_probe(text: str, prev: _Prev | None = None) -> tuple[HostSample, _Prev
         elif key == "SwapFree":
             s.swap_free_kb = value
 
-    # Network: sum all interfaces except loopback.
+    # Network: Linux /proc/net/dev or a cross-platform direct counter pair.
     rx = tx = 0
-    for line in sec.get("netdev", []):
-        name, _, rest = line.partition(":")
-        name = name.strip()
-        if not rest or name in ("lo", "Inter-|   Receive", "face"):
-            continue
-        cols = rest.split()
-        if len(cols) >= 9:
-            rx += _to_int(cols[0])
-            tx += _to_int(cols[8])
+    direct_net = sec.get("netio", [])
+    if direct_net and len(direct_net[0].split()) >= 2:
+        cols = direct_net[0].split()
+        rx, tx = _to_int(cols[0]), _to_int(cols[1])
+    else:
+        for line in sec.get("netdev", []):
+            name, _, rest = line.partition(":")
+            name = name.strip()
+            if not rest or name in ("lo", "Inter-|   Receive", "face"):
+                continue
+            cols = rest.split()
+            if len(cols) >= 9:
+                rx += _to_int(cols[0])
+                tx += _to_int(cols[8])
     s.net_rx_bytes, s.net_tx_bytes = rx, tx
     new.rx, new.tx = rx, tx
     if prev.have:
@@ -330,23 +442,64 @@ class MonitorEngine(QObject):
         transport = self._transport_provider()
         if transport is None or not transport.is_active():
             raise RuntimeError("session is not connected")
+
+        # First try POSIX (Linux, BSD, macOS, network appliances). If the
+        # remote OpenSSH server is Windows, there may be no sh, so fall back
+        # to PowerShell and keep the same marker format for the parser.
+        posix_cmd = f"sh -c {shlex.quote(POSIX_PROBE_SCRIPT)}"
+        text = self._exec_remote(transport, posix_cmd)
+        if "###end" in text:
+            return text
+
+        encoded = base64.b64encode(WINDOWS_PROBE_SCRIPT.encode("utf-16le")).decode("ascii")
+        errors: list[str] = []
+        for shell in ("powershell.exe", "powershell", "pwsh.exe", "pwsh"):
+            try:
+                text = self._exec_remote(
+                    transport,
+                    f"{shell} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}",
+                )
+            except Exception as exc:  # noqa: BLE001 - try the next shell name
+                errors.append(str(exc))
+                continue
+            if "###end" in text:
+                return text
+        suffix = f"; PowerShell fallback failed: {'; '.join(errors)}" if errors else ""
+        raise RuntimeError("remote monitor probe is unsupported on this host" + suffix)
+
+    def _exec_remote(self, transport, command: str) -> str:
         chan = transport.open_session(timeout=_PROBE_TIMEOUT)
         self._probe_chan = chan
         try:
             chan.settimeout(_PROBE_TIMEOUT)
-            chan.exec_command(f"sh -c {shlex.quote(PROBE_SCRIPT)}")
+            chan.exec_command(command)
             chunks: list[bytes] = []
             size = 0
             while True:
                 if not self._running:
                     raise RuntimeError("monitor stopped")
-                data = chan.recv(32768)
-                if not data:
+                got = False
+                if chan.recv_ready():
+                    data = chan.recv(32768)
+                    got = True
+                    size += len(data)
+                    if size > _MAX_PROBE_BYTES:
+                        raise RuntimeError("probe output too large")
+                    chunks.append(data)
+                if chan.recv_stderr_ready():
+                    # Capture stderr too: Windows/Unix shell errors help the
+                    # fallback path decide whether the probe is unsupported,
+                    # and are bounded by the same ceiling.
+                    data = chan.recv_stderr(32768)
+                    got = True
+                    size += len(data)
+                    if size > _MAX_PROBE_BYTES:
+                        raise RuntimeError("probe output too large")
+                    chunks.append(data)
+                if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
                     break
-                size += len(data)
-                if size > _MAX_PROBE_BYTES:
-                    raise RuntimeError("probe output too large")
-                chunks.append(data)
+                if not got:
+                    time.sleep(0.02)
             return b"".join(chunks).decode("utf-8", "replace")
         finally:
             self._probe_chan = None

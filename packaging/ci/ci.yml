@@ -46,5 +46,5 @@ jobs:
       - run: pyinstaller packaging/rdpstudio.spec
       - uses: actions/upload-artifact@v4
         with:
-          name: RDPStudio-${{ runner.os }}
-          path: dist/RDPStudio/
+          name: KB-Remote-${{ runner.os }}
+          path: dist/KB-Remote/

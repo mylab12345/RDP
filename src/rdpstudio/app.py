@@ -1,12 +1,12 @@
 """Application entry point.
 
-Run with ``rdpstudio`` (installed console script) or ``python -m rdpstudio``.
+Run with ``kb-remote`` (installed console script) or ``python -m rdpstudio``.
 
 Usage:
-    rdpstudio                     # open the GUI
-    rdpstudio <session-id>        # open + connect a saved session
-    rdpstudio user@host[:port]    # quick connect (3389 ⇒ RDP)
-    rdpstudio --version
+    kb-remote                     # open the GUI
+    kb-remote <session-id>        # open + connect a saved session
+    kb-remote user@host[:port]    # quick connect (3389 ⇒ RDP)
+    kb-remote --version
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import sys
 def build_context(home_override: str | None = None, verbose: bool = False):
     """Assemble settings, store, vault, bus and the session context."""
     if home_override:
-        os.environ["RDPSTUDIO_HOME"] = home_override
+        os.environ["KB_REMOTE_HOME"] = home_override
     from . import APP_NAME
     from .core import paths
     from .core.events import EventBus
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     if "--version" in argv:
         from . import __version__
 
-        print(f"rdpstudio {__version__}")
+        print(f"kb-remote {__version__}")
         return 0
     if "--help" in argv or "-h" in argv:
         print(__doc__)

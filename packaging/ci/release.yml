@@ -20,10 +20,10 @@ jobs:
       - name: bundle tar.gz
         run: |
           cd dist
-          tar czf "rdpstudio-${{ github.ref_name }}-linux-x86_64.tar.gz" RDPStudio
+          tar czf "KB-Remote-${{ github.ref_name }}-linux-x86_64.tar.gz" KB-Remote
       - uses: actions/upload-artifact@v4
         with:
-          name: rdpstudio-linux
+          name: kb-remote-linux
           path: dist/*.tar.gz
 
   build-windows:
@@ -36,15 +36,15 @@ jobs:
       - run: pip install . pyinstaller
       - run: pyinstaller packaging/rdpstudio.spec
       - name: zip portable
-        run: Compress-Archive -Path dist/RDPStudio -DestinationPath dist/RDPStudio-${{ github.ref_name }}-windows-x64.zip
+        run: Compress-Archive -Path dist/KB-Remote -DestinationPath dist/KB-Remote-${{ github.ref_name }}-windows-x64.zip
       - name: build installer (Inno Setup)
         uses: Minionguyjpro/Inno-Setup-Action-CN@v1.2.5
         with:
-          path: packaging/windows/RDPStudio.iss
+          path: packaging/windows/KB-Remote.iss
           options: /O dist
       - uses: actions/upload-artifact@v4
         with:
-          name: rdpstudio-windows
+          name: kb-remote-windows
           path: |
             dist/*.zip
             dist/*.exe

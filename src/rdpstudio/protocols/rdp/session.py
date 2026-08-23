@@ -122,7 +122,7 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
     if defn.rdp_fullscreen:
         args.append("/f")
     if defn.rdp_drives:
-        args.append(f"/drive:RDPStudio,{os.path.expanduser('~')}")
+        args.append(f"/drive:KB-Remote,{os.path.expanduser('~')}")
     args.append("/cert:ignore" if defn.rdp_cert_ignore else "/cert:tofu")
     args.append("+auto-reconnect")
     args.append("/network:auto")
@@ -166,7 +166,7 @@ def build_embedded_args(
     """FreeRDP args for the built-in mode: render inside our X window.
 
     ``/parent-window`` makes FreeRDP create its framebuffer as a *child* of
-    the given X11 window, so the desktop appears inside RDP Studio itself;
+    the given X11 window, so the desktop appears inside KB-Remote itself;
     ``-decorations`` drops the title bar (we provide the tab chrome).
 
     ``size`` (optional) is the *detected* display area of the embedded
@@ -309,7 +309,7 @@ class RdpSessionController(SessionController):
         # display — restarting through XWayland enables the in-app desktop
         self._btn_inapp = QPushButton("⧉  Show inside app")
         self._btn_inapp.setToolTip(
-            "Restart RDP Studio through XWayland (the X11 compatibility layer)\n"
+            "Restart KB-Remote through XWayland (the X11 compatibility layer)\n"
             "so this remote desktop renders inside the app — no separate window."
         )
         self._btn_inapp.clicked.connect(self._restart_for_embedded)
@@ -323,7 +323,7 @@ class RdpSessionController(SessionController):
 
         if self._inapp_possible:
             note_text = (
-                "In-app RDP needs X11. RDP Studio can restart through XWayland\n"
+                "In-app RDP needs X11. KB-Remote can restart through XWayland\n"
                 "(the built-in X11 compatibility layer) so the desktop renders\n"
                 "inside this tab — click “Show inside app”."
             )
@@ -441,7 +441,7 @@ class RdpSessionController(SessionController):
         answer = QMessageBox.question(
             parent,
             "Show RDP inside the app",
-            "RDP Studio will restart through XWayland (the X11 compatibility\n"
+            "KB-Remote will restart through XWayland (the X11 compatibility\n"
             "layer of your desktop) so remote desktops render inside the app\n"
             "tab — no separate window, like MobaXterm.\n\n"
             "Open sessions will be closed. Continue?",

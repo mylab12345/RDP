@@ -1,4 +1,4 @@
-"""Remote host monitor: live CPU / memory / disk / network for an SSH session."""
+"""Remote host monitor: live CPU / memory / disk / network for an SSH/OpenSSH session."""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ class _Metric(QWidget):
 
 
 class MonitorDialog(QDialog):
-    """Live monitoring panel bound to one SSH session controller."""
+    """Live monitoring panel bound to one monitor-capable session controller."""
 
     _sigStart = Signal()
     _sigStop = Signal()

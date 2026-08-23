@@ -23,7 +23,7 @@ OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "docs/screenshots")
 OUT.mkdir(parents=True, exist_ok=True)
 
 STATE = Path(tempfile.mkdtemp(prefix="rdpstudio-shots-"))
-os.environ["RDPSTUDIO_HOME"] = str(STATE)
+os.environ["KB_REMOTE_HOME"] = str(STATE)
 
 
 def spawn_test_sshd() -> tuple[subprocess.Popen, int, str, str] | None:
@@ -92,7 +92,7 @@ def main() -> int:
     tab_local = win.open_session(local)
     _type_and_wait(app, tab_local, [
         "ls --color=always /usr | head -8",
-        "echo 'RDP Studio local shell: colors ✔ tabs ✔'",
+        "echo 'KB-Remote local shell: colors ✔ tabs ✔'",
     ])
     shot = win.grab()
     shot.save(str(OUT / "main-window.png"))

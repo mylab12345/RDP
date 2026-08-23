@@ -38,7 +38,7 @@ def test_monitor_panel_initial_no_session(qtapp):
     panel.show()
     qtapp.processEvents()
     assert panel._engine is None
-    assert "no active SSH session" in panel.status.text()
+    assert "no monitor-capable session" in panel.status.text()
     assert not panel.collapsed
     # collapsed -> header only
     panel.set_collapsed(True)
@@ -62,7 +62,7 @@ def test_monitor_panel_bind_unsupported_controller(qtapp):
     panel.bind(NoProvider())  # no transport_provider attribute
     qtapp.processEvents()
     assert panel._engine is None
-    assert "no active SSH session" in panel.status.text()
+    assert "no monitor-capable session" in panel.status.text()
 
     panel.bind(None)
     qtapp.processEvents()

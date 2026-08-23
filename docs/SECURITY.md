@@ -2,7 +2,7 @@
 
 ## Threat model
 
-RDP Studio holds credentials for many machines and speaks to untrusted
+KB-Remote holds credentials for many machines and speaks to untrusted
 servers. We assume:
 
 - The workstation may be inspected by an attacker **after** a session
@@ -85,5 +85,5 @@ These properties are covered by regression tests in
 | `.rdp` files | Written `0600`, with the filename derived from the session name **sanitised** so it cannot traverse out of the target directory (CWE-22). |
 | SFTP transfers | Remote-supplied names are reduced to their basename and re-checked against the destination root, so a hostile server cannot write outside it ("Zip-Slip"). Non-regular files (devices, FIFOs, symlinks) are skipped. |
 | Terminal | OSC-52 clipboard payloads are applied **once**, only when freshly received (a remote host cannot hold the local clipboard hostage), are size-bounded, and are strictly base64-validated. |
-| Monitoring | The probe is a constant, read-only `/proc` script with no interpolation points, run under `shlex.quote`; output is size-capped and every parse failure is contained. |
+| Monitoring | The probe is a constant, read-only platform script (POSIX shell for Linux/BSD/macOS, PowerShell for Windows OpenSSH) with no interpolation points; output is size-capped and every parse failure is contained. |
 | Dependencies | Floors exclude known CVEs: `paramiko>=3.4.1` (CVE-2023-48795 "Terrapin"), `cryptography>=44.0.1` (CVE-2024-12797). |

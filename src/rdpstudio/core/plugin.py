@@ -1,6 +1,6 @@
 """Protocol plugin architecture.
 
-RDP Studio treats every protocol as a plugin. SSH, RDP and the local shell are
+KB-Remote treats every protocol as a plugin. SSH, RDP and the local shell are
 simply *built-in* plugins; third parties can register more via the
 ``rdpstudio.protocols`` entry-point group::
 

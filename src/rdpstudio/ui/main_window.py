@@ -419,7 +419,7 @@ class MainWindow(QMainWindow):
 
         self._act_monitor_panel = QAction("▤ &Remote Monitor Panel (bottom)", self)
         self._act_monitor_panel.setCheckable(True)
-        self._act_monitor_panel.setStatusTip("Live CPU, memory, disk and network for the active SSH session")
+        self._act_monitor_panel.setStatusTip("Live CPU, memory, disk and network for the active monitor-capable session")
         self._act_monitor_panel.toggled.connect(self.set_monitor_panel_visible)
         m_view.addAction(self._act_monitor_panel)
 
@@ -1112,7 +1112,7 @@ class MainWindow(QMainWindow):
             self._bind_monitor_panel(self.current_controller())
 
     def _bind_monitor_panel(self, controller) -> None:
-        """Follow the active tab: monitor the SSH session of the current tab."""
+        """Follow the active tab: monitor any monitor-capable remote session."""
         if not self.monitor_panel.isVisible():
             return
         caps = controller.capabilities() if controller is not None else None
@@ -1269,7 +1269,7 @@ class MainWindow(QMainWindow):
                     controller = w.controller
                     break
         if controller is None or not controller.capabilities().monitor:
-            toast(self, "Open an SSH session first — monitoring runs over SSH.", "warn")
+            toast(self, "Open a monitor-capable remote session first — monitoring runs over SSH/OpenSSH.", "warn")
             return
         self.open_monitor_for_controller(controller)
 
@@ -1308,7 +1308,7 @@ class MainWindow(QMainWindow):
             f"About {APP_NAME}",
             f"<b>{APP_NAME}</b> {__version__}<br><br>"
             "Cross-platform remote-access workbench.<br>"
-            "SSH/SFTP to Linux hosts, RDP to Windows hosts.<br><br>"
+            "SSH/SFTP/OpenSSH to Linux, Windows, BSD and macOS hosts; RDP to Windows hosts.<br><br>"
             "Python · Qt (PySide6) · paramiko · pyte<br><br>"
             "<span style='color: #8a94ac;'>Modern UI • Fast terminal • Secure vault</span>",
         )

@@ -1,6 +1,6 @@
-# PyInstaller spec for RDP Studio (Windows + Linux).
+# PyInstaller spec for KB-Remote (Windows + Linux).
 #   pyinstaller packaging/rdpstudio.spec
-# Output: dist/RDPStudio/ (onedir, faster startup + updatable)
+# Output: dist/KB-Remote/ (onedir, faster startup + updatable)
 
 import sys
 from pathlib import Path
@@ -36,14 +36,14 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="rdpstudio",
+    name="kb-remote",
     debug=False,
     strip=False,
     upx=False,
-    console=False,  # GUI app; logs go to RDPSTUDIO_HOME/logs
+    console=False,  # GUI app; logs go to KB_REMOTE_HOME/logs
     icon=str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "logo.svg")
     if sys.platform != "win32"
     else None,
 )
 
-coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="RDPStudio")
+coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="KB-Remote")

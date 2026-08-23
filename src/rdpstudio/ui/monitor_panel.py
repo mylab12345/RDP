@@ -1,12 +1,12 @@
 """Bottom-docked remote monitoring panel (MobaXterm-style).
 
 A compact, always-available strip along the bottom of the main window that
-shows live CPU / memory / disk / network figures for the *active* SSH
-session — the same data the standalone Remote Monitor dialog reports, but
-docked where MobaXterm keeps its per-session stats.  The panel follows the
+shows live CPU / memory / disk / network figures for the *active* monitor-capable
+remote session — the same data the standalone Remote Monitor dialog reports,
+but docked where MobaXterm keeps its per-session stats. The panel follows the
 active tab, reusing :class:`~rdpstudio.protocols.ssh.monitor.MonitorEngine`
-over the session's existing SSH transport (one read-only ``/proc`` probe
-per sample, no agent to install).
+over the session's existing SSH transport (Linux, BSD/macOS, and Windows
+OpenSSH probes; no agent to install).
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ class _MetricCell(QWidget):
 
 
 class MonitorPanel(QWidget):
-    """Live monitoring strip bound to the active SSH session controller."""
+    """Live monitoring strip bound to the active monitor-capable session controller."""
 
     openFullMonitor = Signal()  # main window opens the full MonitorDialog
 
@@ -215,7 +215,7 @@ class MonitorPanel(QWidget):
         bl.addWidget(summary, 0)
 
         self.placeholder = QLabel(
-            "No active SSH session — open or focus one to monitor the remote host live."
+            "No monitor-capable remote session — open or focus any SSH/OpenSSH host to monitor it live."
         )
         self.placeholder.setObjectName("muted")
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -294,7 +294,7 @@ class MonitorPanel(QWidget):
     def _no_session(self) -> None:
         self._bound_name = ""
         self.host_label.setText("")
-        self.status.setText("no active SSH session")
+        self.status.setText("no monitor-capable session")
         self.btn_pause.setEnabled(False)
         for cell in (self.cpu, self.mem, self.disk, self.net):
             cell.reset()

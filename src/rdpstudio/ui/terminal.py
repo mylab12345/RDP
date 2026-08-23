@@ -566,12 +566,12 @@ class TerminalView(QWidget):
         p.parent.mkdir(parents=True, exist_ok=True)
         self._log_file = open(p, "a", encoding="utf-8", buffering=1)
         self._log_path = p
-        self._log_file.write(f"\n--- RDP Studio Session Log Started: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        self._log_file.write(f"\n--- KB-Remote Session Log Started: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
 
     def stop_logging(self) -> None:
         if self._log_file is not None:
             try:
-                self._log_file.write(f"\n--- RDP Studio Session Log Ended: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                self._log_file.write(f"\n--- KB-Remote Session Log Ended: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
                 self._log_file.close()
             except Exception:
                 pass

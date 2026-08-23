@@ -376,7 +376,7 @@ class SshSessionController(SessionController):
 class SshPlugin(ProtocolPlugin):
     id = "ssh"
     title = "SSH"
-    description = "Secure shell to Linux/BSD hosts: terminal, SFTP, tunnels."
+    description = "Secure shell/OpenSSH to Linux, Windows, BSD and macOS hosts: terminal, SFTP, tunnels, monitoring."
     default_port = 22
     icon_name = "terminal"
     tags = ["ssh", "shell", "sftp"]

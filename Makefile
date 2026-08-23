@@ -28,7 +28,7 @@ build: venv ## PyInstaller onedir build
 	$(VENV)/bin/pyinstaller packaging/rdpstudio.spec
 
 dist: build
-	@echo "artifacts in dist/RDPStudio"
+	@echo "artifacts in dist/KB-Remote"
 
 clean:
 	rm -rf build dist *.spec.bak .pytest_cache .ruff_cache
