@@ -1,4 +1,6 @@
-from rdpstudio.app import main
 import sys
+
+from rdpstudio.app import main
+
 if __name__ == "__main__":
     sys.exit(main())

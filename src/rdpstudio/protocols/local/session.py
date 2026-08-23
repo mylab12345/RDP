@@ -83,6 +83,14 @@ class LocalShellController(SessionController):
     def widget(self) -> QWidget:
         return self.term
 
+    def write(self, data: bytes) -> None:
+        """Send user input to the local shell (broadcast mode, snippets)."""
+        if data:
+            self._on_input(data)
+
+    def send_text(self, text: str) -> None:
+        self.write(text.encode("utf-8"))
+
     # ------------------------------------------------------------------
     def start(self) -> None:
         self.set_state(SessionState.CONNECTING)

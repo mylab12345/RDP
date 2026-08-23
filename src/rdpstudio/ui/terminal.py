@@ -983,7 +983,9 @@ class TerminalView(QWidget):
         copy_action = menu.addAction("Copy\tCtrl+Shift+C")
         copy_action.triggered.connect(self.copy_selection)
         paste_action = menu.addAction("Paste\tCtrl+Shift+V")
-        paste_action.triggered.connect(self.paste_clipboard)
+        # triggered() passes its `checked` bool as the first argument —
+        # binding it directly would disable the multi-line paste confirmation.
+        paste_action.triggered.connect(lambda _checked=False: self.paste_clipboard(confirm=True))
         menu.addSeparator()
         find_action = menu.addAction("Find in terminal…\tCtrl+F")
         find_action.triggered.connect(self.open_search)

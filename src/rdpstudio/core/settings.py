@@ -9,6 +9,15 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
+def _as_int(value, default: int, minimum: int) -> int:
+    """Best-effort int coercion that never raises (settings may be corrupt)."""
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        out = default
+    return max(minimum, out)
+
+
 @dataclass
 class Settings:
     # appearance
@@ -60,9 +69,14 @@ class Settings:
             s = cls(**kwargs)
         except TypeError:
             s = cls()
-        if not s.font_size or s.font_size < 6:
-            s.font_size = 10
-        s.kdf_iterations = max(100_000, int(s.kdf_iterations))
+        # Coerce/repair fields that can arrive as garbage from a hand-edited
+        # or half-written file — a bad value must never crash startup.
+        s.font_size = _as_int(s.font_size, 10, minimum=6)
+        s.scrollback_lines = _as_int(s.scrollback_lines, 5000, minimum=200)
+        s.default_keepalive = _as_int(s.default_keepalive, 30, minimum=5)
+        s.reconnect_max_attempts = _as_int(s.reconnect_max_attempts, 12, minimum=1)
+        s.vault_autolock_minutes = _as_int(s.vault_autolock_minutes, 15, minimum=0)
+        s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
         return s
 
     @classmethod

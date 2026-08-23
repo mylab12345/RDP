@@ -38,7 +38,6 @@ def build_rdp_text(defn: Session) -> str:
         "disable themes:i:0",
         "disable cursor setting:i:0",
         "bitmapcachepersistenable:i:1",
-        "full address:s:" + defn.host,  # keep first for compatibility
         f"redirectclipboard:i:{1 if defn.rdp_clipboard else 0}",
         f"drivestoredirect:s:{'*' if defn.rdp_drives else ''}",
         "redirectprinters:i:0",
@@ -60,15 +59,16 @@ def build_rdp_text(defn: Session) -> str:
         f"smart sizing:i:{1 if defn.rdp_fit_screen else 0}",
         "use multimon:i:0",
     ]
-    seen = set()
+    # mstsc applies the LAST occurrence of a key, so duplicates are not just
+    # noise — they can silently override earlier values. Emit each key once
+    # (first occurrence wins).
+    seen: set[str] = set()
     out = []
     for line in lines:
-        key = line.split(":")[0]
-        if key in ("full address",) and key in seen:
+        key = line.split(":", 1)[0]
+        if key in seen:
             continue
-        if (key, line) in seen:
-            continue
-        seen.add((key, line))
+        seen.add(key)
         out.append(line)
     return "\r\n".join(out) + "\r\n"
 
@@ -92,5 +92,7 @@ def write_rdp_file(defn: Session, directory: Path | None = None) -> Path:
     # world-readable.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as fh:
-        fh.write(build_rdp_text(defn).encode("utf-16-le"))
+        # utf-16 includes the BOM, which mstsc uses to detect Unicode files
+        # (without it non-ASCII usernames/domains can be misread as ANSI).
+        fh.write(build_rdp_text(defn).encode("utf-16"))
     return path

@@ -587,7 +587,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Tab"), self, self.next_tab)
         QShortcut(QKeySequence("Ctrl+Shift+Backtab"), self, self.prev_tab)
         QShortcut(QKeySequence("Ctrl+K"), self, self.open_command_palette)
-        QShortcut(QKeySequence("Ctrl+W"), self, self.close_current_tab)
+        # Note: Ctrl+W lives on the Session menu action — a second QShortcut
+        # here would fire twice and close two tabs per keypress.
 
         for i in range(1, 10):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self, lambda idx=i-1: self.switch_to_tab(idx))
@@ -731,12 +732,13 @@ class MainWindow(QMainWindow):
                 w = self.tabs.widget(i)
                 if isinstance(w, SessionTab) and w is not source_tab:
                     c = w.controller
-                    if hasattr(c, "send_text"):
-                        # Send raw bytes / text to worker
-                        if hasattr(c, "_worker") and c._worker is not None:
-                            c._worker.write_input(data)
-                        elif hasattr(c, "write_user"):
-                            c.write_user(data)
+                    # Only shell-capable sessions accept raw input (SSH and
+                    # local terminals implement write(); RDP windows don't).
+                    if c.capabilities().shell:
+                        try:
+                            c.write(data)
+                        except Exception:  # noqa: BLE001 - never break typing
+                            log.exception("broadcast write failed")
         finally:
             self._in_broadcast_dispatch = False
 
@@ -1066,7 +1068,10 @@ class MainWindow(QMainWindow):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
                 try:
-                    w.controller.stop("app closed")
+                    # Blocking teardown: the event loop won't run again after
+                    # closeEvent, so deferred shutdowns would leave worker
+                    # threads alive at exit.
+                    w.controller.stop_blocking("app closed")
                 except Exception:
                     log.exception("error stopping session on shutdown")
         settings = self.ctx.settings

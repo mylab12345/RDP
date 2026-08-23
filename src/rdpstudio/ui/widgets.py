@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .theme import palette
@@ -131,7 +132,7 @@ class Toast(QWidget):
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(24)
         shadow.setOffset(0, 8)
-        shadow.setColor(pal["shadow"] and __import__("PySide6.QtGui", fromlist=["QColor"]).QColor(pal["shadow"]) or __import__("PySide6.QtGui", fromlist=["QColor"]).QColor("#00000066"))
+        shadow.setColor(QColor(pal["shadow"] or "#00000066"))
         self.setGraphicsEffect(shadow)
 
         outer = QVBoxLayout(self)
@@ -157,10 +158,12 @@ class Toast(QWidget):
         lay.addWidget(label, 1)
 
         self.adjustSize()
-        if parent:
+        if parent is not None:
+            # Toast is a top-level window, so move() needs *screen*
+            # coordinates — translate the parent-relative spot to global.
             x = max(12, parent.width() - self.width() - 20)
             y = max(12, parent.height() - self.height() - 48)
-            self.move(QPoint(x, y))
+            self.move(parent.mapToGlobal(QPoint(x, y)))
         self.show()
         self.raise_()
 

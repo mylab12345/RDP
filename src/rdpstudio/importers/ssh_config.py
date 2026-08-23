@@ -18,9 +18,15 @@ def parse_ssh_config(text: str) -> list[Session]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        key, _, value = line.partition(" ")
+        # OpenSSH accepts "Key value", "Key=value" and tab separators.
+        if "=" in line and " " not in line.split("=", 1)[0] and "\t" not in line.split("=", 1)[0]:
+            key, _, value = line.partition("=")
+        else:
+            parts = line.split(None, 1)
+            key = parts[0]
+            value = parts[1] if len(parts) > 1 else ""
         value = value.strip()
-        key = key.lower()
+        key = key.strip().lower()
         if key == "host":
             names = value.split()
             for name in names:

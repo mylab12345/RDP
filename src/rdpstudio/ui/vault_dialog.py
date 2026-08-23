@@ -307,11 +307,18 @@ class VaultDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Select private key", "", "All files (*)")
         if not path:
             return
+        import os
         import shutil
 
         target = paths.keys_dir() / (path.split("/")[-1].split("\\")[-1])
         if str(target) != path:
             shutil.copy2(path, target)
+        # copy2 preserves the source permissions — a world-readable source
+        # would otherwise leak the private key (SSH itself refuses such keys).
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
         toast(self, f"Imported {target.name}", "good")
         self._refresh_key_list()
 

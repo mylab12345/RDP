@@ -78,6 +78,10 @@ class CredentialVault:
         return self.path.exists() and self.path.stat().st_size > 0
 
     def create(self, master_passphrase: str) -> None:
+        if self.exists:
+            # Never silently overwrite an existing vault — its secrets would
+            # be unrecoverable. Callers must unlock/change/delete instead.
+            raise VaultBusyError("vault already exists")
         if not master_passphrase:
             raise ValueError("master passphrase must not be empty")
         self._entries = {}

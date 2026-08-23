@@ -132,8 +132,13 @@ class SessionStore:
                 if s.group == old:
                     s.group = new
             if old in self._groups:
-                self._groups[self._groups.index(old)] = new
-            else:
+                if new in self._groups:
+                    # Target group already exists: merge into it instead of
+                    # ending up with the same group listed twice.
+                    self._groups.remove(old)
+                else:
+                    self._groups[self._groups.index(old)] = new
+            elif new not in self._groups:
                 self._groups.append(new)
             self.save()
 
@@ -149,11 +154,17 @@ class SessionStore:
 
     def import_sessions(self, sessions: list[Session], on_conflict: str = "rename") -> int:
         """Bulk import; returns number imported. Conflicting ids/names get renamed."""
+        from .models import new_id
+
         added = 0
         with self._lock:
             existing_names = {s.display_name() for s in self._sessions.values()}
             for s in sessions:
-                s.id = type(s).new_id() if hasattr(type(s), "new_id") else s.id
+                # An import must never silently replace an existing session:
+                # exports (and third-party files) carry their own ids, so a
+                # colliding id gets a fresh one instead of overwriting.
+                if s.id in self._sessions:
+                    s.id = new_id()
                 name = s.display_name()
                 if name in existing_names and on_conflict == "rename":
                     s.name = f"{name} (imported)"

@@ -119,6 +119,15 @@ class SessionController(QObject):
     def stop(self, reason: str = "closed by user") -> None:
         """Tear the session down; must emit finished(reason) shortly after."""
 
+    def stop_blocking(self, reason: str = "closed by user") -> None:
+        """Synchronous teardown for application exit (``closeEvent``).
+
+        ``stop()`` may defer parts of the teardown to the event loop, which
+        never runs once the app is quitting — leaving worker threads alive
+        at interpreter shutdown. Default: plain stop.
+        """
+        self.stop(reason)
+
     def request_reconnect(self) -> None:
         """Best-effort reconnect (default: restart)."""
 

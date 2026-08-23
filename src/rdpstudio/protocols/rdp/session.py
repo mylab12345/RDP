@@ -815,6 +815,11 @@ class RdpPlugin(ProtocolPlugin):
         if parsed is None:
             return None
         user, host, port = parsed
-        s = Session(protocol="rdp", host=host, port=port or 3389, username=user or "")
+        # Only claim the target when the port explicitly says RDP — quick
+        # connect walks plugins in order, and a bare ``user@host`` must fall
+        # through to SSH (the documented "port 3389 ⇒ RDP" behaviour).
+        if port != 3389:
+            return None
+        s = Session(protocol="rdp", host=host, port=3389, username=user or "")
         s.name = s.target()
         return s

@@ -83,7 +83,9 @@ def build_connection_request(cookie: str = "rdpstudio", requested: int = 0x0B) -
 
 def parse_connection_confirm(data: bytes) -> RdpProbeResult:
     result = RdpProbeResult()
-    if len(data) < 11 or data[0] != 3:
+    # Minimal valid X.224 Connection Confirm is TPKT(4) + LI/DST/SRC/class(6)
+    # = 10 bytes when the server speaks pre-RDP5 (no negotiation blob).
+    if len(data) < 10 or data[0] != 3:
         result.error = f"not a TPKT response ({data[:4].hex() if data else 'empty'})"
         return result
     result.raw_header = data[:16]
@@ -121,7 +123,18 @@ def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
         sock.connect((host, port))
         result.latency_ms = (time.monotonic() - t0) * 1000
         sock.sendall(build_connection_request())
-        data = sock.recv(256)
+        # A response may arrive in several TCP segments; read until the TPKT
+        # length is satisfied (or the peer closes / times out).
+        data = b""
+        while True:
+            chunk = sock.recv(256)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) >= 4:
+                expected = struct.unpack(">H", data[2:4])[0]
+                if len(data) >= expected:
+                    break
         if not data:
             raise RdpProbeError("connection closed without a response")
         parsed = parse_connection_confirm(data)

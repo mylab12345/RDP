@@ -78,4 +78,7 @@ class KnownHostsVerifier(paramiko.MissingHostKeyPolicy):
             return None
         from .keys import fingerprint_sha64
 
-        return fingerprint_sha64(entry.keys[0])
+        keys = list(entry.values())
+        if not keys:
+            return None
+        return fingerprint_sha64(keys[0])
