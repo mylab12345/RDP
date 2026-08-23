@@ -94,7 +94,9 @@ class TunnelManager:
             )
         except paramiko.SSHException as exc:
             raise TunnelError(f"server refused remote forward: {exc}") from exc
-        port = int(bound[0]) if isinstance(bound, tuple) else int(bound or fwd.listen_port)
+        # request_port_forward() returns (address, port) — the port is the
+        # *second* element (the server picks it when we asked for port 0).
+        port = int(bound[1]) if isinstance(bound, tuple) else int(bound or fwd.listen_port)
         self._remotes[port] = (fwd, fwd.listen_host or "")
         self.on_event("started", {"port": port, "kind": "remote", "label": fwd.label()})
         return port
@@ -322,7 +324,13 @@ def _socks5_handshake(conn: socket.socket) -> tuple[str, int] | None:
         addr = socket.inet_ntoa(_recv_exact(conn, 4))
     elif atyp == 0x03:
         length = _recv_exact(conn, 1)[0]
-        addr = _recv_exact(conn, length).decode("idna")
+        raw = _recv_exact(conn, length)
+        try:
+            addr = raw.decode("idna")
+        except (UnicodeError, ValueError):
+            # Not IDNA-clean (e.g. names with underscores) — pass the raw
+            # label through; the resolver handles it.
+            addr = raw.decode("utf-8", "replace")
     elif atyp == 0x04:
         import ipaddress
 

@@ -236,6 +236,38 @@ class SshSessionController(SessionController):
         self._teardown_thread()
         self.emit_finished_once(reason)
 
+    def stop_blocking(self, reason: str = "closed by user") -> None:
+        """App-exit teardown: join the worker thread synchronously.
+
+        ``stop()`` defers ``thread.quit()`` through the event loop; at exit
+        the loop never runs and Qt aborts on "QThread destroyed while still
+        running". Here we quit + wait directly instead.
+        """
+        self._wanted_stop = True
+        self._reconnect_timer.stop()
+        worker = self._worker
+        if worker is not None:
+            worker.request_stop()
+        thread, worker = self._thread, self._worker
+        self._thread, self._worker = None, None
+        if thread is not None:
+            thread.quit()
+            if not thread.wait(2500):
+                thread.terminate()
+                thread.wait(500)
+        if worker is not None:
+            worker.deleteLater()
+        self.emit_finished_once(reason)
+
+    def write(self, data: bytes) -> None:
+        """Send user input to the remote shell (broadcast mode, snippets)."""
+        if data:
+            self._worker_call("write_input", data)
+
+    def send_text(self, text: str) -> None:
+        """Send text (with a trailing newline already included by callers)."""
+        self.write(text.encode("utf-8"))
+
     # -- helpers -----------------------------------------------------------
     def _worker_call(self, method: str, *args) -> None:
         """Thread-safe dispatch to worker.
@@ -327,10 +359,15 @@ class SshSessionController(SessionController):
             win.open_monitor_for_controller(self)
 
     def transport_provider(self):
-        """Callable for SftpEngine: returns live transport (engine thread)."""
-        worker = self._worker
+        """Callable for SftpEngine/MonitorEngine: returns the live transport.
+
+        Resolves ``self._worker`` at call time (not when the provider is
+        created) so SFTP/monitoring keep working after a reconnect, when the
+        old worker object has been replaced.
+        """
 
         def provider():
+            worker = self._worker
             return worker.transport() if worker is not None else None
 
         return provider
@@ -358,7 +395,11 @@ class SshPlugin(ProtocolPlugin):
 
 
 def parse_ssh_target(text: str) -> tuple[str, str, int] | None:
-    """Parse ``[user@]host[:port]``; returns (user, host, port) or None."""
+    """Parse ``[user@]host[:port]``; returns (user, host, port) or None.
+
+    IPv6 is supported as ``[::1]:2222`` (bracketed, with port) or a bare
+    literal like ``::1`` (no port).
+    """
     text = text.strip()
     if not text or "/" in text or " " in text:
         return None
@@ -367,8 +408,21 @@ def parse_ssh_target(text: str) -> tuple[str, str, int] | None:
         user, _, rest = text.partition("@")
         text = rest
     port = 0
-    if ":" in text:
+    if text.startswith("["):
+        host, _, rest = text[1:].partition("]")
+        if not host:
+            return None
+        if rest:
+            if not rest.startswith(":") or not rest[1:].isdigit():
+                return None
+            port = int(rest[1:])
+        text = host
+    elif ":" in text:
         host, _, port_s = text.rpartition(":")
+        if ":" in host:
+            # More than one colon and no brackets: a bare IPv6 literal
+            # (port cannot be expressed without brackets).
+            return user, text, 0
         if not host or not port_s.isdigit():
             return None
         port = int(port_s)

@@ -63,18 +63,26 @@ class Envelope:
 
     @classmethod
     def from_json(cls, text: str) -> Envelope:
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise CryptoError("vault file is not valid JSON") from exc
         if data.get("format") != VAULT_FORMAT:
             raise CryptoError(f"unsupported vault format {data.get('format')!r}")
-        kdf, aead = data["kdf"], data["aead"]
+        kdf, aead = data.get("kdf"), data.get("aead")
+        if not kdf or not aead:
+            raise CryptoError("vault file is missing kdf/aead sections")
         if kdf.get("algo") != KDF_ALGO or aead.get("algo") != AEAD_ALGO:
             raise CryptoError("unsupported KDF/AEAD algorithm")
-        return cls(
-            salt=_b64d(kdf["salt"]),
-            iterations=int(kdf["iterations"]),
-            nonce=_b64d(aead["nonce"]),
-            ciphertext=_b64d(aead["ciphertext"]),
-        )
+        try:
+            return cls(
+                salt=_b64d(kdf["salt"]),
+                iterations=int(kdf["iterations"]),
+                nonce=_b64d(aead["nonce"]),
+                ciphertext=_b64d(aead["ciphertext"]),
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            raise CryptoError("vault file is corrupted") from exc
 
 
 def derive_key(passphrase: str, salt: bytes, iterations: int) -> bytes:
@@ -107,4 +115,5 @@ def _b64e(b: bytes) -> str:
 
 
 def _b64d(s: str) -> bytes:
-    return base64.b64decode(s.encode("ascii"))
+    # validate=True: a corrupted vault must fail loudly, not decode garbage.
+    return base64.b64decode(s.encode("ascii"), validate=True)

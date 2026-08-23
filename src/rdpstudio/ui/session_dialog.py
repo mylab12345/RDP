@@ -128,6 +128,10 @@ class SessionDialog(QDialog):
         self.stack = QStackedWidget()
         scroll_layout.addWidget(self.stack, 1)
 
+        # Each protocol page owns its own auth widgets; saving reads the set
+        # belonging to the selected protocol. (A single shared set would let
+        # one page's combo shadow the other's and silently drop user input.)
+        self._auth_ui: dict[str, dict] = {}
         self._ssh_page = self._build_ssh_page()
         self.stack.addWidget(self._ssh_page)
         self._rdp_page = self._build_rdp_page()
@@ -260,71 +264,93 @@ class SessionDialog(QDialog):
         )
         return page
 
-    def _build_auth_box(self) -> QGroupBox:
+    def _build_auth_box(self, protocol: str) -> QGroupBox:
         box = QGroupBox("Authentication")
         form = QFormLayout(box)
         form.setSpacing(10)
-        self.auth = QComboBox()
-        self.auth.addItem("Password", AUTH_PASSWORD)
-        self.auth.addItem("Vault credential", AUTH_CREDENTIAL)
-        self.auth.addItem("Private key", AUTH_KEY)
-        self.auth.addItem("SSH agent", AUTH_AGENT)
-        self._auth_label = QLabel("Method")
-        form.addRow(self._auth_label, self.auth)
+        auth = QComboBox()
+        auth.addItem("Password", AUTH_PASSWORD)
+        auth.addItem("Vault credential", AUTH_CREDENTIAL)
+        auth.addItem("Private key", AUTH_KEY)
+        auth.addItem("SSH agent", AUTH_AGENT)
+        auth_label = QLabel("Method")
+        form.addRow(auth_label, auth)
 
-        self.credential = QComboBox()
-        self._reload_credentials()
-        self._credential_label = QLabel("Credential")
-        form.addRow(self._credential_label, self.credential)
+        credential = QComboBox()
+        credential_label = QLabel("Credential")
+        form.addRow(credential_label, credential)
 
-        self.key_path = QLineEdit(self.session.key_path)
-        self.key_path.setPlaceholderText("~/.ssh/id_ed25519")
+        key_path = QLineEdit(self.session.key_path)
+        key_path.setPlaceholderText("~/.ssh/id_ed25519")
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.setSpacing(8)
-        key_layout.addWidget(self.key_path, 1)
+        key_layout.addWidget(key_path, 1)
         browse = QPushButton("Browse…")
         browse.setObjectName("subtle")
-        browse.clicked.connect(self._browse_key)
+        browse.clicked.connect(lambda _=False, edit=key_path: self._browse_key(edit))
         key_layout.addWidget(browse)
-        self._key_label = QLabel("Key file")
-        form.addRow(self._key_label, key_row)
-        self._key_row = key_row
+        key_label = QLabel("Key file")
+        form.addRow(key_label, key_row)
 
-        self.auth.currentIndexChanged.connect(self._on_auth)
-        idx = self.auth.findData(self.session.auth or AUTH_PASSWORD)
-        self.auth.setCurrentIndex(idx if idx >= 0 else 0)
+        self._auth_ui[protocol] = {
+            "auth": auth,
+            "credential": credential,
+            "key_path": key_path,
+            "auth_label": auth_label,
+            "credential_label": credential_label,
+            "key_label": key_label,
+            "key_row": key_row,
+        }
+
+        auth.currentIndexChanged.connect(lambda _=0, p=protocol: self._on_auth(p))
+        idx = auth.findData(self.session.auth or AUTH_PASSWORD)
+        auth.setCurrentIndex(idx if idx >= 0 else 0)
         if self.session.credential_id:
-            ci = self.credential.findData(self.session.credential_id)
+            ci = credential.findData(self.session.credential_id)
             if ci >= 0:
-                self.credential.setCurrentIndex(ci)
-        self._on_auth()
+                credential.setCurrentIndex(ci)
+        self._reload_credentials_into(credential)
+        self._on_auth(protocol)
         return box
 
+    def _current_auth_ui(self, protocol: str | None = None) -> dict:
+        pid = protocol or self.protocol.currentData() or PROTOCOL_SSH
+        return self._auth_ui.get(pid, self._auth_ui[PROTOCOL_SSH])
+
     def _reload_credentials(self) -> None:
-        self.credential.clear()
-        self.credential.addItem("— none —", "")
+        for ui in self._auth_ui.values():
+            self._reload_credentials_into(ui["credential"])
+
+    def _reload_credentials_into(self, combo: QComboBox) -> None:
+        current = combo.currentData()
+        combo.clear()
+        combo.addItem("— none —", "")
         try:
             for cred in self.ctx.vault.entries():
                 label = cred.name or cred.id
                 if cred.username:
                     label += f" ({cred.username})"
-                self.credential.addItem(label, cred.id)
+                combo.addItem(label, cred.id)
         except Exception:
             pass
+        if current:
+            idx = combo.findData(current)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
 
-    def _browse_key(self) -> None:
+    def _browse_key(self, edit: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Choose private key", "", "Keys (*)")
         if path:
-            self.key_path.setText(path)
+            edit.setText(path)
 
     def _build_ssh_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
-        layout.addWidget(self._build_auth_box())
+        layout.addWidget(self._build_auth_box(PROTOCOL_SSH))
 
         behaviour = QGroupBox("Session behaviour")
         form = QFormLayout(behaviour)
@@ -387,7 +413,7 @@ class SessionDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
-        layout.addWidget(self._build_auth_box())
+        layout.addWidget(self._build_auth_box(PROTOCOL_RDP))
 
         display = QGroupBox("Display")
         form = QFormLayout(display)
@@ -534,16 +560,17 @@ class SessionDialog(QDialog):
         }.get(pid, self._ssh_page)
         self.stack.setCurrentWidget(widget)
 
-    def _on_auth(self) -> None:
-        method = self.auth.currentData()
+    def _on_auth(self, protocol: str | None = None) -> None:
+        ui = self._current_auth_ui(protocol)
+        method = ui["auth"].currentData()
         wants_credential = method in (AUTH_CREDENTIAL, AUTH_KEY)
         wants_key = method == AUTH_KEY
-        self._credential_label.setVisible(wants_credential)
-        self.credential.setVisible(wants_credential)
-        self._key_label.setVisible(wants_key)
-        self._key_row.setVisible(wants_key)
-        self.credential.setEnabled(wants_credential)
-        self.key_path.setEnabled(wants_key)
+        ui["credential_label"].setVisible(wants_credential)
+        ui["credential"].setVisible(wants_credential)
+        ui["key_label"].setVisible(wants_key)
+        ui["key_row"].setVisible(wants_key)
+        ui["credential"].setEnabled(wants_credential)
+        ui["key_path"].setEnabled(wants_key)
         uses_password = method in (AUTH_PASSWORD, AUTH_CREDENTIAL)
         self.password.setEnabled(uses_password)
         self.password.setPlaceholderText(
@@ -564,10 +591,16 @@ class SessionDialog(QDialog):
         s.description = self.description.text().strip()
         s.tags = [t for t in self.tags.text().replace(",", " ").split() if t]
 
+        # The local-shell page has no auth widgets; only ssh/rdp do.
+        auth_ui = (
+            self._current_auth_ui(s.protocol)
+            if s.protocol in (PROTOCOL_SSH, PROTOCOL_RDP)
+            else None
+        )
         if s.protocol == PROTOCOL_SSH:
-            s.auth = self.auth.currentData()
-            s.credential_id = self.credential.currentData() or ""
-            s.key_path = self.key_path.text().strip()
+            s.auth = auth_ui["auth"].currentData()
+            s.credential_id = auth_ui["credential"].currentData() or ""
+            s.key_path = auth_ui["key_path"].text().strip()
             s.jump_session_id = self.jump.currentData() or ""
             s.startup_command = self.startup.text()
             s.keepalive = self.keepalive.value()
@@ -576,8 +609,8 @@ class SessionDialog(QDialog):
             s.auto_reconnect = self.auto_reconnect.isChecked()
             s.forwards = self.forwards.get_forwards()
         elif s.protocol == PROTOCOL_RDP:
-            s.auth = self.auth.currentData()
-            s.credential_id = self.credential.currentData() or ""
+            s.auth = auth_ui["auth"].currentData()
+            s.credential_id = auth_ui["credential"].currentData() or ""
             s.domain = self.domain.text().strip()
             s.rdp_width = self.rdp_width.value()
             s.rdp_height = self.rdp_height.value()

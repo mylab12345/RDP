@@ -77,6 +77,47 @@ class _ScannerThread(QThread):
         self.scanner.cancel()
 
 
+class _PingThread(QThread):
+    """TCP ping off the GUI thread — a closed port × many probes can block
+    for minutes and used to freeze the whole window."""
+
+    pingDone = Signal(object, str)  # PingSummary, error text ("" on success)
+
+    def __init__(self, host: str, port: int, count: int, parent=None) -> None:
+        super().__init__(parent)
+        self.host = host
+        self.port = port
+        self.count = count
+
+    def run(self) -> None:
+        try:
+            summary = tcp_ping(self.host, port=self.port, count=self.count)
+            error = ""
+        except Exception as exc:  # noqa: BLE001 - never kill the thread
+            from ..tools.network_scanner import PingSummary
+
+            summary = PingSummary(host=self.host, sent=self.count)
+            error = str(exc)
+        self.pingDone.emit(summary, error)
+
+
+class _DnsThread(QThread):
+    """DNS lookups can hang on slow resolvers — keep them off the GUI thread."""
+
+    dnsDone = Signal(dict)
+
+    def __init__(self, target: str, parent=None) -> None:
+        super().__init__(parent)
+        self.target = target
+
+    def run(self) -> None:
+        try:
+            res = dns_lookup(self.target)
+        except Exception as exc:  # noqa: BLE001
+            res = {"Error": [str(exc)]}
+        self.dnsDone.emit(res)
+
+
 class NetworkToolsDialog(QDialog):
     """Standalone diagnostic workstation: Port Scanner, Ping & DNS."""
 
@@ -88,6 +129,8 @@ class NetworkToolsDialog(QDialog):
         self.setMinimumSize(700, 480)
 
         self._scan_thread: _ScannerThread | None = None
+        self._ping_thread: _PingThread | None = None
+        self._dns_thread: _DnsThread | None = None
         self._scan_results: list[ScanResult] = []
 
         layout = QVBoxLayout(self)
@@ -107,6 +150,17 @@ class NetworkToolsDialog(QDialog):
         tabs.addTab(self._build_ping_tab(), "Ping & Latency")
         tabs.addTab(self._build_dns_tab(), "DNS & IP Lookup")
         layout.addWidget(tabs, 1)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        # Never destroy the dialog while worker threads are still running.
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            self._scan_thread.cancel()
+            self._scan_thread.wait(2000)
+        if self._ping_thread is not None and self._ping_thread.isRunning():
+            self._ping_thread.wait(2000)
+        if self._dns_thread is not None and self._dns_thread.isRunning():
+            self._dns_thread.wait(2000)
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # TAB 1: Port Scanner
@@ -446,13 +500,22 @@ class NetworkToolsDialog(QDialog):
         count = self.ping_count.value()
         if not host:
             return
+        if self._ping_thread is not None and self._ping_thread.isRunning():
+            toast(self, "A ping is already running", "info")
+            return
 
         self.ping_log.setRowCount(0)
         self.ping_spark.clear()
+        self.lbl_ping_loss.setText("…")
 
-        # Run ping in background
-        summary = tcp_ping(host, port=port, count=count)
+        # Blocking socket probes run on a worker thread so the UI stays alive.
+        self._ping_thread = _PingThread(host, port, count, self)
+        self._ping_thread.pingDone.connect(self._on_ping_done)
+        self._ping_thread.start()
 
+    def _on_ping_done(self, summary, error: str) -> None:
+        if error:
+            toast(self, f"Ping failed: {error}", "bad")
         self.lbl_ping_loss.setText(f"{summary.packet_loss_pct:.0f}%")
         self.lbl_ping_min.setText(f"{summary.min_ms:.1f} ms" if summary.received else "—")
         self.lbl_ping_avg.setText(f"{summary.avg_ms:.1f} ms" if summary.received else "—")
@@ -507,13 +570,23 @@ class NetworkToolsDialog(QDialog):
         target = self.dns_input.text().strip()
         if not target:
             return
+        if self._dns_thread is not None and self._dns_thread.isRunning():
+            toast(self, "A lookup is already running", "info")
+            return
         self.dns_table.setRowCount(0)
-        res = dns_lookup(target)
+        # getaddrinfo can stall on slow resolvers — run it off the GUI thread.
+        self._dns_thread = _DnsThread(target, self)
+        self._dns_thread.dnsDone.connect(self._on_dns_done)
+        self._dns_thread.start()
 
+    def _on_dns_done(self, res: dict) -> None:
         for rec_type, values in res.items():
             for v in values:
                 row = self.dns_table.rowCount()
                 self.dns_table.insertRow(row)
                 self.dns_table.setItem(row, 0, QTableWidgetItem(rec_type))
                 self.dns_table.setItem(row, 1, QTableWidgetItem(v))
-        toast(self, f"Resolved records for {target}", "good")
+        if "Error" in res:
+            toast(self, f"DNS lookup failed: {res['Error'][0] if res['Error'] else 'unknown'}", "bad")
+        else:
+            toast(self, "DNS lookup finished", "good")

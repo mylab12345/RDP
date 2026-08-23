@@ -349,11 +349,16 @@ class SftpDialog(QDialog):
         toast(self, f"{Path(remote_path).name}: {message}", "good" if ok else "bad")
         self._call("list_dir", self.remote.path.text())
 
+    def _mkdir_prompt(self, pane: _Pane) -> None:
+        name = self._prompt_name("Folder name")
+        if name.strip():
+            self._call("mkdir", pane.path.text(), name.strip())
+
     def _menu(self, pane: _Pane, pos) -> None:
         item = pane.list.itemAt(pos)
         if item is None:
             menu = QMenu(self)
-            menu.addAction("New folder…", lambda: self._call("mkdir", pane.path.text(), self._prompt_name("Folder name")))
+            menu.addAction("New folder…", lambda: self._mkdir_prompt(pane))
             menu.addAction("Refresh", lambda: pane._go())
             menu.exec(pane.list.viewport().mapToGlobal(pos))
             return
@@ -369,7 +374,7 @@ class SftpDialog(QDialog):
         if pane.is_remote:
             menu.addAction("⇩ Download…", lambda: self._transfer("download", names=[name]))
             menu.addSeparator()
-            menu.addAction("New folder…", lambda: self._call("mkdir", pane.path.text(), self._prompt_name("Folder name")))
+            menu.addAction("New folder…", lambda: self._mkdir_prompt(pane))
             menu.addAction("Rename…", lambda: self._call("rename", pane.path.text(), name, self._prompt_name("New name", name) or name))
             menu.addAction("Delete", lambda: self._call("remove", pane.path.text(), name))
         else:

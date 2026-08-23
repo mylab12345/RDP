@@ -18,6 +18,7 @@ Design notes
 from __future__ import annotations
 
 import shlex
+import time
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -247,6 +248,7 @@ class MonitorEngine(QObject):
         self._prev = _Prev()
         self._timer: QTimer | None = None
         self._running = False
+        self._last_sample_at: float = 0.0
 
     # ------------------------------------------------------------------
     @Slot()
@@ -291,8 +293,17 @@ class MonitorEngine(QObject):
             log.debug("monitor parse failed: %s", exc)
             self.failed.emit(f"unreadable probe output: {exc}")
             return
-        # /proc/stat deltas are per-interval; convert byte deltas to per-second.
-        seconds = self._interval_ms / 1000.0
+        # Convert byte deltas to per-second rates using the *actual* elapsed
+        # time between samples (a slow probe makes the real cadence longer
+        # than the configured interval).
+        now = time.monotonic()
+        seconds = (
+            now - self._last_sample_at
+            if self._last_sample_at
+            else self._interval_ms / 1000.0
+        )
+        self._last_sample_at = now
+        seconds = max(0.25, seconds)
         sample.rx_rate /= seconds
         sample.tx_rate /= seconds
         self.sample.emit(sample.to_dict())

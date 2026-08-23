@@ -104,6 +104,7 @@ class SshWorker(QObject):
         self._shell_requested = False
         self._pty_size = term_size
         self._pump_thread: threading.Thread | None = None
+        self._disconnected_emitted = False
 
     # ------------------------------------------------------------------
     # Public API — thread-safe where noted. Qt slots remain for queued
@@ -200,7 +201,7 @@ class SshWorker(QObject):
         if pt is not None and pt is not threading.current_thread():
             pt.join(timeout=1.0)
         self._cleanup()
-        self.disconnected.emit(reason if reason else "")
+        self._emit_disconnected(reason if reason else "")
 
     def request_stop(self) -> None:
         """Thread-safe, non-blocking stop request from any thread."""
@@ -401,7 +402,16 @@ class SshWorker(QObject):
                 self._flush_writes(chan)
         if self._stop.is_set():
             self._cleanup()
-            self.disconnected.emit("")
+            self._emit_disconnected("")
+
+    def _emit_disconnected(self, reason: str) -> None:
+        """Emit ``disconnected`` exactly once — the pump thread and the
+        shutdown slot can both reach the end of a session, and a duplicate
+        signal would double-count reconnect attempts."""
+        if self._disconnected_emitted:
+            return
+        self._disconnected_emitted = True
+        self.disconnected.emit(reason)
 
     def _flush_writes(self, chan: paramiko.Channel) -> None:
         while True:
@@ -415,17 +425,20 @@ class SshWorker(QObject):
                 n = chan.send(data)
             except Exception:  # noqa: BLE001
                 return
+            if n <= 0:
+                # Nothing was accepted right now; retry on the next pump tick
+                # instead of spinning here forever.
+                return
             with self._write_lock:
-                if n > 0:
-                    self._write_bytes -= n
-                    if n >= len(data):
-                        self._writes.popleft()
-                    else:
-                        self._writes[0] = data[n:]
+                self._write_bytes -= n
+                if n >= len(data):
+                    self._writes.popleft()
+                else:
+                    self._writes[0] = data[n:]
 
     def _end(self, reason: str) -> None:
         self._cleanup()
-        self.disconnected.emit(reason)
+        self._emit_disconnected(reason)
 
     def _cleanup(self) -> None:
         if self._tunnels is not None:

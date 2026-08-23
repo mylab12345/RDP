@@ -135,8 +135,18 @@ def _glyph_icon(glyph: str) -> QIcon:
     return QIcon(pix)
 
 
-def palette(theme: str = "dark") -> dict[str, str]:
-    return PALETTE.get(theme, PALETTE["dark"])
+# Theme currently applied to the app (see apply_theme). Widgets that build
+# colors at construction time use this so light theme doesn't render dark.
+_current_theme = "dark"
+
+
+def current_theme() -> str:
+    return _current_theme
+
+
+def palette(theme: str | None = None) -> dict[str, str]:
+    """Palette for ``theme`` — defaults to the currently applied theme."""
+    return PALETTE.get(theme or _current_theme, PALETTE["dark"])
 
 
 # ----------------------------------------------------------------------
@@ -622,6 +632,8 @@ QWidget#sidebar {{
 """
 
 def apply_theme(app: QApplication, theme: str = "dark") -> None:
+    global _current_theme
+    _current_theme = theme if theme in PALETTE else "dark"
     pal = palette(theme)
     app.setStyleSheet(_QSS.format(**pal))
     from PySide6.QtGui import QPalette

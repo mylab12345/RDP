@@ -82,6 +82,53 @@
 - Session import validates its input, bounds the file size and no longer leaks
   a file handle; export reports errors instead of raising.
 - `subprocess` timeouts/missing binaries are handled in the RDP server manager.
+- Session editor: the SSH and RDP pages each own their authentication widgets
+  now — previously the RDP page's combos shadowed the SSH page's, so auth
+  method, vault credential and key path edits made on the SSH page were
+  silently dropped on save.
+- Quick connect: a bare `user@host` connects over SSH again. The RDP plugin
+  claimed every parseable target, and because plugins are tried in order,
+  `user@host` opened an RDP session; RDP now only matches an explicit `:3389`.
+- Broadcast input mode and command snippets actually send to terminal tabs
+  (both checked a `send_text` attribute no controller has, so they silently
+  did nothing).
+- Remote port forwards read the server-assigned port from the correct tuple
+  element (`request_port_forward` returns `(address, port)`).
+- `.rdp` files no longer contain duplicate keys (mstsc applies the last
+  occurrence of a key, so the duplicate `full address` line could override
+  values) and are written with a UTF-16 BOM so mstsc reads non-ASCII
+  usernames/domains correctly.
+- RDP probe: a classic (pre-RDP5) Connection Confirm is exactly 10 bytes and
+  was wrongly rejected; partial TCP responses are reassembled before parsing.
+- SSH worker: the `disconnected` signal is emitted exactly once (pump thread
+  and shutdown slot could both fire it, double-counting reconnect attempts);
+  the write queue no longer busy-spins when the channel accepts 0 bytes.
+- SFTP/monitoring keep working across reconnects: the transport provider now
+  resolves the current worker at call time instead of pinning the old one.
+- Network tools: ping and DNS lookups run off the GUI thread (a closed port ×
+  many probes could freeze the whole window for minutes).
+- Terminal context-menu paste honours the multi-line paste confirmation again
+  (Qt's `triggered(checked)` was disabling it).
+- Light theme: widgets built at runtime used the dark palette unconditionally;
+  `palette()` now follows the applied theme.
+- Session import no longer silently overwrites a saved session when an
+  imported file carries a colliding id; renaming a folder into an existing
+  folder merges instead of duplicating the group entry.
+- Vault: `create()` refuses to overwrite an existing vault; corrupt vault
+  files raise a proper `CryptoError` instead of crashing on decode; imported
+  SSH keys are forced to `0600` regardless of source permissions.
+- `known_hosts` fingerprint lookup no longer indexes a dict method
+  (`entry.keys[0]` → `TypeError`).
+- ssh/config importer understands `Key=Value` and tab-separated entries;
+  quick connect supports bracketed IPv6 (`[::1]:2222`).
+- Settings with garbage numeric values no longer crash startup; a failed
+  XWayland relaunch restores the previous `QT_QPA_PLATFORM`.
+- Monitor network rates use the real elapsed time between samples; toasts are
+  positioned at their parent window instead of the screen corner; duplicate
+  `Ctrl+W` shortcut could close two tabs per keypress.
+- Clean application exit: SSH worker threads are joined synchronously in
+  `closeEvent` (they were torn down via a deferred timer that never ran after
+  quit, causing Qt's "QThread destroyed while still running" abort).
 
 ## Unreleased
 

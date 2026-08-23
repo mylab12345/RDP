@@ -239,10 +239,13 @@ class SnippetsPanel(QWidget):
         if not rendered.endswith("\n"):
             rendered += "\n"
 
-        if controller and hasattr(controller, "send_text"):
-            controller.send_text(rendered)
+        # Shell-capable controllers (SSH / local terminal) implement write();
+        # anything else (e.g. RDP) cannot take injected keystrokes.
+        if controller is not None and controller.capabilities().shell:
+            controller.write(rendered.encode("utf-8"))
             toast(self, f"Executed “{s.name}”", "good")
         else:
+            toast(self, "Open a terminal session to run snippets", "warn")
             self.runSnippetRequested.emit(rendered)
 
     def _on_add(self) -> None:

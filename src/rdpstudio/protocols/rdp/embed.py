@@ -180,9 +180,9 @@ def should_relaunch_for_embedded(
 
 def relaunch_under_x11(argv: list[str] | None = None) -> None:
     """Restart this process as an X11 (XWayland) client.  Never returns on
-    success; returns (with the env left unchanged apart from the guard) if
-    ``execv`` itself fails."""
+    success; returns (with the env restored) if ``execv`` itself fails."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    prev_platform = os.environ.get("QT_QPA_PLATFORM")
     os.environ[RELAUNCH_ENV] = "1"
     os.environ["QT_QPA_PLATFORM"] = "xcb"
     log.info("restarting RDP Studio via XWayland for the built-in RDP display")
@@ -194,7 +194,11 @@ def relaunch_under_x11(argv: list[str] | None = None) -> None:
     except OSError as exc:  # pragma: no cover - exec hardly ever fails
         log.error("XWayland restart failed: %s", exc)
         os.environ.pop(RELAUNCH_ENV, None)
-        os.environ.pop("QT_QPA_PLATFORM", None)
+        # Restore whatever the user/session had before (possibly nothing).
+        if prev_platform is None:
+            os.environ.pop("QT_QPA_PLATFORM", None)
+        else:
+            os.environ["QT_QPA_PLATFORM"] = prev_platform
 
 
 def _cli_rdp_target(argv: list[str], store) -> bool:
