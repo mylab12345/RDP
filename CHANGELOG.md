@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Added
+- **MobaXterm-style layout.** The menu bar is reorganised into
+  **File / View / Tools / Tabs / Session / Help** (session actions under
+  Session, tab actions under Tabs, tools under Tools), and the toolbar is a
+  compact icon strip with the quick-connect box centred — the same
+  information architecture as MobaXterm, without losing any existing feature
+  (SFTP, tunnels, vault, snippets, scanner, cluster, keys and settings all
+  remain one click away).
+- **Per-tab command line.** Every terminal tab has a MobaXterm-style command
+  bar along its bottom edge: type a command and press Enter to run it in
+  that terminal (no click-to-focus needed), `Up`/`Down` recalls the tab's
+  command history (newest first, consecutive duplicates skipped, capped at
+  100 entries). In broadcast mode the bar sends to *all* shell tabs.
+- **Docked remote monitor (bottom).** The live CPU / memory / disk / network
+  figures for the active SSH session are now available as an always-available
+  panel docked along the bottom of the main window (the same probe engine as
+  the standalone monitor). It follows the active tab, auto-expands once per
+  host on first connect, collapses to a one-line strip, and offers the same
+  pause / refresh-interval / **Details** (opens the full monitor window)
+  controls. Toggle from the toolbar or `View → Toggle remote monitor panel`.
 - **RDP fits the terminal.** The built-in (in-app) RDP display detects the
   size of the tab's display area and launches the remote desktop at exactly
   that resolution, so the whole screen is visible with no scrolling or
@@ -37,11 +56,24 @@
   Fullscreen / common resolutions / Custom…).
 
 ### Performance
-- Terminal rendering is ~2.3x faster: consecutive same-style cells are batched
-  into single `drawText` calls, the palette and font variants are cached
-  instead of rebuilt every frame, and only the invalidated rows are repainted.
+- **Remote Linux VMs feel snappier in the terminal** — two layers of work:
+  - *Rendering*: full repaints measure **14.8 ms → 4.3 ms** (≈3.4×) and the
+    common interactive case (one prompt line) **2.14 ms → 0.81 ms per output
+    event** (≈2.6×). Consecutive same-style cells are batched into single
+    `drawText` calls, styled runs are cached per row (invalidated on theme
+    change), the palette and font variants are cached instead of rebuilt every
+    frame, and only invalidated rows are repainted.
+  - *Pumping*: the SSH worker's output pump now wakes immediately on
+    keystroke-able writes (self-pipe instead of polling) and ships small
+    coalesced chunks from an idle remote after **~8 ms** instead of waiting
+    the full 150 ms pacing window — a prompt on the remote no longer feels
+    like it "arrives late". Large bursts still coalesce (≤64 KB per emit),
+    and any output still buffered when the session stops is flushed before
+    teardown, so the tail of a transfer is never dropped.
 - Terminal output repaints are capped at ~60 fps and can no longer be starved
-  indefinitely by a fast writer (`yes`, large `cat`).
+  indefinitely by a fast writer (`yes`, large `cat`); the coalesce window
+  adapts (16 ms while dirty, 33 ms at rest) so steady output stays smooth
+  while idle tabs use almost no CPU.
 - Window resizing is debounced, so dragging an edge no longer sends a PTY
   resize per pixel.
 - Cursor blink repaints only the cursor cell instead of the whole widget.
@@ -69,6 +101,10 @@
   (CVE-2023-48795, Terrapin) and `cryptography>=44.0.1` (CVE-2024-12797).
 
 ### Fixed
+- Terminal: the vertical scrollbar was sizing itself to the platform default
+  (~100 px) before the stylesheet applied, leaving a wide blank strip on the
+  right of every terminal and wasting ~10 columns of shell width; the bar is
+  now pinned to its 12 px styled width.
 - Local shell: the PTY master is no longer closed while the reader thread is
   still blocked on it (which could stream an unrelated file into the terminal);
   the child's whole process group is signalled on close; a failed `Popen` no

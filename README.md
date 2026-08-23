@@ -3,7 +3,10 @@
 **A cross-platform remote-access workbench, inspired by MobaXterm.**
 Tabbed SSH sessions to Linux hosts, RDP sessions to Windows hosts, an encrypted
 credential vault, SFTP file transfer, port forwarding (including SOCKS), and a
-plugin architecture for adding protocols — all in one clean, dark-themed GUI.
+plugin architecture for adding protocols — all in one clean, dark-themed GUI
+that mirrors MobaXterm's information architecture: a **Sessions** sidebar,
+tabbed sessions, a **command line under each terminal tab**, and a live
+**remote monitor docked along the bottom** of the window.
 
 ![Main window](docs/screenshots/main-window.png)
 
@@ -22,6 +25,7 @@ plugin architecture for adding protocols — all in one clean, dark-themed GUI.
 | Area | What you get |
 |---|---|
 | **SSH (Linux)** | Interactive shells in tabs with a real VT emulator (pyte-based: colors, scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives |
+| **Per-tab command line** | MobaXterm-style command bar under every terminal tab: type + Enter runs the command in that tab, `Up`/`Down` recalls per-tab history (deduped, 100 entries); in broadcast mode it fans out to all shell tabs |
 | **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window, like MobaXterm) on Linux — **including Wayland desktops**, where RDP Studio restarts itself through XWayland automatically when an RDP session is in play; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Local terminal** | One-click native shell in a tab (toolbar, `Session → New local terminal`, `Ctrl+Shift+T`): real PTY on Linux/macOS, ConPTY on Windows — colors, resize, `vim`/`top` all work |
 | **Command palette** | Instant keyboard launcher (`Ctrl+P` / `Ctrl+K`): fuzzy-search and switch across open tabs, connect saved sessions, and launch any tool or command |
@@ -31,7 +35,7 @@ plugin architecture for adding protocols — all in one clean, dark-themed GUI.
 | **Network diagnostics** | Standalone & workbench tool (`Ctrl+Shift+N`): multi-threaded TCP port scanner, TCP ping latency tester with jitter and loss stats, and forward/reverse DNS lookup |
 | **Multi-host runner** | Parallel cluster execution (`Ctrl+Shift+X`): execute commands across multiple SSH hosts concurrently with a consolidated results grid and stdout/stderr inspector |
 | **SSH key utility** | Standalone key tool (`Ctrl+Shift+U`): key generation (Ed25519/RSA/ECDSA), visual Randomart (Drunken Bishop algorithm), and OpenSSH ⇄ PuTTY `.ppk` converter |
-| **Remote monitoring** | Live CPU, memory, swap, disk, load average, logged-in users and network throughput for any SSH host, with sparkline history and a selectable refresh rate (`Ctrl+Shift+M`). Runs a single read-only `/proc` probe per sample over the session's existing SSH transport — no agent to install |
+| **Remote monitoring** | Live CPU, memory, swap, disk, load average, logged-in users and network throughput for any SSH host, with sparkline history and a selectable refresh rate (`Ctrl+Shift+M`). **Docked along the bottom** of the window (MobaXterm-style) it follows the active tab, auto-expands on first connect, and collapses to a one-line strip; the **Details** button opens the full monitor window. Runs a single read-only `/proc` probe per sample over the session's existing SSH transport — no agent to install |
 | **File transfer & edit** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, hidden files toggle (`.*`), and **in-app text file editor** with direct SFTP save-and-upload (`Ctrl+S`) |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`) |

@@ -13,7 +13,9 @@ and ``resize_pty`` are thread-safe and callable directly from any thread.
 
 from __future__ import annotations
 
+import os
 import select
+import socket
 import threading
 import time
 from collections import deque
@@ -30,6 +32,11 @@ from .knownhosts import KnownHostsVerifier
 log = get_logger("ssh.worker")
 
 _MAX_PENDING_WRITES = 8 * 1024 * 1024  # cap buffered user input
+# Output is coalesced into emissions of at most this size / this age, which
+# cuts the number of cross-thread Qt signals (and pyte re-entrances) on
+# chatty sessions without adding perceptible latency.
+_MAX_OUT_CHUNK = 65536
+_OUT_EMIT_DELAY = 0.008
 
 
 class AuthMaterial:
@@ -105,6 +112,12 @@ class SshWorker(QObject):
         self._pty_size = term_size
         self._pump_thread: threading.Thread | None = None
         self._disconnected_emitted = False
+        self._out_buf = b""
+        # Self-pipe so queued keystrokes wake the pump immediately instead
+        # of waiting for the next select() expiry (this is what made typing
+        # on idle Linux VMs feel laggy).
+        self._wake_r: socket.socket | None = None
+        self._wake_w: socket.socket | None = None
 
     # ------------------------------------------------------------------
     # Public API — thread-safe where noted. Qt slots remain for queued
@@ -138,6 +151,12 @@ class SshWorker(QObject):
             return
 
         # Pump in its own thread — QThread event loop stays alive.
+        try:
+            self._wake_r, self._wake_w = socket.socketpair()
+            self._wake_r.setblocking(False)
+            self._wake_w.setblocking(False)
+        except OSError:  # pragma: no cover - exotic platforms
+            self._wake_r = self._wake_w = None
         self._pump_thread = threading.Thread(
             target=self._pump, name=f"ssh-pump-{self.host}", daemon=True
         )
@@ -153,6 +172,32 @@ class SshWorker(QObject):
                 self._writes.append(data)
             else:
                 log.warning("dropping input: pending write buffer full")
+                return
+        self._wake_pump()
+
+    def _wake_pump(self) -> None:
+        """Kick the pump thread so queued input is sent without waiting out
+        its select() timeout (≤150 ms of typing latency otherwise)."""
+        wake_w = self._wake_w
+        if wake_w is None:
+            return
+        try:
+            os.write(wake_w.fileno(), b".")
+        except (OSError, ValueError):
+            # Pipe full (many wakeups queued) or closed — the pump drains it
+            # or is exiting; either way input is already in the deque.
+            pass
+
+    def _drain_wake(self) -> None:
+        wake_r = self._wake_r
+        if wake_r is None:
+            return
+        while True:
+            try:
+                if not wake_r.recv(65536):
+                    break
+            except (OSError, BlockingIOError):
+                break
 
     @Slot(bytes)
     def write_input_slot(self, data: bytes) -> None:
@@ -368,17 +413,40 @@ class SshWorker(QObject):
             self.write_input(self.startup_command.encode("utf-8") + b"\n")
 
     def _pump(self) -> None:
-        """select() loop: channel -> output signal, queued writes -> channel."""
+        """select() loop: channel -> output signal, queued writes -> channel.
+
+        Two performance fixes live here:
+
+        * **input latency** — the select also watches a self-pipe that
+          :meth:`write_input` pings, so a keystroke is sent within a few ms
+          even when the remote host is otherwise idle (previously the loop
+          slept up to 150 ms between write flushes).
+        * **output coalescing** — received chunks are batched and emitted
+          in larger, less frequent signals, which cuts cross-thread event
+          overhead (and pyte entry points) on chatty sessions.
+        """
         chan = self._chan
         if chan is None:
             return
         chan.settimeout(0.0)
-        last_alive = time.monotonic()
+        wake = self._wake_r
+        last_emit = time.monotonic()
+        last_alive = last_emit
         while not self._stop.is_set():
+            self._flush_writes(chan)
+            # Short timeout while coalesced output is pending, so a small
+            # chunk from an otherwise-idle remote ships within ~8 ms.
+            timeout = _OUT_EMIT_DELAY if self._out_buf else 0.15
             try:
-                rlist, _, _ = select.select([chan], [], [], 0.15)
+                if wake is not None:
+                    rlist, _, _ = select.select([chan, wake], [], [], timeout)
+                else:
+                    rlist, _, _ = select.select([chan], [], [], timeout)
             except (OSError, ValueError):
                 break
+            if wake is not None and wake in rlist:
+                self._drain_wake()
+                self._flush_writes(chan)
             if chan in rlist:
                 try:
                     data = chan.recv(65536)
@@ -386,23 +454,35 @@ class SshWorker(QObject):
                     self._end(str(exc))
                     return
                 if data:
-                    self.output.emit(data)
+                    self._out_buf += data
                 else:
-                    reason = "connection closed by remote host"
-                    self._end(reason)
+                    self._end("connection closed by remote host")
                     return
-            self._flush_writes(chan)
+            now = time.monotonic()
+            if self._out_buf and (
+                len(self._out_buf) >= _MAX_OUT_CHUNK or now - last_emit >= _OUT_EMIT_DELAY
+            ):
+                self.output.emit(self._out_buf)
+                self._out_buf = b""
+                last_emit = now
             if not chan.active:
                 transport = self._client.get_transport() if self._client else None
                 if transport is None or not transport.is_active():
                     self._end("connection lost")
                     return
-            if time.monotonic() - last_alive > 1.0:
-                last_alive = time.monotonic()
+            if now - last_alive > 1.0:
+                last_alive = now
                 self._flush_writes(chan)
+        self._flush_output()
         if self._stop.is_set():
             self._cleanup()
             self._emit_disconnected("")
+
+    def _flush_output(self) -> None:
+        """Emit any coalesced tail so no terminal output is dropped."""
+        if self._out_buf:
+            self.output.emit(self._out_buf)
+            self._out_buf = b""
 
     def _emit_disconnected(self, reason: str) -> None:
         """Emit ``disconnected`` exactly once — the pump thread and the
@@ -437,6 +517,7 @@ class SshWorker(QObject):
                     self._writes[0] = data[n:]
 
     def _end(self, reason: str) -> None:
+        self._flush_output()  # don't drop the final bytes of remote output
         self._cleanup()
         self._emit_disconnected(reason)
 
@@ -454,6 +535,13 @@ class SshWorker(QObject):
                 except Exception:  # noqa: BLE001
                     pass
         self._chan = None
+        for sock in (self._wake_r, self._wake_w):
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        self._wake_r = self._wake_w = None
         for client in [*self._hop_clients, self._client]:
             if client is not None:
                 try:
