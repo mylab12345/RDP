@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# RDP Studio — Linux installer.
+# KB-Remote — Linux installer.
 # Creates a private venv, installs the app, adds launcher + .desktop entry.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-VENV_DIR="${RDPSTUDIO_VENV:-$HOME/.rdpstudio/venv}"
-BIN_DIR="${RDPSTUDIO_BIN:-$HOME/.local/bin}"
+VENV_DIR="${KB_REMOTE_VENV:-${RDPSTUDIO_VENV:-$HOME/.kb-remote/venv}}"
+BIN_DIR="${KB_REMOTE_BIN:-${RDPSTUDIO_BIN:-$HOME/.local/bin}}"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 
@@ -20,12 +20,17 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' \
 say "Creating virtualenv in $VENV_DIR"
 python3 -m venv "$VENV_DIR" 2>/dev/null || true
 
-say "Installing RDP Studio"
+say "Installing KB-Remote"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 "$VENV_DIR/bin/pip" install --quiet .
 
 say "Installing launcher to $BIN_DIR"
 mkdir -p "$BIN_DIR"
+cat > "$BIN_DIR/kb-remote" <<EOF
+#!/bin/sh
+exec "$VENV_DIR/bin/kb-remote" "\$@"
+EOF
+chmod +x "$BIN_DIR/kb-remote"
 cat > "$BIN_DIR/rdpstudio" <<EOF
 #!/bin/sh
 exec "$VENV_DIR/bin/rdpstudio" "\$@"
@@ -38,10 +43,10 @@ cp src/rdpstudio/resources/icons/logo.svg "$ICON_DIR/rdpstudio.svg"
 cat > "$DESKTOP_DIR/rdpstudio.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=RDP Studio
+Name=KB-Remote
 GenericName=Remote Access Workbench
 Comment=SSH and RDP sessions with tunnels, vault and file transfer
-Exec=$BIN_DIR/rdpstudio
+Exec=$BIN_DIR/kb-remote
 Icon=rdpstudio
 Terminal=false
 Categories=Network;RemoteAccess;System;Utility;
@@ -58,7 +63,7 @@ if ! command -v xfreerdp >/dev/null && ! command -v sdl-freerdp3 >/dev/null; the
 fi
 
 echo
-say "Done. Start with:  rdpstudio"
+say "Done. Start with:  kb-remote"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "    (add $BIN_DIR to your PATH)" ;;

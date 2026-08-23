@@ -221,7 +221,7 @@ class CommandPaletteDialog(QDialog):
                 PaletteItem(
                     category="Tools & Diagnostics",
                     title="Remote Monitoring",
-                    subtitle="Live CPU, memory, disk, network, and system load monitor",
+                    subtitle="Bottom live CPU, memory, disk and network monitor for SSH/OpenSSH hosts on any OS",
                     action=lambda: (main.open_monitor_dialog(), self.accept()),
                     icon_name="server",
                     shortcut="Ctrl+Shift+M",

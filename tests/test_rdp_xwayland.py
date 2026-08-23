@@ -345,7 +345,7 @@ def test_settings_dialog_xwayland_button(tmp_path, qtapp, monkeypatch):
     monkeypatch.setattr(embed, "embed_blocked_on_wayland", lambda **k: False)
     dlg2 = SettingsDialog(_ctx(tmp_path))
     assert not dlg2.btn_xwayland.isVisibleTo(dlg2)
-    assert "inside RDP Studio" in dlg2.rdp_status.text()
+    assert "inside KB-Remote" in dlg2.rdp_status.text()
 
 
 # --- app entry hook -----------------------------------------------------------------
@@ -408,7 +408,7 @@ def test_e2e_relaunch_switches_to_xcb(tmp_path):
         fake_runtime = tmp_path / "fake-runtime"
         fake_runtime.mkdir(exist_ok=True)
         env.update(
-            RDPSTUDIO_HOME=str(home_dir),
+            KB_REMOTE_HOME=str(home_dir),
             WAYLAND_DISPLAY="wayland-fake-nonexistent",
             XDG_RUNTIME_DIR=str(fake_runtime),
             XDG_SESSION_TYPE="wayland",

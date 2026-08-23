@@ -1,6 +1,6 @@
 # Writing protocol plugins
 
-Every protocol in RDP Studio — including SSH and RDP — is a plugin. The UI
+Every protocol in KB-Remote — including SSH and RDP — is a plugin. The UI
 (tabs, sidebar, session editor, quick-connect) is protocol-agnostic and talks
 only to two interfaces:
 

@@ -282,6 +282,34 @@ def test_monitor_parses_a_realistic_probe():
     assert sample2.tx_rate == 1000
 
 
+def test_monitor_parses_cross_platform_direct_sections():
+    from rdpstudio.protocols.ssh.monitor import parse_probe
+
+    first = (
+        "###uptime\n3600\n"
+        "###loadavg\n0 0 0\n"
+        "###cpu\n37 8\n"
+        "###meminfo\nMemTotal: 16000000 kB\nMemAvailable: 4000000 kB\n"
+        "SwapTotal: 2000000 kB\nSwapFree: 1000000 kB\n"
+        "###netio\n10000 5000\n"
+        "###df\nC: 200000 50000 0 0\n"
+        "###who\n2\n"
+        "###end\n"
+    )
+    sample, prev = parse_probe(first)
+    assert sample.cpu_percent == pytest.approx(37.0)
+    assert sample.cpu_cores == 8
+    assert sample.mem_percent == pytest.approx(75.0)
+    assert sample.disk_percent == pytest.approx(25.0)
+    assert sample.users == 2
+
+    second = first.replace("37 8", "42 8").replace("10000 5000", "13000 7000")
+    sample2, _ = parse_probe(second, prev)
+    assert sample2.cpu_percent == pytest.approx(42.0)
+    assert sample2.rx_rate == 3000
+    assert sample2.tx_rate == 2000
+
+
 def test_monitor_capability_and_uptime_format():
     from rdpstudio.core.plugin import registry
     from rdpstudio.ui.monitor_dialog import format_uptime

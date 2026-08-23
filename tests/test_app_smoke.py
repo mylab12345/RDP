@@ -29,7 +29,7 @@ def test_main_window_builds(ctx, qtapp):
     from rdpstudio.ui.main_window import MainWindow
 
     win = MainWindow(ctx)
-    assert win.windowTitle() == "RDP Studio"
+    assert win.windowTitle() == "KB-Remote"
     assert win.sidebar is not None
     win.close()
     qtapp.processEvents()

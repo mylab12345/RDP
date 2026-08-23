@@ -1,1 +1,1 @@
-"""Standalone utilities and workbench tools for RDP Studio."""
+"""Standalone utilities and workbench tools for KB-Remote."""

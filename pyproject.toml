@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rdp-studio"
 version = "0.9.0"
-description = "Cross-platform remote-access workbench: SSH/SFTP for Linux hosts, RDP for Windows hosts. Tabbed sessions, tunnels, credential vault, file transfer."
+description = "KB-Remote cross-platform remote-access workbench: SSH/SFTP/OpenSSH for Linux, Windows, BSD and macOS hosts; RDP for Windows hosts. Tabbed sessions, tunnels, credential vault, file transfer."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "RDP Studio contributors" }]
+authors = [{ name = "KB-Remote contributors" }]
 keywords = ["ssh", "sftp", "rdp", "remote-desktop", "terminal", "tunnel", "port-forwarding", "mobaxterm"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -51,6 +51,7 @@ Homepage = "https://github.com/mylab12345/RDP"
 Documentation = "https://github.com/mylab12345/RDP/tree/main/docs"
 
 [project.scripts]
+kb-remote = "rdpstudio.app:main"
 rdpstudio = "rdpstudio.app:main"
 
 [tool.setuptools]

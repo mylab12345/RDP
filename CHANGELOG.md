@@ -169,7 +169,7 @@
 ## Unreleased
 
 - **In-app RDP on Wayland desktops** (Ubuntu 25+/26.04, Fedora, …): the
-  built-in display needs X11 window embedding, so RDP Studio now restarts
+  built-in display needs X11 window embedding, so KB-Remote now restarts
   itself through **XWayland** automatically when an RDP session is in play —
   at startup when saved RDP sessions exist, otherwise on demand via a
   **“Show inside app”** button on the RDP tab (and in Settings). The restart
@@ -184,7 +184,7 @@
   (`sudo apt install freerdp3-x11`).
 - **Built-in RDP display** (self-contained, no separate window): on Linux,
   FreeRDP is launched with `/parent-window` so the remote desktop renders
-  *inside* RDP Studio's tab. Keyboard/mouse are handled by the embedded
+  *inside* KB-Remote's tab. Keyboard/mouse are handled by the embedded
   client; resizing the tab refits the desktop. Choose the display in
   **Settings → Connection → RDP display**: *Built-in* / *External window* /
   *Automatic* (default). Falls back to the external window on Windows or

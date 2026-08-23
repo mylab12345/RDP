@@ -1,7 +1,7 @@
 """Built-in (in-app) RDP display: client discovery, support detection and the
 Wayland → XWayland restart.
 
-The remote desktop is rendered by FreeRDP into a *child window* of RDP Studio
+The remote desktop is rendered by FreeRDP into a *child window* of KB-Remote
 itself (``/parent-window``) — no separate OS window, exactly like MobaXterm's
 in-tab RDP.  Window reparenting is an X11 mechanism, so this needs:
 
@@ -120,7 +120,7 @@ def embedded_support(
             return (
                 False,
                 "In-app RDP needs X11. Restart via XWayland (X11 compatibility) "
-                "to render the desktop inside RDP Studio.",
+                "to render the desktop inside KB-Remote.",
             )
         return False, f"Built-in display needs X11 (current Qt platform: {name or 'none'})."
     if not disp:
@@ -185,7 +185,7 @@ def relaunch_under_x11(argv: list[str] | None = None) -> None:
     prev_platform = os.environ.get("QT_QPA_PLATFORM")
     os.environ[RELAUNCH_ENV] = "1"
     os.environ["QT_QPA_PLATFORM"] = "xcb"
-    log.info("restarting RDP Studio via XWayland for the built-in RDP display")
+    log.info("restarting KB-Remote via XWayland for the built-in RDP display")
     try:
         if getattr(sys, "frozen", False):  # PyInstaller build
             os.execv(sys.executable, [sys.executable, *argv])

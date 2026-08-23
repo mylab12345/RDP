@@ -1,4 +1,4 @@
-# RDP Studio - Windows installer (PowerShell).
+# KB-Remote - Windows installer (PowerShell).
 # Creates a private venv, installs the app, adds a Start Menu shortcut.
 #
 # Run from a PowerShell window inside the checkout:
@@ -8,8 +8,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$VenvDir = if ($env:RDPSTUDIO_VENV) { $env:RDPSTUDIO_VENV } else { "$env:LOCALAPPDATA\RDPStudio\venv" }
-$LinkDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RDP Studio"
+$VenvDir = if ($env:KB_REMOTE_VENV) { $env:KB_REMOTE_VENV } elseif ($env:RDPSTUDIO_VENV) { $env:RDPSTUDIO_VENV } else { "$env:LOCALAPPDATA\KB-Remote\venv" }
+$LinkDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\KB-Remote"
 
 function Say($msg) { Write-Host "== $msg" -ForegroundColor Cyan }
 
@@ -28,7 +28,7 @@ if (-not (Test-Path "$VenvDir\Scripts\python.exe")) {
     else { & $PythonExe -m venv $VenvDir }
 }
 
-Say "Installing RDP Studio"
+Say "Installing KB-Remote"
 $venvPy = "$VenvDir\Scripts\python.exe"
 & $venvPy -m pip install --quiet --upgrade pip
 & $venvPy -m pip install --quiet .
@@ -42,19 +42,19 @@ Say "Creating Start Menu shortcut"
 New-Item -ItemType Directory -Force -Path $LinkDir | Out-Null
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateCertificate = $null
-$Shortcut = $WshShell.CreateShortcut("$LinkDir\RDP Studio.lnk")
-$Shortcut.TargetPath = "$VenvDir\Scripts\rdpstudio.exe"
+$Shortcut = $WshShell.CreateShortcut("$LinkDir\KB-Remote.lnk")
+$Shortcut.TargetPath = "$VenvDir\Scripts\kb-remote.exe"
 $Shortcut.WorkingDirectory = "$env:USERPROFILE"
-$Shortcut.IconLocation = "$VenvDir\Scripts\rdpstudio.exe,0"
+$Shortcut.IconLocation = "$VenvDir\Scripts\kb-remote.exe,0"
 $Shortcut.Save()
 
 Say "Adding to user PATH (if missing)"
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($userPath -notlike "*$VenvDir\Scripts*") {
     [Environment]::SetEnvironmentVariable("Path", "$userPath;$VenvDir\Scripts", "User")
-    Say "PATH updated - open a new terminal to use 'rdpstudio'"
+    Say "PATH updated - open a new terminal to use 'kb-remote'"
 }
 
 Say ""
-Say "Done. Launch 'RDP Studio' from the Start Menu, or run: rdpstudio"
+Say "Done. Launch 'KB-Remote' from the Start Menu, or run: kb-remote"
 Say "RDP sessions use the built-in Windows client (mstsc)."

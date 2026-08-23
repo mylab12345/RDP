@@ -1,11 +1,11 @@
-"""Filesystem layout for RDP Studio.
+"""Filesystem layout for KB-Remote.
 
 All application state lives under a single per-user directory so it is easy to
-back up, and easy to redirect for tests (``RDPSTUDIO_HOME``).
+back up, and easy to redirect for tests (``KB_REMOTE_HOME``; legacy ``RDPSTUDIO_HOME`` also works).
 
-Linux:    ~/.config/rdpstudio       (honours $XDG_CONFIG_HOME)
-Windows:  %APPDATA%/RDPStudio
-macOS:    ~/Library/Application Support/RDPStudio
+Linux:    ~/.config/kb-remote       (honours $XDG_CONFIG_HOME)
+Windows:  %APPDATA%/KB-Remote
+macOS:    ~/Library/Application Support/KB-Remote
 """
 
 from __future__ import annotations
@@ -15,20 +15,21 @@ import stat
 import sys
 from pathlib import Path
 
-_ENV_OVERRIDE = "RDPSTUDIO_HOME"
+_ENV_OVERRIDE = "KB_REMOTE_HOME"
+_LEGACY_ENV_OVERRIDE = "RDPSTUDIO_HOME"
 
 
 def _base_dir() -> Path:
-    override = os.environ.get(_ENV_OVERRIDE)
+    override = os.environ.get(_ENV_OVERRIDE) or os.environ.get(_LEGACY_ENV_OVERRIDE)
     if override:
         return Path(override).expanduser()
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(appdata) / "RDPStudio"
+        return Path(appdata) / "KB-Remote"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "RDPStudio"
+        return Path.home() / "Library" / "Application Support" / "KB-Remote"
     xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(xdg) / "rdpstudio"
+    return Path(xdg) / "kb-remote"
 
 
 def _secure_mkdir(path: Path) -> Path:

@@ -1,6 +1,6 @@
 # Architecture
 
-RDP Studio is a desktop remote-access workbench. The design goals, in order:
+KB-Remote is a desktop remote-access workbench. The design goals, in order:
 
 1. **Secure by default** — secrets encrypted at rest, host keys verified,
    logs redacted.
@@ -117,7 +117,7 @@ performs before TLS starts.
 
 ## Data on disk
 
-`RDPSTUDIO_HOME` (default `~/.config/rdpstudio`, `%APPDATA%\RDPStudio`):
+`KB_REMOTE_HOME` (default `~/.config/kb-remote`, `%APPDATA%\KB-Remote`):
 
 | File | Contents |
 |---|---|

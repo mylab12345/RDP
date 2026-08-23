@@ -19,7 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "docs/screenshots")
 OUT.mkdir(parents=True, exist_ok=True)
 STATE = Path(tempfile.mkdtemp(prefix="rdpstudio-wayland-shots-"))
-os.environ["RDPSTUDIO_HOME"] = str(STATE)
+os.environ["KB_REMOTE_HOME"] = str(STATE)
 
 
 def main() -> int:
@@ -40,7 +40,7 @@ def main() -> int:
     embed.embedded_support = lambda **k: (
         False,
         "In-app RDP needs X11. Restart via XWayland (X11 compatibility) "
-        "to render the desktop inside RDP Studio.",
+        "to render the desktop inside KB-Remote.",
     )
 
     ctx = build_context(home_override=str(STATE))
