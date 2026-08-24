@@ -116,7 +116,13 @@ def parse_connection_confirm(data: bytes) -> RdpProbeResult:
 
 
 def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
-    """Connect and negotiate. Raises RdpProbeError on transport errors."""
+    """Connect and negotiate. Raises RdpProbeError on transport errors.
+
+    NLA/TLS servers (e.g. Windows Server 2016+) reject the raw RDP
+    negotiation request with a TCP reset because they expect TLS to be
+    established first.  A ``ConnectionResetError`` is interpreted as
+    "server is reachable and speaking RDP/NLA" rather than a hard failure.
+    """
     import time
 
     result = RdpProbeResult(host=host, port=port)
@@ -159,6 +165,14 @@ def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
         parsed.host, parsed.port = host, port
         parsed.latency_ms = result.latency_ms
         return parsed
+    except ConnectionResetError:
+        # Windows Server 2016+ with NLA resets the connection during raw
+        # RDP negotiation because TLS must come first.  This is expected
+        # and means the server is reachable and running RDP with NLA.
+        result.ok = True
+        result.selected_protocol = PROTOCOL_HYBRID
+        result.selected_protocol_name = "CredSSP/NLA (inferred — raw negotiation rejected)"
+        return result
     except OSError as exc:
         raise RdpProbeError(f"{host}:{port}: {exc}") from exc
     finally:

@@ -147,24 +147,26 @@ def get_main_window(widget=None) -> MainWindow | None:
 
 
 class SessionTab(QWidget):
-    """One tab: hosts a SessionController + beautiful natural header."""
+    """One tab: hosts a SessionController + modern auto-hiding toolbar."""
 
     def __init__(self, controller: SessionController, main: MainWindow) -> None:
         super().__init__()
         self.controller = controller
         self.main = main
         self._custom_title: str | None = None
+        self._toolbar_visible = True
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header bar — bento, pill, natural
+        # Modern header toolbar — compact, auto-hiding on hover-out
         header = QWidget()
         header.setObjectName("header")
-        header.setMinimumHeight(52)
+        header.setMinimumHeight(44)
+        header.setMaximumHeight(44)
         h = QHBoxLayout(header)
-        h.setContentsMargins(16, 10, 16, 10)
-        h.setSpacing(10)
+        h.setContentsMargins(12, 6, 12, 6)
+        h.setSpacing(8)
 
         self.chip = StateChip("connecting", "info")
         h.addWidget(self.chip)
@@ -176,18 +178,10 @@ class SessionTab(QWidget):
 
         self.info = QLabel("")
         self.info.setObjectName("muted")
-        self.info.setStyleSheet("font-size: 12.5px; font-weight: 500;")
+        self.info.setStyleSheet("font-size: 12px; font-weight: 500;")
         h.addWidget(self.info, 1)
 
-        self.btn_reconnect = QPushButton("↻ Reconnect")
-        self.btn_reconnect.setObjectName("primary")
-        self.btn_reconnect.clicked.connect(controller.request_reconnect)
-        self.btn_reconnect.setVisible(False)
-        self.btn_reconnect.setMinimumHeight(36)
-        h.addWidget(self.btn_reconnect)
-
-        caps = controller.capabilities()
-
+        # Session action buttons — compact icon-style
         def make_action_btn(text, icon_name, tip, cb):
             b = QPushButton(text)
             if icon_name:
@@ -195,8 +189,19 @@ class SessionTab(QWidget):
             b.setObjectName("subtle")
             b.setToolTip(tip)
             b.clicked.connect(cb)
-            b.setMinimumHeight(36)
+            b.setFixedHeight(30)
+            b.setStyleSheet(b.styleSheet() + "font-size: 11.5px; padding: 2px 10px;")
             return b
+
+        self.btn_reconnect = QPushButton("↻ Reconnect")
+        self.btn_reconnect.setObjectName("primary")
+        self.btn_reconnect.clicked.connect(controller.request_reconnect)
+        self.btn_reconnect.setVisible(False)
+        self.btn_reconnect.setFixedHeight(30)
+        self.btn_reconnect.setStyleSheet(self.btn_reconnect.styleSheet() + "font-size: 11.5px; padding: 2px 12px;")
+        h.addWidget(self.btn_reconnect)
+
+        caps = controller.capabilities()
 
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
@@ -312,7 +317,7 @@ class MainWindow(QMainWindow):
         status.setSizeGripEnabled(False)
         self.setStatusBar(status)
 
-        # MobaXterm-style: active session summary on the left of the bar.
+        # Modern status bar — session info left, connection state right
         self.session_info_label = QLabel("")
         self.session_info_label.setObjectName("statusSession")
         status.addWidget(self.session_info_label, 1)
@@ -638,7 +643,7 @@ class MainWindow(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
 
-        # Empty state widget — beautiful natural bento
+        # Dashboard — modern workspace welcome with recent connections
         from .theme import palette as theme_palette
 
         pal = theme_palette()
@@ -652,105 +657,200 @@ class MainWindow(QMainWindow):
         )
         el = QVBoxLayout(self._empty)
         el.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.setSpacing(18)
-        el.setContentsMargins(40, 60, 40, 60)
+        el.setSpacing(20)
+        el.setContentsMargins(40, 40, 40, 40)
 
-        # Logo card with gradient accent
+        # Header row: logo + title + version
+        header_row = QHBoxLayout()
+        header_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_row.setSpacing(16)
+
         logo_card = QWidget()
         logo_card.setObjectName("logoCard")
+        logo_card.setFixedSize(72, 72)
         logo_card.setStyleSheet(
             f"""
             QWidget#logoCard {{
-                background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 20px;
-                min-width: 84px;
-                max-width: 84px;
-                min-height: 84px;
-                max-height: 84px;
+                background: {pal['accent_subtle']};
+                border: 2px solid {pal['accent']}40;
+                border-radius: 18px;
             }}
             """
         )
         logo_layout = QVBoxLayout(logo_card)
         logo_layout.setContentsMargins(0, 0, 0, 0)
         logo = QLabel("◈")
-        logo.setStyleSheet(f"font-size: 42px; color: {pal['accent']}; font-weight: 800;")
+        logo.setStyleSheet(f"font-size: 36px; color: {pal['accent']}; font-weight: 800;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_layout.addWidget(logo)
+        header_row.addWidget(logo_card)
 
-        logo_wrap = QHBoxLayout()
-        logo_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_wrap.addWidget(logo_card)
-        el.addLayout(logo_wrap)
-
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
         title = QLabel(APP_NAME)
         title.setObjectName("h1")
-        title.setStyleSheet("font-size: 28px; font-weight: 800; letter-spacing: -0.5px;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.addWidget(title)
+        title.setStyleSheet(f"font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: {pal['fg']};")
+        title_col.addWidget(title)
+        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP")
+        version.setStyleSheet(f"font-size: 12px; color: {pal['fg_muted']}; letter-spacing: 0.5px;")
+        title_col.addWidget(version)
+        header_row.addLayout(title_col)
+        header_row.addStretch(1)
+        el.addLayout(header_row)
 
-        # Subtitle card — bento
-        subtitle_card = QWidget()
-        subtitle_card.setObjectName("card")
-        subtitle_card.setStyleSheet(
+        # Quick connect bar — prominent, centered
+        qc_card = QWidget()
+        qc_card.setObjectName("card")
+        qc_card.setStyleSheet(
             f"""
             QWidget#card {{
                 background: {pal['bg2']};
                 border: 1.5px solid {pal['border']};
                 border-radius: 14px;
+                max-height: 56px;
             }}
             """
         )
-        sub_l = QVBoxLayout(subtitle_card)
-        sub_l.setContentsMargins(20, 16, 20, 16)
-        sub_l.setSpacing(8)
-        subtitle = QLabel(
-            "Welcome to your natural workspace — calm, organic, and focused.\n"
-            "Select a session from the sidebar or open a local terminal."
-        )
-        subtitle.setObjectName("muted")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"font-size: 13.5px; color: {pal['fg_dim']}; line-height: 1.5;")
-        sub_l.addWidget(subtitle)
+        qc_lay = QHBoxLayout(qc_card)
+        qc_lay.setContentsMargins(16, 10, 16, 10)
+        qc_lay.setSpacing(10)
+        qc_icon = QLabel("↗")
+        qc_icon.setStyleSheet(f"font-size: 18px; color: {pal['accent']}; font-weight: 700;")
+        qc_lay.addWidget(qc_icon)
+        qc_label = QLabel("Quick Connect")
+        qc_label.setStyleSheet(f"font-size: 13px; color: {pal['fg_dim']}; font-weight: 600;")
+        qc_lay.addWidget(qc_label)
+        self._dash_quick = self.quick
+        self._dash_quick.setMinimumWidth(300)
+        qc_lay.addWidget(self._dash_quick, 1)
+        qc_hint = QLabel("user@host:port  ·  port 3389 = RDP")
+        qc_hint.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']};")
+        qc_lay.addWidget(qc_hint)
+        qc_wrap = QHBoxLayout()
+        qc_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qc_wrap.addWidget(qc_card)
+        el.addLayout(qc_wrap)
 
-        shortcuts = QLabel("⌘ N  new session   •   ⇧⌘ T  local terminal   •   ⌘ P  commands   •   ↗ quick connect")
+        # Action cards row — bento grid
+        actions_row = QHBoxLayout()
+        actions_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        actions_row.setSpacing(12)
+
+        def _action_card(icon_text: str, label: str, tooltip: str, callback) -> QWidget:
+            card = QWidget()
+            card.setObjectName("card")
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            card.setToolTip(tooltip)
+            card.setStyleSheet(
+                f"""
+                QWidget#card {{
+                    background: {pal['bg2']};
+                    border: 1.5px solid {pal['border']};
+                    border-radius: 14px;
+                    min-width: 150px;
+                    max-width: 170px;
+                    min-height: 80px;
+                }}
+                QWidget#card:hover {{
+                    border-color: {pal['accent']}60;
+                    background: {pal['bg3']};
+                }}
+                """
+            )
+            card.mousePressEvent = lambda _: callback()
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(16, 14, 16, 14)
+            lay.setSpacing(6)
+            ic = QLabel(icon_text)
+            ic.setStyleSheet(f"font-size: 22px; color: {pal['accent']};")
+            lay.addWidget(ic)
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {pal['fg']};")
+            lay.addWidget(lbl)
+            lay.addStretch(1)
+            return card
+
+        actions_row.addWidget(_action_card("✦", "New Session", "Create a new connection", self.new_session))
+        actions_row.addWidget(_action_card("▢", "Local Terminal", "Open a local terminal", self.open_local_terminal))
+        actions_row.addWidget(_action_card("⚙", "Settings", "Configure KB-Remote", self.open_settings))
+        actions_row.addWidget(_action_card(" Ft", "Scan Network", "Network tools & port scanner", self.open_network_tools))
+        el.addLayout(actions_row)
+
+        # Recent connections section
+        sessions = list(self.ctx.store.sessions())[:6]
+        if sessions:
+            recent_card = QWidget()
+            recent_card.setObjectName("card")
+            recent_card.setStyleSheet(
+                f"""
+                QWidget#card {{
+                    background: {pal['bg2']};
+                    border: 1.5px solid {pal['border']};
+                    border-radius: 14px;
+                    max-width: 700px;
+                }}
+                """
+            )
+            rc_lay = QVBoxLayout(recent_card)
+            rc_lay.setContentsMargins(20, 16, 20, 16)
+            rc_lay.setSpacing(10)
+            rc_header = QLabel("Recent Connections")
+            rc_header.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {pal['fg_dim']}; letter-spacing: 1px; text-transform: uppercase;")
+            rc_lay.addWidget(rc_header)
+
+            rc_grid = QHBoxLayout()
+            rc_grid.setSpacing(8)
+            for sess in sessions[:4]:
+                item = QWidget()
+                item.setCursor(Qt.CursorShape.PointingHandCursor)
+                item.setStyleSheet(
+                    f"""
+                    QWidget {{
+                        background: {pal['bg3']};
+                        border: 1px solid {pal['border']};
+                        border-radius: 10px;
+                        min-height: 44px;
+                    }}
+                    QWidget:hover {{
+                        border-color: {pal['accent']}50;
+                        background: {pal['sel']};
+                    }}
+                    """
+                )
+                item.mousePressEvent = lambda _, s=sess: self.connect_session(s.id)
+                il = QHBoxLayout(item)
+                il.setContentsMargins(12, 8, 12, 8)
+                il.setSpacing(8)
+                proto_icon = "🖥" if sess.protocol == "rdp" else "⊞" if sess.protocol == "ssh" else "▸"
+                pi = QLabel(proto_icon)
+                pi.setStyleSheet("font-size: 16px;")
+                il.addWidget(pi)
+                info_col = QVBoxLayout()
+                info_col.setSpacing(1)
+                name_lbl = QLabel(sess.display_name())
+                name_lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {pal['fg']};")
+                info_col.addWidget(name_lbl)
+                target = sess.target()
+                tgt_lbl = QLabel(target)
+                tgt_lbl.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']};")
+                info_col.addWidget(tgt_lbl)
+                il.addLayout(info_col, 1)
+                rc_grid.addWidget(item, 1)
+            rc_lay.addLayout(rc_grid)
+            rc_wrap = QHBoxLayout()
+            rc_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            rc_wrap.addWidget(recent_card)
+            el.addLayout(rc_wrap)
+
+        # Keyboard shortcuts hint
+        shortcuts = QLabel("Ctrl+N  new  ·  Ctrl+T  terminal  ·  Ctrl+K  commands  ·  Ctrl+,  settings")
         shortcuts.setObjectName("caption")
         shortcuts.setAlignment(Qt.AlignmentFlag.AlignCenter)
         shortcuts.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']}; letter-spacing: 0.3px;")
-        sub_l.addWidget(shortcuts)
+        el.addWidget(shortcuts)
 
-        sub_wrap = QHBoxLayout()
-        sub_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub_wrap.addWidget(subtitle_card)
-        el.addLayout(sub_wrap)
-
-        # Bento action grid
-        btn_row = QHBoxLayout()
-        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        btn_row.setSpacing(12)
-        b1 = QPushButton("✦  New Session")
-        b1.setObjectName("primary")
-        b1.setMinimumHeight(42)
-        b1.setMinimumWidth(160)
-        b1.clicked.connect(self.new_session)
-        b2 = QPushButton("▢  Local Terminal")
-        b2.setObjectName("subtle")
-        b2.setMinimumHeight(42)
-        b2.setMinimumWidth(160)
-        b2.clicked.connect(self.open_local_terminal)
-        b3 = QPushButton("⌕  Commands")
-        b3.setObjectName("subtle")
-        b3.setMinimumHeight(42)
-        b3.setMinimumWidth(140)
-        b3.clicked.connect(self.open_command_palette)
-        btn_row.addWidget(b1)
-        btn_row.addWidget(b2)
-        btn_row.addWidget(b3)
-        el.addLayout(btn_row)
-
-        # Theme hint — natural
-        theme_hint = QLabel(f"Current theme: {self.ctx.settings.theme}  —  View → Theme to explore forest, ocean, meadow, desert & more")
+        # Theme quick-switch pill
+        theme_hint = QLabel(f"Theme: {self.ctx.settings.theme}  —  View → Theme to explore 11 themes")
         theme_hint.setObjectName("caption")
         theme_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         theme_hint.setStyleSheet(
@@ -758,15 +858,16 @@ class MainWindow(QMainWindow):
             background: {pal['accent_subtle']};
             border: 1px solid {pal['accent']}30;
             border-radius: 20px;
-            padding: 6px 14px;
+            padding: 5px 14px;
             color: {pal['accent']};
             font-size: 11px;
+            max-width: 400px;
             """
         )
-        hint_wrap = QHBoxLayout()
-        hint_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint_wrap.addWidget(theme_hint)
-        el.addLayout(hint_wrap)
+        th_wrap = QHBoxLayout()
+        th_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        th_wrap.addWidget(theme_hint)
+        el.addLayout(th_wrap)
 
         self._tabs_container = QWidget()
         tcl = QVBoxLayout(self._tabs_container)
@@ -1261,7 +1362,7 @@ class MainWindow(QMainWindow):
     def open_settings(self) -> None:
         from .settings_dialog import SettingsDialog
 
-        dlg = SettingsDialog(self.ctx, self)
+        dlg = SettingsDialog(self.ctx.settings, self)
         if dlg.exec():
             app = QApplication.instance()
             theme.apply_theme(app, self.ctx.settings.theme)

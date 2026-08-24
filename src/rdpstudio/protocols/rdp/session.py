@@ -92,6 +92,50 @@ def find_rdp_client() -> tuple[str, str] | None:
     return None
 
 
+def _freerdp_supports_args_from_file(path: str | None = None) -> bool:
+    """Detect whether the installed FreeRDP supports ``/args-from:file:``.
+
+    FreeRDP 3.x supports ``/args-from:file:`` (secure args delivery without
+    exposing the password in ``ps``).  FreeRDP 2.x does not — it treats the
+    argument as a server name.  This is checked once per process and cached.
+    """
+    if not hasattr(_freerdp_supports_args_from_file, "_cache"):
+        _freerdp_supports_args_from_file._cache: dict[str, bool] = {}
+    if path is None:
+        client = find_rdp_client()
+        path = client[0] if client else ""
+    if path in _freerdp_supports_args_from_file._cache:
+        return _freerdp_supports_args_from_file._cache[path]
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        text = (out.stdout + out.stderr).lower()
+        # FreeRDP 3.x prints "This is FreeRDP version 3.x.x"
+        # FreeRDP 2.x prints "This is FreeRDP version 2.x.x"
+        has_args_from = "args-from" in text or "/args-from" in text
+        # Fallback: check version number
+        if not has_args_from:
+            for line in text.splitlines():
+                if "freerdp version" in line:
+                    # Extract major version
+                    import re
+                    m = re.search(r"version\s+(\d+)\.", line)
+                    if m and int(m.group(1)) >= 3:
+                        has_args_from = True
+                    break
+        _freerdp_supports_args_from_file._cache[path] = has_args_from
+        return has_args_from
+    except Exception:  # noqa: BLE001
+        _freerdp_supports_args_from_file._cache[path] = False
+        return False
+
+
 def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
     """FreeRDP command line for ``defn`` — **never contains the secret**.
 
@@ -496,10 +540,15 @@ class RdpSessionController(SessionController):
     def _launch_client(self, path: str, args: list[str], direct_argv: list[str] | None = None) -> None:
         """Wire up and start the RDP client process.
 
-        Default delivery is FreeRDP's native ``/args-from:file:<f>``: the full
-        argument list (including ``/p:<secret>``) is written to a 0600 file so
-        nothing sensitive appears in the process list. Only an explicit
-        ``rdp_pass_on_cmdline`` opt-in puts the secret on argv directly.
+        Password delivery strategy:
+        - FreeRDP 3.x: ``/args-from:file:<f>`` — the full argument list
+          (including ``/p:<secret>``) is written to a 0600 file so nothing
+          sensitive appears in the process list.
+        - FreeRDP 2.x: ``/p:<secret>`` on the command line — the only
+          supported path (``/args-from`` does not exist).
+        - ``rdp_pass_on_cmdline`` opt-in: ``/p:`` lands on argv directly
+          (visible in ``ps`` — a documented opt-in, CWE-214).
+        - mstsc (.rdp file): passed directly.
         """
         import time as _time
 
@@ -521,12 +570,22 @@ class RdpSessionController(SessionController):
                 self._proc.start(path, direct_argv if direct_argv is not None else args)
             else:
                 password = self._resolve_secret()
-                full_args = list(args)
-                if password:
+                if password and _freerdp_supports_args_from_file(path):
+                    # FreeRDP 3.x: deliver password via private args file
+                    full_args = list(args)
                     full_args.append(f"/p:{password}")
-                self._args_file = write_args_file(full_args)
-                log.info("client launched via private args file (%s)", self._args_file.name)
-                self._proc.start(path, ["/args-from:file:" + str(self._args_file)])
+                    self._args_file = write_args_file(full_args)
+                    log.info("client launched via private args file (%s)", self._args_file.name)
+                    self._proc.start(path, ["/args-from:file:" + str(self._args_file)])
+                elif password:
+                    # FreeRDP 2.x: /args-from not supported, use /p: directly
+                    log.info("FreeRDP 2.x detected — password delivered via /p: (ps-visible)")
+                    full_args = list(args)
+                    full_args.append(f"/p:{password}")
+                    self._proc.start(path, full_args)
+                else:
+                    # No password — launch without credentials (server may prompt)
+                    self._proc.start(path, args)
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return

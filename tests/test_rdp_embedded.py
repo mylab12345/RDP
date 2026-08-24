@@ -240,8 +240,13 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
     monkeypatch.setattr(rdp_session, "find_rdp_client", lambda: (str(script), "freerdp"))
     monkeypatch.setattr(rdp_session, "find_embedded_client", lambda: str(script))
     monkeypatch.setattr(rdp_session, "embedded_support", lambda *a, **k: (True, ""))
+    # pretend this FreeRDP supports /args-from:file: (FreeRDP 3.x)
+    monkeypatch.setattr(rdp_session, "_freerdp_supports_args_from_file", lambda *a, **k: True)
 
-    ctrl = RdpSessionController(Session(protocol="rdp", host="w", port=3389, username="u"), ctx, qtapp)
+    ctrl = RdpSessionController(
+        Session(protocol="rdp", host="w", port=3389, username="u", password="s3cret"),
+        ctx, qtapp,
+    )
     assert ctrl._mode == "embedded"
     # offscreen Qt has no native X window — fake the window id
     monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)

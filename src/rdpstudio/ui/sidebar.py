@@ -20,7 +20,6 @@ from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
 from .theme import icon, palette
-from .widgets import PillBadge
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
@@ -128,13 +127,13 @@ class SessionTree(QWidget):
             b.clicked.connect(cb)
             b.setMinimumHeight(36)
             b.setStyleSheet(
-                f"""
-                QPushButton {{
+                """
+                QPushButton {
                     border-radius: 11px;
                     padding: 6px 12px;
                     font-weight: 600;
                     font-size: 12.5px;
-                }}
+                }
                 """
             )
             return b

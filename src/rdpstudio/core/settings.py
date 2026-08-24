@@ -11,6 +11,9 @@ from pathlib import Path
 # Theme ids accepted in settings.json. Beautiful natural global theme — 2026 bento design.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
     ("dark", "🌙 Midnight — slate & mint · natural dark"),
+    ("graphite", "🪨 Graphite — neutral professional · blue accent"),
+    ("nord", "❄️ Nord — arctic cold · polar night & frost"),
+    ("dracula", "🧛 Dracula — purple night · pink & cyan"),
     ("light", "☀️ Daylight — warm paper & forest · natural light"),
     ("forest", "🌲 Forest — deep pine & moss · vibrant leaf"),
     ("ocean", "🌊 Ocean — Atlantic deep teal · cyan"),
@@ -20,7 +23,7 @@ THEME_CHOICES: tuple[tuple[str, str], ...] = (
     ("desert", "🏜️ Desert — sand & clay · sun-baked warm"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
-DARK_THEMES = {"dark", "forest", "ocean", "sunset", "aurora"}
+DARK_THEMES = {"dark", "graphite", "nord", "dracula", "forest", "ocean", "sunset", "aurora"}
 
 # Curated terminal typefaces (system-installed only; nothing is bundled).
 FONT_PRESETS: tuple[str, ...] = (
