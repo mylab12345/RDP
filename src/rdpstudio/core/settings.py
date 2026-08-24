@@ -18,6 +18,16 @@ def _as_int(value, default: int, minimum: int) -> int:
     return max(minimum, out)
 
 
+def _as_float(value, default: float, minimum: float) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        out = default
+    if out != out or out == float("inf") or out == float("-inf"):
+        out = default
+    return max(minimum, out)
+
+
 @dataclass
 class Settings:
     # appearance
@@ -75,8 +85,20 @@ class Settings:
         s.scrollback_lines = _as_int(s.scrollback_lines, 5000, minimum=200)
         s.default_keepalive = _as_int(s.default_keepalive, 30, minimum=5)
         s.reconnect_max_attempts = _as_int(s.reconnect_max_attempts, 12, minimum=1)
+        s.reconnect_base_delay = _as_float(s.reconnect_base_delay, 1.5, minimum=0.2)
+        s.reconnect_max_delay = _as_float(s.reconnect_max_delay, 60.0, minimum=0.2)
         s.vault_autolock_minutes = _as_int(s.vault_autolock_minutes, 15, minimum=0)
         s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
+        if s.theme not in ("dark", "light"):
+            s.theme = "dark"
+        if s.host_key_policy not in ("accept-new", "strict"):
+            s.host_key_policy = "accept-new"
+        if s.rdp_client not in ("auto", "embedded", "external"):
+            s.rdp_client = "auto"
+        if s.cursor_style not in ("block", "underline", "bar"):
+            s.cursor_style = "block"
+        if not isinstance(s.geometry, dict):
+            s.geometry = {}
         return s
 
     @classmethod

@@ -20,13 +20,19 @@ _configured = False
 _MASK = "***REDACTED***"
 
 
+_MAX_SECRETS = 256
+
+
 def redact_secret(value: str | None) -> None:
     """Register a secret to be masked in all log output."""
-    if not value or len(value) < 4:
+    if not value or not isinstance(value, str) or len(value) < 4:
         return
     with _LOCK:
         if value not in _SECRETS:
             _SECRETS.append(value)
+            # Bound memory if a long-lived process sees many unique secrets.
+            if len(_SECRETS) > _MAX_SECRETS:
+                del _SECRETS[: len(_SECRETS) - _MAX_SECRETS]
 
 
 def forget_secrets() -> None:

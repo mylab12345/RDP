@@ -136,11 +136,17 @@ class ClusterRunner:
             )
 
             stdin, stdout_f, stderr_f = client.exec_command(command, timeout=float(timeout))
-            out_bytes = stdout_f.read()
-            err_bytes = stderr_f.read()
-            exit_status = stdout_f.channel.recv_exit_status()
+            chan = stdout_f.channel
+            try:
+                chan.settimeout(float(timeout))
+            except Exception:
+                pass
+            # Bound memory if a host streams forever.
+            _max = 8 * 1024 * 1024
+            out_bytes = stdout_f.read(_max)
+            err_bytes = stderr_f.read(_max)
+            exit_status = chan.recv_exit_status()
             duration = time.perf_counter() - start_time
-            client.close()
 
             out_text = out_bytes.decode("utf-8", "replace")
             err_text = err_bytes.decode("utf-8", "replace")
@@ -158,7 +164,6 @@ class ClusterRunner:
             )
 
         except (paramiko.AuthenticationException, paramiko.PasswordRequiredException) as exc:
-            client.close()
             return ClusterHostResult(
                 session_id=session.id,
                 host=host,
@@ -168,7 +173,6 @@ class ClusterRunner:
                 error=f"Authentication failed: {exc}",
             )
         except (TimeoutError, paramiko.SSHException) as exc:
-            client.close()
             is_timeout = "timeout" in str(exc).lower() or isinstance(exc, TimeoutError)
             return ClusterHostResult(
                 session_id=session.id,
@@ -179,10 +183,6 @@ class ClusterRunner:
                 error=str(exc),
             )
         except Exception as exc:
-            try:
-                client.close()
-            except Exception:
-                pass
             return ClusterHostResult(
                 session_id=session.id,
                 host=host,
@@ -191,3 +191,8 @@ class ClusterRunner:
                 duration_s=time.perf_counter() - start_time,
                 error=str(exc),
             )
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass

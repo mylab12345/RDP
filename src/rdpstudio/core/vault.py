@@ -92,10 +92,34 @@ class CredentialVault:
     def unlock(self, master_passphrase: str) -> None:
         if not self.exists:
             raise CryptoError("vault does not exist")
-        env = Envelope.from_json(self.path.read_text(encoding="utf-8"))
-        raw = open_envelope(env, master_passphrase)
-        data = json.loads(raw.decode("utf-8"))
-        self._entries = {c["id"]: Credential.from_dict(c) for c in data.get("entries", [])}
+        try:
+            env = Envelope.from_json(self.path.read_text(encoding="utf-8"))
+            raw = open_envelope(env, master_passphrase)
+            data = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            # Same class as a wrong passphrase: do not distinguish why open failed.
+            raise CryptoError("wrong passphrase or vault corrupted") from exc
+        if not isinstance(data, dict):
+            raise CryptoError("wrong passphrase or vault corrupted")
+        raw_entries = data.get("entries", [])
+        if not isinstance(raw_entries, list):
+            raise CryptoError("wrong passphrase or vault corrupted")
+        entries: dict[str, Credential] = {}
+        for raw_c in raw_entries:
+            if not isinstance(raw_c, dict):
+                continue
+            try:
+                cred = Credential.from_dict(raw_c)
+            except Exception:  # noqa: BLE001 - one bad entry must not lock the vault
+                log.exception("skipping corrupt vault entry")
+                continue
+            if not cred.id:
+                continue
+            if not isinstance(cred.secret, str):
+                cred.secret = "" if cred.secret is None else str(cred.secret)
+            redact_secret(cred.secret)
+            entries[cred.id] = cred
+        self._entries = entries
         self.unlocked = True
         self._master = master_passphrase
         self.last_activity = time.monotonic()
@@ -173,21 +197,41 @@ class CredentialVault:
         env = seal(master_passphrase, raw, self.kdf_iterations)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".vault-")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(env.to_json())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, self.path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(env.to_json())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def change_master(self, old_passphrase: str, new_passphrase: str) -> None:
-        """Re-encrypt under a new master passphrase (verifies old first)."""
-        if not self.unlocked:
-            # one-shot verification without changing in-memory state
-            probe = CredentialVault(self.path, self.kdf_iterations)
-            probe.unlock(old_passphrase)
-        elif self.exists:
-            # verify old passphrase against the file before overwriting
-            probe = CredentialVault(self.path, self.kdf_iterations)
-            probe.unlock(old_passphrase)
+        """Re-encrypt under a new master passphrase (verifies old first).
+
+        While unlocked, the in-memory master is updated so later auto-saves
+        keep using the *new* passphrase. While locked, the file is re-encrypted
+        from a throwaway probe so this instance stays locked and never writes
+        an empty entry list over existing secrets.
+        """
         if not new_passphrase:
             raise ValueError("master passphrase must not be empty")
-        self._save_locked(new_passphrase)
+        if self.unlocked:
+            if self.exists:
+                probe = CredentialVault(self.path, self.kdf_iterations)
+                probe.unlock(old_passphrase)
+                probe.lock()
+            self._save_locked(new_passphrase)
+            self._master = new_passphrase
+            return
+        if not self.exists:
+            raise CryptoError("vault does not exist")
+        probe = CredentialVault(self.path, self.kdf_iterations)
+        probe.unlock(old_passphrase)
+        try:
+            probe._save_locked(new_passphrase)
+        finally:
+            probe.lock()

@@ -126,7 +126,7 @@ class SshSessionController(SessionController):
         self._worker.failed.connect(self._thread.quit)
         self._worker.moveToThread(self._thread)
 
-    def _build_material(self, defn: Session) -> AuthMaterial:
+    def _build_material(self, defn: Session, _seen: set[str] | None = None) -> AuthMaterial:
         password = None
         key_path = ""
         passphrase = None
@@ -142,12 +142,20 @@ class SshSessionController(SessionController):
             if defn.credential_id:  # key passphrase kept in vault
                 passphrase = self._vault_secret(defn.credential_id)
         jump = None
-        if defn.jump_session_id:
+        seen = set(_seen or ())
+        if defn.id:
+            if defn.id in seen:
+                log.warning("jump-host cycle involving %s; ignoring further hops", defn.id)
+            else:
+                seen.add(defn.id)
+        if defn.jump_session_id and defn.jump_session_id not in seen:
             jump_defn = self.ctx.store.get(defn.jump_session_id)
             if jump_defn is not None and jump_defn.protocol == "ssh":
-                jump = self._build_material(jump_defn)
+                jump = self._build_material(jump_defn, seen)
             else:
                 log.warning("jump session %s not found / not ssh; ignoring", defn.jump_session_id)
+        elif defn.jump_session_id and defn.jump_session_id in seen:
+            log.warning("jump-host cycle involving %s; ignoring further hops", defn.jump_session_id)
         return AuthMaterial(
             host=defn.host,
             port=defn.endpoint()[1],

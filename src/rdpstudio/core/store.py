@@ -43,14 +43,25 @@ class SessionStore:
                 return
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                 log.exception("corrupt sessions file %s; starting empty", self.path)
                 return
-            self._groups = list(data.get("groups", []))
-            for raw in data.get("sessions", []):
+            if not isinstance(data, dict):
+                log.error("sessions file %s is not a JSON object; starting empty", self.path)
+                return
+            groups = data.get("groups", [])
+            if isinstance(groups, list):
+                self._groups = [g for g in groups if isinstance(g, str) and g]
+            raw_sessions = data.get("sessions", [])
+            if not isinstance(raw_sessions, list):
+                return
+            for raw in raw_sessions:
+                if not isinstance(raw, dict):
+                    continue
                 try:
                     s = Session.from_dict(raw)
-                    self._sessions[s.id] = s
+                    if s.id:
+                        self._sessions[s.id] = s
                 except Exception:  # noqa: BLE001
                     log.exception("skipping corrupt session entry")
 
@@ -160,10 +171,12 @@ class SessionStore:
         with self._lock:
             existing_names = {s.display_name() for s in self._sessions.values()}
             for s in sessions:
+                if not isinstance(s, Session):
+                    continue
                 # An import must never silently replace an existing session:
                 # exports (and third-party files) carry their own ids, so a
                 # colliding id gets a fresh one instead of overwriting.
-                if s.id in self._sessions:
+                if not s.id or s.id in self._sessions:
                     s.id = new_id()
                 name = s.display_name()
                 if name in existing_names and on_conflict == "rename":
@@ -175,6 +188,29 @@ class SessionStore:
                 added += 1
             self.save()
         return added
+
+    def jump_hops(self, session: Session, *, max_hops: int = 16) -> list[Session]:
+        """Return the ProxyJump chain for ``session``, stopping on cycles.
+
+        The starting session is not included. Missing / non-SSH hops are
+        ignored. ``max_hops`` is a hard ceiling so a corrupt file cannot
+        walk forever even if ids somehow collide.
+        """
+        hops: list[Session] = []
+        seen: set[str] = {session.id} if session.id else set()
+        current = session
+        for _ in range(max(0, int(max_hops))):
+            jid = current.jump_session_id
+            if not jid or jid in seen:
+                break
+            nxt = self.get(jid)
+            if nxt is None or nxt.protocol != "ssh":
+                break
+            hops.append(nxt)
+            if nxt.id:
+                seen.add(nxt.id)
+            current = nxt
+        return hops
 
     def export_dict(self) -> dict:
         with self._lock:

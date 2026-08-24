@@ -115,7 +115,15 @@ def parse_target_hosts(target_expr: str, max_hosts: int = 256) -> list[str]:
 def parse_ports(ports_expr: str | list[int]) -> list[int]:
     """Parse comma/dash port expressions like '22,80,443,8000-8080'."""
     if isinstance(ports_expr, list):
-        return sorted(set(ports_expr))
+        clean = []
+        for p in ports_expr:
+            try:
+                n = int(p)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= n <= 65535:
+                clean.append(n)
+        return sorted(set(clean)) or PRESET_COMMON
     ports: set[int] = set()
     expr = ports_expr.strip()
     if not expr:
@@ -153,18 +161,17 @@ def check_port(
     """Probe a single (host, port) tuple with TCP SYN/Connect and banner grab."""
     service = COMMON_PORTS.get(port, "unknown")
     start = time.perf_counter()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-
+    sock = None
     try:
-        sock.connect((host, port))
+        # IPv4 + IPv6; create_connection also applies the timeout to DNS.
+        sock = socket.create_connection((host, port), timeout=timeout)
         latency = (time.perf_counter() - start) * 1000.0
         banner = ""
         if grab_banner:
             try:
                 sock.settimeout(min(0.6, timeout))
                 if port in (80, 8080, 8000, 8888):
-                    sock.sendall(b"HEAD / HTTP/1.0\r\nHost: " + host.encode() + b"\r\n\r\n")
+                    sock.sendall(b"HEAD / HTTP/1.0\r\nHost: " + host.encode("idna", "replace") + b"\r\n\r\n")
                 elif port in (21, 22, 25, 110, 143):
                     pass  # Service sends banner immediately upon connect
                 raw = sock.recv(256)
@@ -173,7 +180,6 @@ def check_port(
                     banner = banner[:80] + "…"
             except Exception:
                 pass
-        sock.close()
         return ScanResult(
             host=host,
             port=port,
@@ -183,7 +189,6 @@ def check_port(
             banner=banner,
         )
     except TimeoutError:
-        sock.close()
         return ScanResult(
             host=host,
             port=port,
@@ -192,7 +197,6 @@ def check_port(
             error="timed out",
         )
     except ConnectionRefusedError:
-        sock.close()
         return ScanResult(
             host=host,
             port=port,
@@ -201,7 +205,6 @@ def check_port(
             error="connection refused",
         )
     except Exception as exc:
-        sock.close()
         return ScanResult(
             host=host,
             port=port,
@@ -209,6 +212,12 @@ def check_port(
             service=service,
             error=str(exc),
         )
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 class PortScanner:
@@ -302,19 +311,20 @@ def tcp_ping(host: str, port: int = 80, count: int = 4, timeout: float = 2.0) ->
     for _ in range(count):
         summary.sent += 1
         start = time.perf_counter()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
+        sock = None
         try:
-            sock.connect((host, port))
+            sock = socket.create_connection((host, port), timeout=timeout)
             latency = (time.perf_counter() - start) * 1000.0
             summary.received += 1
             summary.latencies.append(latency)
-            sock.close()
         except Exception:
-            try:
-                sock.close()
-            except Exception:
-                pass
+            pass
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
         time.sleep(0.08)
 
     if summary.latencies:

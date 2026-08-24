@@ -75,21 +75,28 @@ class Envelope:
         if kdf.get("algo") != KDF_ALGO or aead.get("algo") != AEAD_ALGO:
             raise CryptoError("unsupported KDF/AEAD algorithm")
         try:
-            return cls(
-                salt=_b64d(kdf["salt"]),
-                iterations=int(kdf["iterations"]),
-                nonce=_b64d(aead["nonce"]),
-                ciphertext=_b64d(aead["ciphertext"]),
-            )
+            iterations = int(kdf["iterations"])
+            salt = _b64d(kdf["salt"])
+            nonce = _b64d(aead["nonce"])
+            ciphertext = _b64d(aead["ciphertext"])
         except (KeyError, ValueError, TypeError) as exc:
             raise CryptoError("vault file is corrupted") from exc
+        # Reject structurally impossible envelopes before they hit the KDF /
+        # AES-GCM (0 iterations, truncated nonce, empty ciphertext).
+        if iterations < 1 or len(salt) < 8 or len(nonce) != 12 or not ciphertext:
+            raise CryptoError("vault file is corrupted")
+        return cls(salt=salt, iterations=iterations, nonce=nonce, ciphertext=ciphertext)
 
 
 def derive_key(passphrase: str, salt: bytes, iterations: int) -> bytes:
+    if iterations < 1:
+        raise ValueError("KDF iterations must be positive")
     return hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, iterations, dklen=32)
 
 
 def seal(passphrase: str, plaintext: bytes, iterations: int = 310_000) -> Envelope:
+    if iterations < 1:
+        raise ValueError("KDF iterations must be positive")
     salt = os.urandom(16)
     nonce = os.urandom(12)
     key = derive_key(passphrase, salt, iterations)

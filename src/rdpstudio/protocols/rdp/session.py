@@ -154,7 +154,10 @@ def write_args_file(args: list[str]) -> Path:
     import tempfile
 
     fd, name = tempfile.mkstemp(prefix="rdpstudio-args-", suffix=".cmd")
-    os.fchmod(fd, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except (AttributeError, OSError):
+        pass
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write("\n".join(args) + "\n")
     return Path(name)
