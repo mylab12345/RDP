@@ -5,8 +5,12 @@ Split into two layers:
 - :class:`TerminalCore` — pure Python: pyte screen + byte stream, OSC-52
   clipboard sniffing and bracketed-paste tracking. Fully unit-testable
   without Qt.
-- :class:`TerminalView` — the QWidget that renders the core, handles
-  keyboard/mouse, selection, clipboard, scrolling, in-terminal search, and session logging.
+- :class:`TerminalView` — the portable QWidget that renders the core, handles
+  keyboard/mouse, selection, clipboard, scrolling, in-terminal search, and
+  session logging.
+- :func:`make_terminal_view` — selects the optional native Linux renderer
+  (QTermWidget, the Qt equivalent of SSH Pilot's VTE path) for new tabs and
+  falls back to :class:`TerminalView`.
 """
 
 from __future__ import annotations
@@ -74,6 +78,42 @@ def _speedup_pyte() -> None:
 
 
 _speedup_pyte()
+
+
+def make_terminal_view(
+    settings: Settings,
+    parent=None,
+    *,
+    native_colors: bool = False,
+):
+    """Build the fastest terminal backend available on this machine.
+
+    SSH Pilot's Linux path uses a native terminal emulator (VTE) instead of
+    parsing and painting every cell in Python.  KB-Remote is a Qt application,
+    so the equivalent optional backend is QTermWidget.  The factory keeps the
+    public ``TerminalView`` API and the fully featured pyte fallback intact:
+    existing installations do not need a system GTK/Qt terminal library, and
+    a missing or ABI-incompatible native binding never prevents a session from
+    opening.
+
+    ``RDPSTUDIO_TERMINAL_BACKEND=pyte`` (or Settings → Terminal backend) is a
+    useful escape hatch for diagnostics.  New tabs pick the native backend
+    automatically on a displayed Linux desktop when it is installed.
+    """
+
+    try:
+        from .native_terminal import NativeTerminalView, should_use_native_terminal
+
+        if should_use_native_terminal(settings):
+            try:
+                return NativeTerminalView(settings, parent, native_colors=native_colors)
+            except Exception:  # noqa: BLE001 - optional backend must be fail-safe
+                # Do not make a broken optional Qt plugin take down the shell.
+                pass
+    except Exception:  # noqa: BLE001 - importing optional backend is best effort
+        pass
+    return TerminalView(settings, parent, native_colors=native_colors)
+
 
 # ----------------------------------------------------------------------
 # Pure core

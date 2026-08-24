@@ -19,11 +19,11 @@ bottom** of the window. SSH tabs keep the remote VM’s own console colors.
 
 | Area | What you get |
 |---|---|
-| **SSH/OpenSSH (all OSes)** | Interactive shells in tabs with a real VT emulator (pyte-based: scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives. **Remote console colors stay native** — Tools → Settings theme is not applied to SSH tabs |
+| **SSH/OpenSSH (all OSes)** | Interactive shells in tabs with a real VT emulator (native QTermWidget on displayed Linux desktops when installed, pyte fallback elsewhere: scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives. **Remote console colors stay native** — Tools → Settings theme is not applied to SSH tabs |
 | **Fonts** | Settings lists many console typefaces (DejaVu, Liberation, Cascadia, Fira, JetBrains, IBM Plex, Hack, Consolas, …) plus every monospaced face on this machine, with a live preview |
 | **Per-tab command line** | Command bar under every terminal tab: type + Enter runs the command in that tab, `Up`/`Down` recalls per-tab history (deduped, 100 entries) |
 | **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window, like MobaXterm) on Linux — **including Wayland desktops**, where KB-Remote restarts itself through XWayland automatically when an RDP session is in play; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
-| **Local terminal** | One-click native shell in a tab (toolbar, `Session → New local terminal`, `Ctrl+Shift+T`): real PTY on Linux/macOS, ConPTY on Windows — colors, resize, `vim`/`top` all work |
+| **Local terminal** | One-click native shell in a tab (toolbar, `Session → New local terminal`, `Ctrl+Shift+T`): real PTY on Linux/macOS, ConPTY on Windows — colors, resize, `vim`/`top` all work. On Linux, the optional native QTermWidget engine keeps VT parsing and painting in compiled code, like SSH Pilot’s VTE path |
 | **Command palette** | Instant keyboard launcher (`Ctrl+P` / `Ctrl+K`): fuzzy-search and switch across open tabs, connect saved sessions, and launch any tool or command |
 | **In-terminal search** | Floating search overlay (`Ctrl+F` / `F3` / `Shift+F3`): case-sensitive search, visual match highlight rectangles on screen, match count indicator, and match navigation |
 | **Network diagnostics** | Standalone & workbench tool (`Ctrl+Shift+N`): multi-threaded TCP port scanner, TCP ping latency tester with jitter and loss stats, and forward/reverse DNS lookup |
@@ -47,10 +47,12 @@ Runs on **Linux and Windows** (and the codebase is macOS-friendly), Python ≥ 3
 
 ```bash
 # from a checkout
-./install.sh                 # venv + pip install . + launcher + .desktop
+./install.sh                 # venv + app + native Linux renderer when available
 
 # or from PyPI-style source
 pipx install .               # or: pip install --user rdp-studio
+# Optional on displayed Linux desktops (native VT renderer, like SSH Pilot):
+# pip install --user 'rdp-studio[native-terminal]'
 kb-remote
 ```
 

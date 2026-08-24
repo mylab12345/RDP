@@ -1,6 +1,8 @@
 """Local shell session (a MobaXterm-style local terminal tab).
 
 - POSIX: real PTY via :mod:`pty` — colors, resize, vim/top all work.
+  The terminal view may use the native Linux renderer; the controller still
+  owns the PTY and process group.
 - Windows: uses ConPTY through ``pywinpty`` when installed (optional extra);
   otherwise falls back to ``cmd.exe``/PowerShell via QProcess (no PTY).
 """
@@ -8,12 +10,14 @@
 from __future__ import annotations
 
 import os
+import select
 import shlex
 import shutil
 import signal
 import struct
 import subprocess
 import threading
+import time
 
 from PySide6.QtCore import QProcess, Signal
 from PySide6.QtWidgets import QWidget
@@ -30,6 +34,13 @@ from ...core.plugin import (
 from ..base_caps import capability_set
 
 log = get_logger("local.session")
+
+# Keep the POSIX reader quiet while the shell is idle, but batch chatty local
+# commands before they cross the Qt boundary.  SSHWorker already applies the
+# same output pacing to remote channels; local terminals need the equivalent
+# because cat/yes used to emit one queued signal for every PTY read.
+_LOCAL_FRAME_DELAY = 0.008
+_LOCAL_READ_CHUNK = 65536
 
 try:  # POSIX terminal helpers
     import fcntl
@@ -63,9 +74,13 @@ class LocalShellController(SessionController):
 
     def __init__(self, definition: Session, ctx: SessionContext, parent=None) -> None:
         super().__init__(definition, ctx, parent)
-        from ...ui.terminal import TerminalView
+        # Prefer the native Linux terminal renderer (the same architecture as
+        # SSH Pilot's VTE path) when the optional QTermWidget backend is
+        # installed.  The factory falls back to the pyte widget everywhere
+        # else, including headless/test environments.
+        from ...ui.terminal import make_terminal_view
 
-        self.term = TerminalView(ctx.settings)
+        self.term = make_terminal_view(ctx.settings)
         self.term.dataWritten.connect(self._on_input)
         self.term.sizeChanged.connect(self._on_resize)
         self._sigFeed.connect(self.term.feed)
@@ -159,16 +174,48 @@ class LocalShellController(SessionController):
             self._on_input(self.definition.startup_command.encode() + b"\n")
 
     def _read_loop(self, fd: int) -> None:
+        """Read the PTY without turning every tiny chunk into a GUI event.
+
+        This mirrors the native-terminal data plane used by SSH Pilot: wait on
+        the PTY when idle, drain readable bytes promptly, then give the GUI one
+        coalesced frame after a short window.  The first prompt is emitted
+        immediately, so batching never adds typing/prompt latency.
+        """
+        pending = bytearray()
+        first_frame = True
+        last_emit = time.monotonic()
         try:
             while True:
                 try:
-                    data = os.read(fd, 65536)
-                except OSError:
+                    # With pending output, wait briefly for adjacent PTY data;
+                    # without it, block indefinitely and use no polling CPU.
+                    timeout = _LOCAL_FRAME_DELAY if pending else None
+                    readable, _, _ = select.select([fd], [], [], timeout)
+                    if not readable:
+                        if pending:
+                            self._sigFeed.emit(bytes(pending))
+                            pending.clear()
+                            last_emit = time.monotonic()
+                        continue
+                    data = os.read(fd, _LOCAL_READ_CHUNK)
+                except (OSError, ValueError):
                     break
                 if not data:
                     break
-                self._sigFeed.emit(data)  # queued → GUI thread
+                pending.extend(data)
+                now = time.monotonic()
+                if (
+                    first_frame
+                    or len(pending) >= _LOCAL_READ_CHUNK
+                    or now - last_emit >= _LOCAL_FRAME_DELAY
+                ):
+                    self._sigFeed.emit(bytes(pending))  # queued → GUI thread
+                    pending.clear()
+                    first_frame = False
+                    last_emit = now
         finally:
+            if pending:
+                self._sigFeed.emit(bytes(pending))
             self._sigClosed.emit("shell exited")
 
     def _set_winsize(self, fd: int, cols: int, rows: int) -> None:

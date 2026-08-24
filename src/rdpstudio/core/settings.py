@@ -95,6 +95,10 @@ class Settings:
     confirm_multiline_paste: bool = True
     cursor_style: str = "block"  # block | underline | bar
     bell_flash: bool = True
+    # automatic = native QTermWidget on a displayed Linux desktop when
+    # installed, otherwise the pure-Python pyte renderer.  ``native`` and
+    # ``pyte`` are useful explicit diagnostics choices.
+    terminal_backend: str = "auto"  # auto | native | pyte
 
     # connection
     default_keepalive: int = 30
@@ -150,6 +154,8 @@ class Settings:
             s.rdp_client = "auto"
         if s.cursor_style not in ("block", "underline", "bar"):
             s.cursor_style = "block"
+        if s.terminal_backend not in ("auto", "native", "pyte"):
+            s.terminal_backend = "auto"
         if not isinstance(s.geometry, dict):
             s.geometry = {}
         return s

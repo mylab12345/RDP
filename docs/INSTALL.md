@@ -13,9 +13,29 @@ KB-Remote runs on Linux and Windows, Python 3.10+.
 What it does:
 
 1. creates `~/.kb-remote/venv` (or reuses it),
-2. `pip install .` into that venv,
+2. `pip install .` into that venv (and, on Python 3.11+ when available, the
+   optional native Linux terminal renderer),
 3. writes `~/.local/bin/kb-remote` launcher (and keeps a legacy `rdpstudio` alias),
 4. installs `~/.local/share/applications/rdpstudio.desktop` + icon.
+
+For the native Linux terminal renderer used by SSH Pilot-style sessions, use
+Python 3.11+ and install the optional extra:
+
+```bash
+python3 -m pip install --user 'rdp-studio[native-terminal]'
+# or, from this checkout:
+pipx install '.[native-terminal]'
+```
+
+This installs the PySide6 QTermWidget bindings. New local and SSH tabs then
+keep PTY/SSH ownership in KB-Remote but delegate VT parsing, scrollback and
+painting to the compiled terminal widget. If the wheel is unavailable or its
+Qt ABI does not match, the app transparently uses the pyte renderer instead.
+Set `RDPSTUDIO_TERMINAL_BACKEND=native` to require the native choice for new
+GUI tabs (it still falls back if the binding cannot load), or use
+`RDPSTUDIO_TERMINAL_BACKEND=pyte` to force the fallback while diagnosing a
+machine. `./install.sh` tries the native extra on Python 3.11+; set
+`KB_REMOTE_NATIVE_TERMINAL=0` to skip that optional install.
 
 ### With pipx / pip
 

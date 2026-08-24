@@ -60,6 +60,23 @@ KB-Remote is a desktop remote-access workbench. The design goals, in order:
 - **Local shells**: POSIX PTY with a reader thread; Windows ConPTY
   (`pywinpty`, optional) or a `QProcess` fallback.
 
+### Terminal rendering data plane
+
+On Linux, new local and SSH tabs use the optional native QTermWidget backend
+when it is installed and a real desktop display is available. It follows the
+same boundary as SSH Pilot's VTE implementation: the controller/worker owns
+the real PTY or Paramiko channel, while the native widget owns VT parsing,
+scrollback, selection and painting. Remote bytes are written to the native
+emulator's empty PTY through a lossless non-blocking queue; key bytes cross
+back over `dataWritten`. This removes Python cell parsing and full-widget
+painting from the hot path without changing authentication, reconnect, SFTP
+or monitoring.
+
+If the optional binding is unavailable, `TerminalView` remains the complete
+pyte-based fallback. Set `RDPSTUDIO_TERMINAL_BACKEND=pyte` to compare or
+troubleshoot either path; choose the backend for future tabs under Settings →
+Terminal engine.
+
 ## Key flows
 
 ### Connect (SSH)

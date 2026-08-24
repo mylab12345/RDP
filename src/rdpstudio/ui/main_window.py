@@ -1182,8 +1182,10 @@ class MainWindow(QMainWindow):
             if term is not None and hasattr(term, "apply_font"):
                 try:
                     term.apply_font(s.font_family, s.font_size)
+                    if hasattr(term, "apply_theme"):
+                        term.apply_theme()
                 except Exception:  # noqa: BLE001
-                    log.exception("apply font failed")
+                    log.exception("apply terminal preferences failed")
 
     def apply_theme_id(self, theme_id: str) -> None:
         from ..core.settings import THEME_IDS
@@ -1194,6 +1196,7 @@ class MainWindow(QMainWindow):
         self.ctx.settings.save(paths.settings_file())
         theme.apply_theme(QApplication.instance(), theme_id)
         self._sync_theme_actions()
+        self._apply_terminal_prefs()
 
     def cycle_theme(self) -> None:
         from ..core.settings import THEME_CHOICES

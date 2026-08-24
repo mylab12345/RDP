@@ -43,10 +43,13 @@ class SshSessionController(SessionController):
         self._attempt = 0
         self._wanted_stop = False
 
-        from ...ui.terminal import TerminalView
-
         # Native remote palette: do not apply workbench theme / Settings colors.
-        self.term = TerminalView(ctx.settings, native_colors=True)
+        # On Linux the factory selects the native QTermWidget/VTE-style
+        # renderer, which keeps Paramiko I/O and the existing session features
+        # but moves VT parsing, scrollback and painting into native code.
+        from ...ui.terminal import make_terminal_view
+
+        self.term = make_terminal_view(ctx.settings, native_colors=True)
         self.term.dataWritten.connect(self._on_terminal_input)
         self.term.sizeChanged.connect(lambda c, r: self._worker_call("resize_pty", c, r))
         self.term.clipboardRequested.connect(self._on_osc52)

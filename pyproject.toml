@@ -40,6 +40,14 @@ dependencies = [
 win = [
   "pywinpty>=2.2; platform_system=='Windows'",
 ]
+# Native Linux terminal renderer, analogous to SSH Pilot's VTE path. The
+# package is optional so the MIT core remains usable on Python 3.10, Windows,
+# macOS, headless CI, and minimal Linux installations. It supplies the
+# QTermWidget/Konsole-style compiled VT emulator; the app falls back to pyte
+# automatically when the wheel or its Qt ABI is unavailable.
+native-terminal = [
+  "pyside6-qtermwidget>=0.5.6.11.1; platform_system=='Linux' and python_version >= '3.11'",
+]
 dev = [
   "pytest>=8",
   "pytest-timeout>=2.3",

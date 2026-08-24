@@ -153,7 +153,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(appearance)
 
         # --- terminal ---------------------------------------------------------
-        terminal = QGroupBox("Local terminal")
+        terminal = QGroupBox("Terminal")
         tform = QFormLayout(terminal)
         tform.setSpacing(10)
         ssh_note = QLabel(
@@ -168,6 +168,21 @@ class SettingsDialog(QDialog):
         self.scrollback.setSingleStep(500)
         self.scrollback.setValue(ctx.settings.scrollback_lines)
         tform.addRow("Scrollback", self.scrollback)
+        self.terminal_backend = QComboBox()
+        self.terminal_backend.addItem("Automatic — native on Linux when available", "auto")
+        self.terminal_backend.addItem("Native — QTermWidget/Konsole-style renderer", "native")
+        self.terminal_backend.addItem("Python fallback — pyte renderer", "pyte")
+        bi = self.terminal_backend.findData(getattr(ctx.settings, "terminal_backend", "auto"))
+        self.terminal_backend.setCurrentIndex(bi if bi >= 0 else 0)
+        tform.addRow("Terminal engine", self.terminal_backend)
+        backend_note = QLabel(
+            "The native engine keeps VT parsing, scrollback and painting in compiled code, "
+            "like SSH Pilot’s Linux VTE path. Install the optional native-terminal extra "
+            "to enable it; existing tabs keep their current engine until reopened."
+        )
+        backend_note.setObjectName("muted")
+        backend_note.setWordWrap(True)
+        tform.addRow(backend_note)
         self.copy_on_select = QCheckBox("Copy on select — instant copy when you select text")
         self.copy_on_select.setChecked(ctx.settings.copy_on_select)
         self.middle_paste = QCheckBox("Middle-click paste — paste clipboard with middle mouse")
@@ -284,6 +299,7 @@ class SettingsDialog(QDialog):
         s.font_size = self.font_size.value()
         s.cursor_style = self.cursor.currentData()
         s.scrollback_lines = self.scrollback.value()
+        s.terminal_backend = self.terminal_backend.currentData()
         s.copy_on_select = self.copy_on_select.isChecked()
         s.paste_on_middle_click = self.middle_paste.isChecked()
         s.confirm_multiline_paste = self.confirm_paste.isChecked()

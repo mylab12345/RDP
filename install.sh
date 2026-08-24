@@ -23,7 +23,24 @@ python3 -m venv "$VENV_DIR" 2>/dev/null || true
 
 say "Installing KB-Remote"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet .
+
+# SSH Pilot keeps Linux terminal VT parsing/rendering in a native widget.  Use
+# the equivalent optional QTermWidget backend automatically on supported
+# Python versions, but keep installation resilient on older Python releases,
+# unsupported architectures, or networks where the optional wheel is absent.
+NATIVE_TERMINAL="${KB_REMOTE_NATIVE_TERMINAL:-${RDPSTUDIO_NATIVE_TERMINAL:-1}}"
+NATIVE_INSTALLED=0
+if [ "$NATIVE_TERMINAL" != "0" ] && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'; then
+  if "$VENV_DIR/bin/pip" install --quiet '.[native-terminal]'; then
+    NATIVE_INSTALLED=1
+    say "Native Linux terminal renderer enabled"
+  else
+    say "Native renderer unavailable; using the portable pyte fallback"
+  fi
+fi
+if [ "$NATIVE_INSTALLED" -eq 0 ]; then
+  "$VENV_DIR/bin/pip" install --quiet .
+fi
 
 say "Installing launcher to $BIN_DIR"
 mkdir -p "$BIN_DIR"

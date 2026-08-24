@@ -118,6 +118,15 @@
   Fullscreen / common resolutions / Custom…).
 
 ### Performance
+- **Native Linux terminal path.** New local and SSH tabs can use the optional
+  QTermWidget/Konsole-style compiled emulator, following the same split as
+  SSH Pilot's VTE path: controllers keep ownership of the PTY/SSH transport,
+  while VT parsing, scrollback, selection and painting leave Python. Output is
+  fed through a lossless non-blocking PTY bridge and input returns as raw bytes.
+  The complete pyte renderer remains the automatic fallback when the optional
+  binding is absent, incompatible, or the process is headless. Select the
+  engine under Settings → Terminal engine or force it with
+  `RDPSTUDIO_TERMINAL_BACKEND`.
 - **Remote Linux VMs feel snappier in the terminal** — two layers of work:
   - *Rendering*: full repaints measure **14.8 ms → 4.3 ms** (≈3.4×) and the
     common interactive case (one prompt line) **2.14 ms → 0.81 ms per output
@@ -132,6 +141,9 @@
     like it "arrives late". Large bursts still coalesce (≤64 KB per emit),
     and any output still buffered when the session stops is flushed before
     teardown, so the tail of a transfer is never dropped.
+- Local PTY reads now use the same idle-blocking + short coalescing window as
+  remote SSH output, so chatty commands do not create one queued Qt event per
+  read while an idle shell consumes no polling CPU.
 - Terminal output repaints are capped at ~60 fps and can no longer be starved
   indefinitely by a fast writer (`yes`, large `cat`); the coalesce window
   adapts (16 ms while dirty, 33 ms at rest) so steady output stays smooth
