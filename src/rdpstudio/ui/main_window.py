@@ -42,7 +42,6 @@ from . import theme
 from .command_palette import CommandPaletteDialog
 from .monitor_panel import MonitorPanel
 from .sidebar import SessionTree
-from .snippets_panel import SnippetsPanel
 from .theme import icon
 from .widgets import STATE_COLORS, StateChip, toast
 
@@ -120,7 +119,7 @@ class CommandBar(QWidget):
 
         self.line = _HistoryLineEdit()
         self.line.setObjectName("commandLine")
-        self.line.setPlaceholderText("Run a command in this terminal — Enter executes, ↑/↓ history")
+        self.line.setPlaceholderText("COMMAND  ·  ENTER EXECUTES  ·  ↑↓ HISTORY")
         self.line.setClearButtonEnabled(False)
         self.line.returnPressed.connect(self._on_return)
         layout.addWidget(self.line, 1)
@@ -206,9 +205,6 @@ class SessionTab(QWidget):
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             h.addWidget(b)
-        if caps.tunnels:
-            b = make_action_btn("Tunnels", "plug", "Manage port forwards", controller.open_tunnels)
-            h.addWidget(b)
         if caps.monitor:
             b = make_action_btn("Monitor", "server", "Live CPU, memory, disk and network", controller.open_monitor)
             h.addWidget(b)
@@ -241,11 +237,6 @@ class SessionTab(QWidget):
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
 
-        # Hook terminal input for broadcast mode
-        term = getattr(controller, "term", None)
-        if term is not None and hasattr(term, "dataWritten"):
-            term.dataWritten.connect(lambda data: self.main._on_terminal_user_input(self, data))
-
     def _swap_content(self) -> None:
         old = self._content
         if old is None:
@@ -262,7 +253,7 @@ class SessionTab(QWidget):
         self.main._on_command_sent(self, text)
 
     def _on_state(self, state: str) -> None:
-        self.chip.setText(state)
+        self.chip.setText((state or "").upper())
         self.chip.set_color(STATE_COLORS.get(state, "fg_dim"))
         self.btn_reconnect.setVisible(state in (SessionState.CLOSED, SessionState.FAILED))
 
@@ -311,8 +302,6 @@ class MainWindow(QMainWindow):
         self.resize(1380, 880)
         self.setMinimumSize(1024, 640)
         self.controllers: dict[int, SessionTab] = {}
-        self._broadcast_mode = False
-        self._in_broadcast_dispatch = False
         # Bottom monitor panel bookkeeping
         self._monitor_auto_expanded: set[int] = set()
         # Last "connected" info per controller, for the status-bar summary.
@@ -332,19 +321,9 @@ class MainWindow(QMainWindow):
         self.session_info_label.setObjectName("statusSession")
         status.addWidget(self.session_info_label, 1)
 
-        self.vault_label = QLabel("")
-        self.vault_label.setObjectName("caption")
-        status.addWidget(self.vault_label)
-
-        self.broadcast_label = QLabel("")
-        self.broadcast_label.setObjectName("caption")
-        status.addWidget(self.broadcast_label)
-
-        self.status_label = QLabel("")
+        self.status_label = QLabel("STANDBY")
         self.status_label.setObjectName("caption")
         status.addPermanentWidget(self.status_label)
-
-        self._refresh_vault_label()
 
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(30_000)
@@ -410,18 +389,6 @@ class MainWindow(QMainWindow):
 
         m_view.addSeparator()
 
-        self._act_broadcast = QAction("📡 &Broadcast Input Mode", self)
-        self._act_broadcast.setCheckable(True)
-        self._act_broadcast.setShortcut(QKeySequence("Ctrl+Shift+B"))
-        self._act_broadcast.toggled.connect(self.set_broadcast_mode)
-        m_view.addAction(self._act_broadcast)
-
-        self._act_snippets = QAction("📝 Command &Snippets Panel", self)
-        self._act_snippets.setCheckable(True)
-        self._act_snippets.setShortcut(QKeySequence("Ctrl+Shift+S"))
-        self._act_snippets.toggled.connect(self.set_snippets_visible)
-        m_view.addAction(self._act_snippets)
-
         self._act_monitor_panel = QAction("▤ &Remote Monitor Panel (bottom)", self)
         self._act_monitor_panel.setCheckable(True)
         self._act_monitor_panel.setStatusTip("Live CPU, memory, disk and network for the active monitor-capable session")
@@ -451,27 +418,12 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.open_network_tools)
         m_tools.addAction(a)
 
-        a = QAction(icon("transfer"), "Multi-Host &Parallel Runner…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+X"))
-        a.triggered.connect(self.open_cluster_runner)
-        m_tools.addAction(a)
-
         a = QAction(icon("key"), "SSH &Key Utility & Converter…", self)
         a.setShortcut(QKeySequence("Ctrl+Shift+U"))
         a.triggered.connect(self.open_key_utility)
         m_tools.addAction(a)
 
         m_tools.addSeparator()
-
-        a = QAction(icon("shield"), "Credential &vault…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+K"))
-        a.triggered.connect(self.open_vault)
-        m_tools.addAction(a)
-
-        a = QAction(icon("plug"), "&Port forwarding…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+P"))
-        a.triggered.connect(self.open_tunnels_dialog)
-        m_tools.addAction(a)
 
         a = QAction(icon("server"), "Remote &monitor…", self)
         a.setShortcut(QKeySequence("Ctrl+Shift+M"))
@@ -549,11 +501,6 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self._sftp_current)
         m_session.addAction(a)
 
-        a = QAction(icon("plug"), "&Port forwarding…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+P"))
-        a.triggered.connect(self.open_tunnels_dialog)
-        m_session.addAction(a)
-
         a = QAction(icon("server"), "Remote &monitor…", self)
         a.setShortcut(QKeySequence("Ctrl+Shift+M"))
         a.triggered.connect(self.open_monitor_dialog)
@@ -598,30 +545,12 @@ class MainWindow(QMainWindow):
         ql.addWidget(lbl)
 
         self.quick = QLineEdit()
-        self.quick.setPlaceholderText("Quick connect: user@host[:port]  ⏎")
+        self.quick.setPlaceholderText("LINK  user@host[:port]  ⏎")
         self.quick.setFixedWidth(260)
         self.quick.setObjectName("search")
         self.quick.returnPressed.connect(self.quick_connect)
         ql.addWidget(self.quick)
         bar.addWidget(quick_wrap)
-
-        bar.addSeparator()
-
-        # Broadcast Mode Toggle Button
-        self.btn_broadcast = QPushButton("📡 Broadcast: OFF")
-        self.btn_broadcast.setObjectName("ghost")
-        self.btn_broadcast.setCheckable(True)
-        self.btn_broadcast.setToolTip("Broadcast Mode: send input to all open terminal tabs (Ctrl+Shift+B)")
-        self.btn_broadcast.toggled.connect(self.set_broadcast_mode)
-        bar.addWidget(self.btn_broadcast)
-
-        # Snippets Panel Toggle Button
-        self.btn_snippets = QPushButton("📝 Snippets")
-        self.btn_snippets.setObjectName("ghost")
-        self.btn_snippets.setCheckable(True)
-        self.btn_snippets.setToolTip("Toggle Command Snippets & Macros Panel (Ctrl+Shift+S)")
-        self.btn_snippets.toggled.connect(self.set_snippets_visible)
-        bar.addWidget(self.btn_snippets)
 
         bar.addSeparator()
 
@@ -632,10 +561,7 @@ class MainWindow(QMainWindow):
             return act
 
         add_tool("server", "Scanner", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
-        add_tool("transfer", "Cluster", "Multi-Host Parallel Runner (Ctrl+Shift+X)", self.open_cluster_runner)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
-        add_tool("shield", "Vault", "Credential vault (Ctrl+Shift+K)", self.open_vault)
-        add_tool("plug", "Tunnels", "Port forwarding (Ctrl+Shift+P)", self.open_tunnels_dialog)
 
         act_monitor = bar.addAction(icon("server"), "Monitor panel")
         act_monitor.setToolTip("Toggle the bottom remote-monitor panel (live CPU/MEM/DISK/NET)")
@@ -688,7 +614,7 @@ class MainWindow(QMainWindow):
         btn_palette.clicked.connect(self.open_command_palette)
         cl.addWidget(btn_palette)
 
-        plus = QPushButton("＋ New Tab")
+        plus = QPushButton("+ NEW")
         plus.setObjectName("ghost")
         plus.setToolTip("New session (Ctrl+N)")
         plus.clicked.connect(self.new_session)
@@ -705,18 +631,25 @@ class MainWindow(QMainWindow):
         el.setSpacing(16)
         el.setContentsMargins(40, 40, 40, 40)
 
-        logo = QLabel("◐")
-        logo.setStyleSheet("font-size: 48px; color: #5c677e;")
+        logo = QLabel("◈")
+        logo.setStyleSheet("font-size: 42px; color: #FC3D21;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(logo)
 
-        title = QLabel(f"Welcome to {APP_NAME}")
+        title = QLabel(APP_NAME)
         title.setObjectName("h1")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(title)
 
-        subtitle = QLabel("Open a saved session from the sidebar, create a new one, or use quick connect above.\n"
-                          "Press Ctrl+P for Command Palette, or Ctrl+Shift+T for local terminal.")
+        callsign = QLabel("FLIGHT OPERATIONS  ·  LINK STATUS IDLE")
+        callsign.setObjectName("caption")
+        callsign.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        el.addWidget(callsign)
+
+        subtitle = QLabel(
+            "Select a session from the roster, establish a new link, or open a local console.\n"
+            "Ctrl+P command palette  ·  Ctrl+Shift+T local terminal"
+        )
         subtitle.setObjectName("muted")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
@@ -725,13 +658,13 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_row.setSpacing(10)
-        b1 = QPushButton("＋ New Session")
+        b1 = QPushButton("NEW SESSION")
         b1.setObjectName("primary")
         b1.clicked.connect(self.new_session)
-        b2 = QPushButton("▢ Terminal")
+        b2 = QPushButton("LOCAL CONSOLE")
         b2.setObjectName("subtle")
         b2.clicked.connect(self.open_local_terminal)
-        b3 = QPushButton("⌕ Command Palette")
+        b3 = QPushButton("COMMAND PALETTE")
         b3.setObjectName("subtle")
         b3.clicked.connect(self.open_command_palette)
         btn_row.addWidget(b1)
@@ -756,15 +689,9 @@ class MainWindow(QMainWindow):
         tl.addWidget(self._center_stack, 1)
         self.main_splitter.addWidget(tabs_wrap)
 
-        # Right side: Snippets panel (collapsible)
-        self.snippets_panel = SnippetsPanel(self)
-        self.snippets_panel.setVisible(False)
-        self.main_splitter.addWidget(self.snippets_panel)
-
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setStretchFactor(2, 0)
-        self.main_splitter.setSizes([280, 1100, 0])
+        self.main_splitter.setSizes([280, 1100])
 
         # Bottom: MobaXterm-style remote monitoring strip
         self.monitor_panel = MonitorPanel(self)
@@ -867,24 +794,10 @@ class MainWindow(QMainWindow):
     def _on_command_sent(self, source_tab: SessionTab, text: str) -> None:
         """CommandBar Enter: run the command in the tab's terminal."""
         data = (text + "\r").encode("utf-8")
-        if not self._broadcast_mode or self._in_broadcast_dispatch:
-            try:
-                source_tab.controller.write(data)
-            except Exception:  # noqa: BLE001 - never break the command line
-                log.exception("command send failed")
-            return
-        # Broadcast mode: the command goes to every shell-capable tab.
-        self._in_broadcast_dispatch = True
         try:
-            for i in range(self.tabs.count()):
-                w = self.tabs.widget(i)
-                if isinstance(w, SessionTab) and w.controller.capabilities().shell:
-                    try:
-                        w.controller.write(data)
-                    except Exception:  # noqa: BLE001
-                        log.exception("broadcast write failed")
-        finally:
-            self._in_broadcast_dispatch = False
+            source_tab.controller.write(data)
+        except Exception:  # noqa: BLE001 - never break the command line
+            log.exception("command send failed")
 
     def _tab_context_menu(self, pos: QPoint) -> None:
         tab_bar = self.tabs.tabBar()
@@ -914,12 +827,10 @@ class MainWindow(QMainWindow):
         act_log.triggered.connect(lambda: self._toggle_tab_logging(widget))
 
         caps = widget.controller.capabilities()
-        if caps.sftp or caps.tunnels or caps.monitor:
+        if caps.sftp or caps.monitor:
             menu.addSeparator()
             if caps.sftp:
                 menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
-            if caps.tunnels:
-                menu.addAction("Port Forwarding (Tunnels)", widget.controller.open_tunnels)
             if caps.monitor:
                 menu.addAction("Remote Monitor", widget.controller.open_monitor)
 
@@ -965,57 +876,8 @@ class MainWindow(QMainWindow):
             toast(self, "Open a terminal session first to start logging", "warn")
 
     # ------------------------------------------------------------------
-    # Broadcast Input Mode
+    # Command Palette
     # ------------------------------------------------------------------
-    def set_broadcast_mode(self, enabled: bool) -> None:
-        self._broadcast_mode = enabled
-        self._act_broadcast.setChecked(enabled)
-        self.btn_broadcast.setChecked(enabled)
-        self.btn_broadcast.setText("📡 Broadcast: ON" if enabled else "📡 Broadcast: OFF")
-        self.btn_broadcast.setObjectName("primary" if enabled else "ghost")
-        theme.apply_theme(QApplication.instance(), self.ctx.settings.theme)
-        if enabled:
-            self.broadcast_label.setText("  📡 BROADCAST INPUT: ACTIVE")
-            toast(self, "Broadcast Mode ON: Input is sent to ALL open terminal tabs", "warn")
-        else:
-            self.broadcast_label.setText("")
-            toast(self, "Broadcast Mode OFF", "info")
-
-    def toggle_broadcast_mode(self) -> None:
-        self.set_broadcast_mode(not self._broadcast_mode)
-
-    def _on_terminal_user_input(self, source_tab: SessionTab, data: bytes) -> None:
-        if not self._broadcast_mode or self._in_broadcast_dispatch:
-            return
-        self._in_broadcast_dispatch = True
-        try:
-            for i in range(self.tabs.count()):
-                w = self.tabs.widget(i)
-                if isinstance(w, SessionTab) and w is not source_tab:
-                    c = w.controller
-                    # Only shell-capable sessions accept raw input (SSH and
-                    # local terminals implement write(); RDP windows don't).
-                    if c.capabilities().shell:
-                        try:
-                            c.write(data)
-                        except Exception:  # noqa: BLE001 - never break typing
-                            log.exception("broadcast write failed")
-        finally:
-            self._in_broadcast_dispatch = False
-
-    # ------------------------------------------------------------------
-    # Snippets & Command Palette
-    # ------------------------------------------------------------------
-    def set_snippets_visible(self, visible: bool) -> None:
-        self.snippets_panel.setVisible(visible)
-        self._act_snippets.setChecked(visible)
-        self.btn_snippets.setChecked(visible)
-        if visible:
-            self.main_splitter.setSizes([260, 840, 280])
-
-    def toggle_snippets_panel(self) -> None:
-        self.set_snippets_visible(not self.snippets_panel.isVisible())
-
     def open_command_palette(self) -> None:
         dlg = CommandPaletteDialog(self)
         dlg.exec()
@@ -1171,10 +1033,8 @@ class MainWindow(QMainWindow):
         feats = []
         if caps.sftp:
             feats.append("SFTP")
-        if caps.tunnels:
-            feats.append("TUNNELS")
         if caps.monitor:
-            feats.append("MONITOR")
+            feats.append("TELEM")
         if feats:
             parts.append("·  " + "  ".join(feats))
         self.session_info_label.setText("   ".join(parts))
@@ -1254,7 +1114,6 @@ class MainWindow(QMainWindow):
         from .vault_dialog import VaultDialog
 
         VaultDialog(self.ctx, self).exec()
-        self._refresh_vault_label()
 
     def open_tunnels_dialog(self) -> None:
         controller = self.current_controller()
@@ -1310,6 +1169,21 @@ class MainWindow(QMainWindow):
             app = QApplication.instance()
             theme.apply_theme(app, self.ctx.settings.theme)
             self._sync_theme_actions()
+            self._apply_terminal_prefs()
+
+    def _apply_terminal_prefs(self) -> None:
+        """Push font size/family to open terminals. SSH colors stay native."""
+        s = self.ctx.settings
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if not isinstance(w, SessionTab):
+                continue
+            term = getattr(w.controller, "term", None)
+            if term is not None and hasattr(term, "apply_font"):
+                try:
+                    term.apply_font(s.font_family, s.font_size)
+                except Exception:  # noqa: BLE001
+                    log.exception("apply font failed")
 
     def apply_theme_id(self, theme_id: str) -> None:
         from ..core.settings import THEME_IDS
@@ -1343,10 +1217,10 @@ class MainWindow(QMainWindow):
             self,
             f"About {APP_NAME}",
             f"<b>{APP_NAME}</b> {__version__}<br><br>"
-            "Cross-platform remote-access workbench.<br>"
-            "SSH/SFTP/OpenSSH to Linux, Windows, BSD and macOS hosts; RDP to Windows hosts.<br><br>"
+            "Flight operations workbench.<br>"
+            "SSH / SFTP / OpenSSH to Linux, Windows, BSD and macOS hosts; RDP to Windows hosts.<br><br>"
             "Python · Qt (PySide6) · paramiko · pyte<br><br>"
-            "<span style='color: #8a94ac;'>Modern UI • Fast terminal • Secure vault</span>",
+            "<span style='color: #8a94ac; letter-spacing: 1px;'>SSH · SFTP · RDP</span>",
         )
 
     def _import_ssh_config(self) -> None:
@@ -1409,19 +1283,6 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["open", str(path)])
         else:
             subprocess.Popen(["xdg-open", str(path)])
-
-    def _refresh_vault_label(self) -> None:
-        try:
-            unlocked = self.ctx.vault.unlocked
-            exists = self.ctx.vault.exists
-        except Exception:
-            unlocked, exists = False, False
-        if unlocked:
-            self.vault_label.setText(" 🔓 vault unlocked")
-        elif exists:
-            self.vault_label.setText(" 🔒 vault locked")
-        else:
-            self.vault_label.setText(" ○ no vault — passwords saved per session")
 
     def _autolock(self) -> None:
         # Vault auto-lock was removed from Settings; keep the timer as a

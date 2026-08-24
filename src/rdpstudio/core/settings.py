@@ -10,17 +10,56 @@ from pathlib import Path
 
 # Theme ids accepted in settings.json. Nature palettes live alongside dark/light.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("dark", "Dark — midnight indigo"),
-    ("light", "Light — clean daylight"),
-    ("forest", "Forest — pine & moss"),
-    ("ocean", "Ocean — deep teal"),
-    ("sunset", "Sunset — terracotta dusk"),
-    ("aurora", "Aurora — northern lights"),
-    ("meadow", "Meadow — sage & cream"),
-    ("desert", "Desert — sand & clay"),
+    ("dark", "Mission Control — NASA night"),
+    ("light", "Flight Day — NASA blue"),
+    ("forest", "Range — pine & moss"),
+    ("ocean", "Atlantic — deep teal"),
+    ("sunset", "Reentry — terracotta dusk"),
+    ("aurora", "High Latitude — northern lights"),
+    ("meadow", "Pad — sage & cream"),
+    ("desert", "Edwards — sand & clay"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
 DARK_THEMES = {"dark", "forest", "ocean", "sunset", "aurora"}
+
+# Curated terminal typefaces (system-installed only; nothing is bundled).
+FONT_PRESETS: tuple[str, ...] = (
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Nimbus Mono L",
+    "FreeMono",
+    "Noto Sans Mono",
+    "Ubuntu Mono",
+    "JetBrains Mono",
+    "JetBrains Mono NL",
+    "Cascadia Code",
+    "Cascadia Mono",
+    "Fira Code",
+    "Fira Mono",
+    "Source Code Pro",
+    "IBM Plex Mono",
+    "Hack",
+    "Inconsolata",
+    "Roboto Mono",
+    "PT Mono",
+    "Anonymous Pro",
+    "Cousine",
+    "Droid Sans Mono",
+    "Go Mono",
+    "Iosevka",
+    "Iosevka Term",
+    "Input Mono",
+    "Menlo",
+    "Monaco",
+    "SF Mono",
+    "Andale Mono",
+    "Consolas",
+    "Lucida Console",
+    "Lucida Sans Typewriter",
+    "Courier New",
+    "Courier",
+    "Monospace",
+)
 
 
 def _as_int(value, default: int, minimum: int) -> int:

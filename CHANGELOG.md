@@ -3,10 +3,30 @@
 ## Unreleased
 
 ### Added
+- **NASA / mission-control chrome.** Workbench QSS restyled as flight-ops
+  consoles: NASA red / NASA blue accents, telemetry type, tight radii. Uses
+  only system fonts already on the machine — no extra assets.
+- **Multiple terminal fonts.** Settings lists a curated set of console
+  typefaces (DejaVu, Liberation, Cascadia, Fira, JetBrains, IBM Plex, Hack,
+  Consolas, …) plus every monospaced face installed locally, with a live
+  preview.
 - **App icon.** A new key + terminal mark for KB-Remote (window, launcher, and packaging).
 - **Nature themes.** Settings and **View → Theme** now include Forest, Ocean,
-  Sunset, Aurora, Meadow and Desert palettes alongside Dark and Light. The
-  terminal background/cursor follow the same palette.
+  Sunset, Aurora, Meadow and Desert palettes alongside Dark and Light.
+
+### Changed
+- **SSH keeps the remote VM’s own console colors.** Opening an SSH session no
+  longer applies Tools → Settings theme colors (or the workbench 16-color
+  palette) to the terminal. SSH tabs render the classic VGA / linux / xterm
+  palette the host itself emits. Theme colors still apply to the workbench
+  chrome and to local terminals.
+- Removed from the UI: Broadcast input, Command snippets, Port forwarding,
+  Multi-host parallel runner, and the Credential vault. Session passwords
+  stay on the session itself.
+
+### Added
+- **Nature themes (labels).** Forest, Ocean, Sunset, Aurora, Meadow and Desert
+  palettes remain available under flight-ops names.
 
 ### Changed
 - Settings no longer expose **Vault auto-lock** or **KDF iterations**. The

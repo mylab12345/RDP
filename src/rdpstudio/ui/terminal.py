@@ -428,9 +428,18 @@ class TerminalView(QWidget):
     bellRequested = Signal()
     linkActivated = Signal(str)
 
-    def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        parent: QWidget | None = None,
+        *,
+        native_colors: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.settings = settings
+        # SSH / OpenSSH sessions keep the remote host's own console palette.
+        # Theme colors from Settings apply only to local terminals.
+        self.native_colors = bool(native_colors)
         self.core = TerminalCore(history=settings.scrollback_lines)
         self.core.screen.bell = self._on_bell  # type: ignore[method-assign]
 
@@ -828,8 +837,8 @@ class TerminalView(QWidget):
         return QRect(2 + cx * self._cell_w, 2 + cy * self._cell_h, self._cell_w, self._cell_h)
 
     def _palette(self) -> dict:
-        """Theme palette, built once per theme."""
-        theme = self.settings.theme
+        """Color palette, built once per theme (or once for native SSH)."""
+        theme = "native" if self.native_colors else self.settings.theme
         cached = self._palette_cache
         if cached is not None and self._palette_theme == theme:
             return cached
@@ -856,6 +865,23 @@ class TerminalView(QWidget):
         from .theme import is_dark_theme
         from .theme import palette as ui_palette
 
+        if self.native_colors:
+            # Classic VGA / Linux console / xterm defaults — the palette a
+            # remote VM actually emits. Theme settings must not recolor this.
+            base = {
+                "fg": QColor("#aaaaaa"),
+                "bg": QColor("#000000"),
+                "cursor": QColor("#aaaaaa"),
+                "sel": QColor(170, 170, 170, 70),
+                "match": QColor(170, 85, 0, 90),
+                "match_active": QColor(255, 255, 85, 140),
+                "match_border": QColor("#ffff55"),
+                "fg_dim": QColor("#555555"),
+                "named": dict(_NATIVE_NAMED),
+            }
+            base["16"] = [QColor(c) for c in _VGA16]
+            return base
+
         ui = ui_palette(self.settings.theme)
         dark = is_dark_theme(self.settings.theme)
         if dark:
@@ -864,7 +890,7 @@ class TerminalView(QWidget):
                 "bg": QColor(ui["term_bg"]),
                 "cursor": QColor(ui["accent"]),
                 "sel": QColor(ui["sel"]),
-                "match": QColor(251, 191, 106, 75),       # soft amber highlight
+                "match": QColor(251, 191, 106, 75),
                 "match_active": QColor(251, 191, 106, 170),
                 "match_border": QColor(ui.get("warn", "#fbbf6a")),
             }
@@ -888,6 +914,7 @@ class TerminalView(QWidget):
             ]
         base["16"] = [QColor(c.lower()) for c in palette16]
         base["fg_dim"] = QColor("#8a94ac") if dark else QColor("#6b768f")
+        base["named"] = dict(_NAMED)
         return base
 
     def _font_for(self, bold: bool, italic: bool) -> QFont:
@@ -1382,11 +1409,12 @@ def _colors_for(fg_spec, bg_spec, reverse: bool, pal) -> tuple[QColor, QColor | 
         nonlocal fg, bg
         if color in (None, "default"):
             return
+        named = pal.get("named") or _NAMED
         if isinstance(color, int) or (isinstance(color, str) and color.isdigit()):
             idx = int(color)
             c = pal["16"][idx] if idx < 16 else _xterm256(idx, pal)
-        elif isinstance(color, str) and color.lower() in _NAMED:
-            c = QColor(_NAMED[color.lower()])
+        elif isinstance(color, str) and color.lower() in named:
+            c = QColor(named[color.lower()])
         elif isinstance(color, str) and color.startswith("#"):
             c = QColor(color)
         else:
@@ -1402,6 +1430,34 @@ def _colors_for(fg_spec, bg_spec, reverse: bool, pal) -> tuple[QColor, QColor | 
         fg, bg = (bg or pal["bg"]), QColor(fg)
     return fg, bg
 
+
+# Classic VGA / Linux-console 16-color palette (the remote VM's own colors).
+_VGA16 = (
+    "#000000", "#aa0000", "#00aa00", "#aa5500",
+    "#0000aa", "#aa00aa", "#00aaaa", "#aaaaaa",
+    "#555555", "#ff5555", "#55ff55", "#ffff55",
+    "#5555ff", "#ff55ff", "#55ffff", "#ffffff",
+)
+
+_NATIVE_NAMED: dict[str, str] = {
+    "black": "#000000",
+    "red": "#aa0000",
+    "green": "#00aa00",
+    "yellow": "#aa5500",
+    "blue": "#0000aa",
+    "magenta": "#aa00aa",
+    "cyan": "#00aaaa",
+    "white": "#aaaaaa",
+    "brightblack": "#555555",
+    "brightred": "#ff5555",
+    "brightgreen": "#55ff55",
+    "brightyellow": "#ffff55",
+    "brightblue": "#5555ff",
+    "brightmagenta": "#ff55ff",
+    "brightcyan": "#55ffff",
+    "brightwhite": "#ffffff",
+    "default": "#aaaaaa",
+}
 
 _NAMED: dict[str, str | QColor] = {
     "black": "#2e3440",

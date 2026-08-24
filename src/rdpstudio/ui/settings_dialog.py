@@ -1,8 +1,8 @@
-"""Application settings dialog — modern."""
+"""Application settings dialog — flight-ops layout."""
 
 from __future__ import annotations
 
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,6 +21,44 @@ from PySide6.QtWidgets import (
 
 from ..core import paths
 from ..core.plugin import SessionContext
+from ..core.settings import FONT_PRESETS, THEME_CHOICES
+
+
+def _system_families() -> list[str]:
+    try:
+        return list(QFontDatabase.families())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _is_fixed(family: str) -> bool:
+    try:
+        return bool(QFontDatabase.isFixedPitch(family))
+    except Exception:  # noqa: BLE001
+        key = family.lower()
+        return any(tok in key for tok in ("mono", "consol", "courier", "code", "term", "fixed"))
+
+
+def collect_terminal_fonts() -> list[str]:
+    """Recommended presets first, then every monospaced face on this machine."""
+    installed = _system_families()
+    installed_set = set(installed)
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in FONT_PRESETS:
+        if name in installed_set and name not in seen:
+            out.append(name)
+            seen.add(name)
+    for name in sorted(f for f in installed if _is_fixed(f)):
+        if name not in seen:
+            out.append(name)
+            seen.add(name)
+    # Still offer the remaining presets so the operator can type a known name.
+    for name in FONT_PRESETS:
+        if name not in seen:
+            out.append(name)
+            seen.add(name)
+    return out or list(FONT_PRESETS)
 
 
 class SettingsDialog(QDialog):
@@ -29,19 +67,22 @@ class SettingsDialog(QDialog):
         self.ctx = ctx
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(600, 640)
+        self.resize(640, 700)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 16)
-        outer.setSpacing(16)
+        outer.setSpacing(14)
 
-        # Title
         title = QLabel("Settings")
         title.setObjectName("h1")
         outer.addWidget(title)
 
-        subtitle = QLabel("Appearance, terminal behavior, and connection defaults.")
+        subtitle = QLabel(
+            "Workbench appearance and local-console defaults. "
+            "SSH sessions keep the remote host’s own terminal colors."
+        )
         subtitle.setObjectName("muted")
+        subtitle.setWordWrap(True)
         outer.addWidget(subtitle)
 
         scroll = QScrollArea()
@@ -59,8 +100,6 @@ class SettingsDialog(QDialog):
         form = QFormLayout(appearance)
         form.setSpacing(12)
         self.theme = QComboBox()
-        from ..core.settings import THEME_CHOICES
-
         for tid, label in THEME_CHOICES:
             self.theme.addItem(label, tid)
         ti = self.theme.findData(ctx.settings.theme)
@@ -69,19 +108,41 @@ class SettingsDialog(QDialog):
 
         self.font_family = QComboBox()
         self.font_family.setEditable(True)
-        families = sorted(set(QFontDatabase.families()))
-        mono = [f for f in families if "Mono" in f or "Consol" in f or "mono" in f or "Code" in f or "JetBrains" in f]
-        self.font_family.addItems(mono or families)
+        fonts = collect_terminal_fonts()
+        self.font_family.addItems(fonts)
         if ctx.settings.font_family:
             self.font_family.setCurrentText(ctx.settings.font_family)
         else:
-            self.font_family.setCurrentText("JetBrains Mono" if "JetBrains Mono" in families else (mono[0] if mono else ""))
+            preferred = next(
+                (f for f in ("DejaVu Sans Mono", "Liberation Mono", "Consolas", "Courier New") if f in fonts),
+                fonts[0] if fonts else "",
+            )
+            self.font_family.setCurrentText(preferred)
         form.addRow("Terminal font", self.font_family)
 
         self.font_size = QSpinBox()
         self.font_size.setRange(7, 24)
         self.font_size.setValue(ctx.settings.font_size)
         form.addRow("Font size", self.font_size)
+
+        self._font_preview = QLabel("ABCDEFGHIJK  0123456789  ls -la  ~/ops  ERROR  NOMINAL")
+        self._font_preview.setObjectName("card")
+        self._font_preview.setWordWrap(True)
+        self._font_preview.setMinimumHeight(44)
+        self._font_preview.setContentsMargins(10, 8, 10, 8)
+        form.addRow("Preview", self._font_preview)
+        self.font_family.currentTextChanged.connect(lambda _t: self._refresh_font_preview())
+        self.font_size.valueChanged.connect(lambda _v: self._refresh_font_preview())
+        self._refresh_font_preview()
+
+        note = QLabel(
+            "Typefaces listed here are the fonts installed on this workstation. "
+            "Nothing extra is downloaded."
+        )
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        form.addRow(note)
+
         self.cursor = QComboBox()
         self.cursor.addItem("Block █", "block")
         self.cursor.addItem("Underline _", "underline")
@@ -92,9 +153,16 @@ class SettingsDialog(QDialog):
         layout.addWidget(appearance)
 
         # --- terminal ---------------------------------------------------------
-        terminal = QGroupBox("Terminal")
+        terminal = QGroupBox("Local terminal")
         tform = QFormLayout(terminal)
         tform.setSpacing(10)
+        ssh_note = QLabel(
+            "SSH / OpenSSH tabs render the remote VM’s own console palette "
+            "(VGA / linux / xterm ANSI). Theme colors are not applied to those sessions."
+        )
+        ssh_note.setObjectName("muted")
+        ssh_note.setWordWrap(True)
+        tform.addRow(ssh_note)
         self.scrollback = QSpinBox()
         self.scrollback.setRange(200, 100_000)
         self.scrollback.setSingleStep(500)
@@ -111,7 +179,7 @@ class SettingsDialog(QDialog):
         tform.addRow(self.confirm_paste)
         layout.addWidget(terminal)
 
-        # --- connection ---------------------------------------------------------
+        # --- connection -------------------------------------------------------
         conn = QGroupBox("Connection")
         cform = QFormLayout(conn)
         cform.setSpacing(10)
@@ -150,7 +218,6 @@ class SettingsDialog(QDialog):
 
         layout.addStretch(1)
 
-        # Footer
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setObjectName("hairline")
@@ -166,13 +233,21 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
+    def _refresh_font_preview(self) -> None:
+        family = self.font_family.currentText().strip() or "monospace"
+        size = max(7, int(self.font_size.value()))
+        font = QFont(family)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        font.setPointSize(size)
+        self._font_preview.setFont(font)
+
     def _refresh_rdp_status(self) -> None:
         from ..protocols.rdp.embed import embed_blocked_on_wayland, embedded_support
 
         self._xwayland_useful = False
         ok, reason = embedded_support()
         if ok:
-            self.rdp_status.setText("✓ In-app display active — remote desktops render inside KB-Remote.")
+            self.rdp_status.setText("In-app display active — remote desktops render inside KB-Remote.")
         elif embed_blocked_on_wayland():
             self._xwayland_useful = True
             self.rdp_status.setText(

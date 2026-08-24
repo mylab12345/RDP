@@ -1,12 +1,11 @@
 # KB-Remote
 
 **A cross-platform remote-access workbench, inspired by MobaXterm.**
-Tabbed SSH/OpenSSH sessions to Linux, Windows, BSD and macOS hosts, RDP sessions to Windows hosts, an encrypted
-credential vault, SFTP file transfer, port forwarding (including SOCKS), and a
-plugin architecture for adding protocols — all in one clean, dark-themed GUI
-that mirrors MobaXterm's information architecture: a **Sessions** sidebar,
-tabbed sessions, a **command line under each terminal tab**, and a live
-**remote monitor docked along the bottom** of the window.
+Tabbed SSH/OpenSSH sessions to Linux, Windows, BSD and macOS hosts, RDP sessions to Windows hosts,
+SFTP file transfer, and a plugin architecture for adding protocols — all in one
+NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, a **command
+line under each terminal tab**, and a live **remote monitor docked along the
+bottom** of the window. SSH tabs keep the remote VM’s own console colors.
 
 ![Main window](docs/screenshots/main-window.png)
 
@@ -14,34 +13,27 @@ tabbed sessions, a **command line under each terminal tab**, and a live
 |---|---|
 | ![SSH session](docs/screenshots/ssh-session.png) | ![Session editor](docs/screenshots/session-editor.png) |
 
-| Credential vault & keys | Port forwarding | RDP server manager |
-|---|---|---|
-| ![Vault](docs/screenshots/vault.png) | ![Tunnels](docs/screenshots/tunnels.png) | ![RDP server](docs/screenshots/rdp-server-manager.png) |
-
 ---
 
 ## Feature overview
 
 | Area | What you get |
 |---|---|
-| **SSH/OpenSSH (all OSes)** | Interactive shells in tabs with a real VT emulator (pyte-based: colors, scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives |
-| **Per-tab command line** | MobaXterm-style command bar under every terminal tab: type + Enter runs the command in that tab, `Up`/`Down` recalls per-tab history (deduped, 100 entries); in broadcast mode it fans out to all shell tabs |
+| **SSH/OpenSSH (all OSes)** | Interactive shells in tabs with a real VT emulator (pyte-based: scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives. **Remote console colors stay native** — Tools → Settings theme is not applied to SSH tabs |
+| **Fonts** | Settings lists many console typefaces (DejaVu, Liberation, Cascadia, Fira, JetBrains, IBM Plex, Hack, Consolas, …) plus every monospaced face on this machine, with a live preview |
+| **Per-tab command line** | Command bar under every terminal tab: type + Enter runs the command in that tab, `Up`/`Down` recalls per-tab history (deduped, 100 entries) |
 | **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window, like MobaXterm) on Linux — **including Wayland desktops**, where KB-Remote restarts itself through XWayland automatically when an RDP session is in play; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Local terminal** | One-click native shell in a tab (toolbar, `Session → New local terminal`, `Ctrl+Shift+T`): real PTY on Linux/macOS, ConPTY on Windows — colors, resize, `vim`/`top` all work |
 | **Command palette** | Instant keyboard launcher (`Ctrl+P` / `Ctrl+K`): fuzzy-search and switch across open tabs, connect saved sessions, and launch any tool or command |
 | **In-terminal search** | Floating search overlay (`Ctrl+F` / `F3` / `Shift+F3`): case-sensitive search, visual match highlight rectangles on screen, match count indicator, and match navigation |
-| **Command snippets** | Collapsible macros & snippets drawer (`Ctrl+Shift+S`): categorized system admin, docker, networking, logs, and process presets with 1-click execution and placeholder variable rendering (`$HOST`, `$USER`, `$SELECTION`) |
-| **Broadcast mode** | Multi-execution mode (`Ctrl+Shift+B`): mirrors typing in the active terminal to all open SSH and local terminal tabs simultaneously |
 | **Network diagnostics** | Standalone & workbench tool (`Ctrl+Shift+N`): multi-threaded TCP port scanner, TCP ping latency tester with jitter and loss stats, and forward/reverse DNS lookup |
-| **Multi-host runner** | Parallel cluster execution (`Ctrl+Shift+X`): execute commands across multiple SSH hosts concurrently with a consolidated results grid and stdout/stderr inspector |
 | **SSH key utility** | Standalone key tool (`Ctrl+Shift+U`): key generation (Ed25519/RSA/ECDSA), visual Randomart (Drunken Bishop algorithm), and OpenSSH ⇄ PuTTY `.ppk` converter |
 | **Remote monitoring** | Live CPU, memory, swap, disk, load average (where the OS exposes it), logged-in users and network throughput for any SSH/OpenSSH host — Linux, Windows, BSD and macOS — with sparkline history and a selectable refresh rate (`Ctrl+Shift+M`). **Docked along the bottom** of the window (MobaXterm-style) it follows the active tab for every monitor-capable machine, auto-expands on first connect, and collapses to a one-line strip; the **Details** button opens the full monitor window. Uses a single read-only platform probe per sample over the session's existing SSH transport — no agent to install |
 | **File transfer & edit** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, hidden files toggle (`.*`), and **in-app text file editor** with direct SFTP save-and-upload (`Ctrl+S`) |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`) |
 | **Simple by default** | The session editor asks for **host, username and password** — everything else (ports, tags, jump hosts, keepalives, forwards, RD gateway, certificates) lives behind a single **Advanced options** toggle. RDP display is one dropdown: fit to window, fullscreen, or a standard resolution |
-| **Credentials** | Simple path: type a **username + password** per session (stored in the sessions file, `0600` — no vault required). Power path: AES-256-GCM encrypted vault under a master passphrase (PBKDF2-SHA256, 310k iterations default), auto-lock, redacted logging; SSH key generation (Ed25519/ECDSA/RSA) with passphrases stored in the vault |
-| **Port forwarding** | Local, remote and **dynamic (SOCKS5)** tunnels per session, runtime start/stop, forward events surfaced in the UI |
+| **Credentials** | Type a **username + password** per session (stored in the sessions file, `0600`). Leave the password empty to be asked at connect time. |
 | **Reconnect** | Exponential backoff + jitter, attempt limits, live status chips; FreeRDP `+auto-reconnect` for RDP |
 | **Clipboard & logging** | Copy-on-select, middle-click paste, Ctrl+Shift+C/V, multi-line paste confirmation, OSC-52 (`\x1b]52`) support, RDP clipboard redirection; live session output logging to file (`● REC`) |
 | **Security** | TOFU host-key verification with loud changed-key warnings (own `known_hosts`), vault secrets never in session store (a plain password is only written if you explicitly save it), passwords never exported, atomic encrypted vault writes (0600) |
@@ -93,15 +85,13 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 
 1. Launch `kb-remote` (the legacy `rdpstudio` command remains available).
 2. **Session → New session** (Ctrl+N) → pick *SSH terminal* or *RDP remote
-   desktop* → fill **Host**, **Username** and **Password** → *Save*. No vault
-   needed — the password is stored with the session (leave it empty and you'll
-   be asked at connect time). For RDP, tick **Fit display to screen** to scale
-   the remote desktop to the window.
-3. Double-click the session in the sidebar. Use **Files** / **Tunnels** on the
-   tab header for SFTP and port forwarding.
+   desktop* → fill **Host**, **Username** and **Password** → *Save*. The
+   password is stored with the session (leave it empty and you'll be asked at
+   connect time). For RDP, tick **Fit display to screen** to scale the remote
+   desktop to the window. SSH tabs keep the remote host’s own console colors.
+3. Double-click the session in the sidebar. Use **Files** on the tab header
+   for SFTP.
 4. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.
-5. *(Optional)* **Tools → Credential vault** (Ctrl+Shift+K) → keep passwords in
-   an encrypted vault instead of the session file.
 
 ## Scope note on RDP
 

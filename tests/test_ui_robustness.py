@@ -93,7 +93,7 @@ def test_command_palette_navigation(home, qtapp):
     main.close()
 
 
-def test_snippets_panel_and_execution(home, qtapp):
+def test_snippets_panel_standalone(home, qtapp):
     ctx = _ctx(home, qtapp)
     main = MainWindow(ctx)
     main.show()
@@ -102,30 +102,31 @@ def test_snippets_panel_and_execution(home, qtapp):
     assert panel.tree.topLevelItemCount() > 0
     panel.search.setText("Uptime")
     assert panel.tree.topLevelItemCount() > 0
-
-    main.set_snippets_visible(True)
-    assert not main.snippets_panel.isHidden()
-    main.set_snippets_visible(False)
-    assert main.snippets_panel.isHidden()
+    assert not hasattr(main, "snippets_panel")
 
     panel.close()
     main.close()
 
 
-def test_broadcast_mode_toggle(home, qtapp):
+def test_removed_power_tools_are_not_in_chrome(home, qtapp):
     ctx = _ctx(home, qtapp)
     main = MainWindow(ctx)
     main.show()
-    assert not main._broadcast_mode
-
-    main.set_broadcast_mode(True)
-    assert main._broadcast_mode is True
-    assert "ACTIVE" in main.broadcast_label.text()
-
-    main.set_broadcast_mode(False)
-    assert main._broadcast_mode is False
-    assert main.broadcast_label.text() == ""
-
+    texts = []
+    for action in main.menuBar().actions():
+        menu = action.menu()
+        if menu is None:
+            continue
+        for child in menu.actions():
+            texts.append((child.text() or "").replace("&", "").lower())
+    blob = " | ".join(texts)
+    assert "broadcast" not in blob
+    assert "snippet" not in blob
+    assert "vault" not in blob
+    assert "port forwarding" not in blob
+    assert "parallel" not in blob
+    toolbar_tips = " ".join(a.toolTip().lower() for a in main.findChildren(type(main.menuBar().actions()[0])))
+    assert "broadcast" not in toolbar_tips
     main.close()
 
 

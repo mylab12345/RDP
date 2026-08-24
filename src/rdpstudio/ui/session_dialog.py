@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
 
 from ..core.models import (
     AUTH_AGENT,
-    AUTH_CREDENTIAL,
     AUTH_KEY,
     AUTH_PASSWORD,
     PROTOCOL_LOCAL,
@@ -34,7 +33,6 @@ from ..core.models import (
     default_port_for,
 )
 from ..core.plugin import SessionContext, registry
-from .forward_editor import ForwardListEditor
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
 _RDP_STEP = 8
@@ -78,7 +76,7 @@ class SessionDialog(QDialog):
         root.addLayout(title_row)
 
         # Subtitle
-        subtitle = QLabel("Connect to a remote host via SSH or RDP. Credentials can be saved or asked at connect time.")
+        subtitle = QLabel("Connect to a remote host via SSH or RDP. Username and password can be saved or asked at connect time.")
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
@@ -270,7 +268,6 @@ class SessionDialog(QDialog):
         form.setSpacing(10)
         auth = QComboBox()
         auth.addItem("Password", AUTH_PASSWORD)
-        auth.addItem("Vault credential", AUTH_CREDENTIAL)
         auth.addItem("Private key", AUTH_KEY)
         auth.addItem("SSH agent", AUTH_AGENT)
         auth_label = QLabel("Method")
@@ -398,14 +395,8 @@ class SessionDialog(QDialog):
         form.addRow(auto_row)
         layout.addWidget(behaviour)
 
-        fwd_box = QGroupBox("Port forwarding")
-        fl = QVBoxLayout(fwd_box)
-        self.forwards = ForwardListEditor()
-        self.forwards.set_forwards(self.session.forwards)
-        fl.addWidget(self.forwards)
-        layout.addWidget(fwd_box)
         layout.addStretch(1)
-        self._mark_advanced(behaviour, fwd_box)
+        self._mark_advanced(behaviour)
         return page
 
     def _build_rdp_page(self) -> QWidget:
@@ -563,7 +554,7 @@ class SessionDialog(QDialog):
     def _on_auth(self, protocol: str | None = None) -> None:
         ui = self._current_auth_ui(protocol)
         method = ui["auth"].currentData()
-        wants_credential = method in (AUTH_CREDENTIAL, AUTH_KEY)
+        wants_credential = False
         wants_key = method == AUTH_KEY
         ui["credential_label"].setVisible(wants_credential)
         ui["credential"].setVisible(wants_credential)
@@ -571,7 +562,7 @@ class SessionDialog(QDialog):
         ui["key_row"].setVisible(wants_key)
         ui["credential"].setEnabled(wants_credential)
         ui["key_path"].setEnabled(wants_key)
-        uses_password = method in (AUTH_PASSWORD, AUTH_CREDENTIAL)
+        uses_password = method == AUTH_PASSWORD
         self.password.setEnabled(uses_password)
         self.password.setPlaceholderText(
             "leave empty to be asked at connect"
@@ -607,7 +598,6 @@ class SessionDialog(QDialog):
             s.timeout = self.timeout.value()
             s.compression = self.compression.isChecked()
             s.auto_reconnect = self.auto_reconnect.isChecked()
-            s.forwards = self.forwards.get_forwards()
         elif s.protocol == PROTOCOL_RDP:
             s.auth = auth_ui["auth"].currentData()
             s.credential_id = auth_ui["credential"].currentData() or ""

@@ -47,11 +47,12 @@ class StateChip(QLabel):
                 background: {bg};
                 color: {hexcolor if color != 'fg_dim' else pal['fg_dim']};
                 border: 1px solid {border};
-                border-radius: 12px;
-                padding: 3px 12px 3px 10px;
-                font-size: 11.5px;
-                font-weight: 600;
-                letter-spacing: 0.2px;
+                border-radius: 2px;
+                padding: 3px 10px 3px 8px;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                font-family: "DejaVu Sans Mono", "Liberation Mono", "Consolas", monospace;
             }}
             """
         )
