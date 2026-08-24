@@ -8,16 +8,16 @@ import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-# Theme ids accepted in settings.json. Nature palettes live alongside dark/light.
+# Theme ids accepted in settings.json. Beautiful natural global theme — 2026 bento design.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("dark", "Mission Control — NASA night"),
-    ("light", "Flight Day — NASA blue"),
-    ("forest", "Range — pine & moss"),
-    ("ocean", "Atlantic — deep teal"),
-    ("sunset", "Reentry — terracotta dusk"),
-    ("aurora", "High Latitude — northern lights"),
-    ("meadow", "Pad — sage & cream"),
-    ("desert", "Edwards — sand & clay"),
+    ("dark", "🌙 Midnight — slate & mint · natural dark"),
+    ("light", "☀️ Daylight — warm paper & forest · natural light"),
+    ("forest", "🌲 Forest — deep pine & moss · vibrant leaf"),
+    ("ocean", "🌊 Ocean — Atlantic deep teal · cyan"),
+    ("sunset", "🌅 Sunset — terracotta dusk · warm coral"),
+    ("aurora", "✨ Aurora — northern lights · mint & lavender"),
+    ("meadow", "🌾 Meadow — sage & cream · airy light"),
+    ("desert", "🏜️ Desert — sand & clay · sun-baked warm"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
 DARK_THEMES = {"dark", "forest", "ocean", "sunset", "aurora"}

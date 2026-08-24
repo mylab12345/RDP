@@ -183,27 +183,45 @@ class SessionDialog(QDialog):
         self._on_protocol()
 
     def _make_card(self, title: str) -> QWidget:
-        """Create a modern card with title — returns the card itself."""
+        """Create a beautiful natural bento card with title."""
+        from .theme import palette as theme_palette
+
+        pal = theme_palette()
         card = QWidget()
         card.setObjectName("card")
+        card.setStyleSheet(
+            f"""
+            QWidget#card {{
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border']};
+                border-radius: 16px;
+            }}
+            """
+        )
         outer = QVBoxLayout(card)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         if title:
-            header = QLabel(title)
-            header.setObjectName("h2")
-            header.setContentsMargins(16, 12, 16, 8)
+            header = QWidget()
+            header.setStyleSheet(f"background: {pal['panel']}; border-top-left-radius: 16px; border-top-right-radius: 16px;")
+            hl = QHBoxLayout(header)
+            hl.setContentsMargins(18, 12, 18, 12)
+            dot = QLabel("◉")
+            dot.setStyleSheet(f"color: {pal['accent']}; font-size: 10px;")
+            hl.addWidget(dot)
+            lbl = QLabel(title)
+            lbl.setObjectName("h2")
+            lbl.setStyleSheet("font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;")
+            hl.addWidget(lbl)
+            hl.addStretch(1)
             outer.addWidget(header)
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.HLine)
             sep.setObjectName("hairline")
             sep.setFixedHeight(1)
             outer.addWidget(sep)
-        # content area where caller will add its own layout
         content = QWidget()
         outer.addWidget(content)
-        # Store content as attribute so caller can add layout to it,
-        # but return card so card is added to parent layout (not orphaned).
         card._content_widget = content  # type: ignore[attr-defined]
         return card
 

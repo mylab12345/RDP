@@ -96,12 +96,7 @@ class _HistoryLineEdit(QLineEdit):
 
 
 class CommandBar(QWidget):
-    """MobaXterm-style per-tab command line.
-
-    A single-line input docked below the terminal: type a command and press
-    Enter to run it in the tab's terminal; Up/Down recall command history
-    (per tab).  Mirrors MobaXterm's bottom command box.
-    """
+    """Beautiful per-tab command line — bento pill, natural."""
 
     commandSent = Signal(str)
 
@@ -110,17 +105,18 @@ class CommandBar(QWidget):
         self.setObjectName("commandBar")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 2, 10, 2)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(10)
 
         prompt = QLabel("❯")
         prompt.setObjectName("commandPrompt")
+        prompt.setStyleSheet("font-size: 15px; font-weight: 800; padding-left: 2px;")
         layout.addWidget(prompt)
 
         self.line = _HistoryLineEdit()
         self.line.setObjectName("commandLine")
-        self.line.setPlaceholderText("COMMAND  ·  ENTER EXECUTES  ·  ↑↓ HISTORY")
-        self.line.setClearButtonEnabled(False)
+        self.line.setPlaceholderText("Type a command — Enter runs, ↑↓ history")
+        self.line.setClearButtonEnabled(True)
         self.line.returnPressed.connect(self._on_return)
         layout.addWidget(self.line, 1)
 
@@ -151,7 +147,7 @@ def get_main_window(widget=None) -> MainWindow | None:
 
 
 class SessionTab(QWidget):
-    """One tab: hosts a SessionController + a modern status header."""
+    """One tab: hosts a SessionController + beautiful natural header."""
 
     def __init__(self, controller: SessionController, main: MainWindow) -> None:
         super().__init__()
@@ -162,13 +158,13 @@ class SessionTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header bar
+        # Header bar — bento, pill, natural
         header = QWidget()
         header.setObjectName("header")
-        header.setMinimumHeight(44)
+        header.setMinimumHeight(52)
         h = QHBoxLayout(header)
-        h.setContentsMargins(12, 6, 12, 6)
-        h.setSpacing(8)
+        h.setContentsMargins(16, 10, 16, 10)
+        h.setSpacing(10)
 
         self.chip = StateChip("connecting", "info")
         h.addWidget(self.chip)
@@ -180,14 +176,14 @@ class SessionTab(QWidget):
 
         self.info = QLabel("")
         self.info.setObjectName("muted")
-        self.info.setStyleSheet("font-size: 12.5px;")
+        self.info.setStyleSheet("font-size: 12.5px; font-weight: 500;")
         h.addWidget(self.info, 1)
 
         self.btn_reconnect = QPushButton("↻ Reconnect")
         self.btn_reconnect.setObjectName("primary")
         self.btn_reconnect.clicked.connect(controller.request_reconnect)
         self.btn_reconnect.setVisible(False)
-        self.btn_reconnect.setMinimumHeight(32)
+        self.btn_reconnect.setMinimumHeight(36)
         h.addWidget(self.btn_reconnect)
 
         caps = controller.capabilities()
@@ -199,7 +195,7 @@ class SessionTab(QWidget):
             b.setObjectName("subtle")
             b.setToolTip(tip)
             b.clicked.connect(cb)
-            b.setMinimumHeight(32)
+            b.setMinimumHeight(36)
             return b
 
         if caps.sftp:
@@ -512,11 +508,14 @@ class MainWindow(QMainWindow):
         m_help.addAction(a)
 
     def _build_toolbar(self) -> None:
-        # MobaXterm-style toolbar: compact icon buttons + quick connect.
+        # Beautiful natural toolbar: pill buttons + soft quick connect
+        from .theme import palette as theme_palette
+
+        pal = theme_palette()
         bar = QToolBar()
         bar.setObjectName("moxaToolbar")
         bar.setMovable(False)
-        bar.setIconSize(QSize(18, 18))
+        bar.setIconSize(QSize(20, 20))
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
         a = bar.addAction(icon("plus"), "New")
@@ -533,21 +532,41 @@ class MainWindow(QMainWindow):
 
         bar.addSeparator()
 
-        # Quick connect input
+        # Quick connect — bento pill
         quick_wrap = QWidget()
+        quick_wrap.setObjectName("quickWrap")
+        quick_wrap.setStyleSheet(
+            f"""
+            QWidget#quickWrap {{
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border']};
+                border-radius: 22px;
+            }}
+            """
+        )
         ql = QHBoxLayout(quick_wrap)
-        ql.setContentsMargins(8, 2, 8, 2)
+        ql.setContentsMargins(12, 4, 12, 4)
         ql.setSpacing(8)
 
-        lbl = QLabel("🔗")
-        lbl.setObjectName("muted")
-        lbl.setStyleSheet("font-size: 12px;")
+        lbl = QLabel("↗")
+        lbl.setStyleSheet(f"color: {pal['accent']}; font-size: 14px; font-weight: 800;")
         ql.addWidget(lbl)
 
         self.quick = QLineEdit()
         self.quick.setPlaceholderText("user@host[:port]  ⏎")
-        self.quick.setFixedWidth(220)
-        self.quick.setObjectName("search")
+        self.quick.setFixedWidth(200)
+        self.quick.setObjectName("quickInput")
+        self.quick.setStyleSheet(
+            f"""
+            QLineEdit#quickInput {{
+                background: transparent;
+                border: none;
+                padding: 4px 2px;
+                font-size: 13px;
+                color: {pal['fg']};
+            }}
+            """
+        )
         self.quick.returnPressed.connect(self.quick_connect)
         ql.addWidget(self.quick)
         bar.addWidget(quick_wrap)
@@ -619,44 +638,135 @@ class MainWindow(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
 
-        # Empty state widget
+        # Empty state widget — beautiful natural bento
+        from .theme import palette as theme_palette
+
+        pal = theme_palette()
         self._empty = QWidget()
+        self._empty.setStyleSheet(
+            f"""
+            QWidget {{
+                background: {pal['bg']};
+            }}
+            """
+        )
         el = QVBoxLayout(self._empty)
         el.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.setSpacing(12)
-        el.setContentsMargins(40, 40, 40, 40)
+        el.setSpacing(18)
+        el.setContentsMargins(40, 60, 40, 60)
 
+        # Logo card with gradient accent
+        logo_card = QWidget()
+        logo_card.setObjectName("logoCard")
+        logo_card.setStyleSheet(
+            f"""
+            QWidget#logoCard {{
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border']};
+                border-radius: 20px;
+                min-width: 84px;
+                max-width: 84px;
+                min-height: 84px;
+                max-height: 84px;
+            }}
+            """
+        )
+        logo_layout = QVBoxLayout(logo_card)
+        logo_layout.setContentsMargins(0, 0, 0, 0)
         logo = QLabel("◈")
-        logo.setStyleSheet("font-size: 36px; color: #007acc;")
+        logo.setStyleSheet(f"font-size: 42px; color: {pal['accent']}; font-weight: 800;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.addWidget(logo)
+        logo_layout.addWidget(logo)
+
+        logo_wrap = QHBoxLayout()
+        logo_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_wrap.addWidget(logo_card)
+        el.addLayout(logo_wrap)
 
         title = QLabel(APP_NAME)
         title.setObjectName("h1")
+        title.setStyleSheet("font-size: 28px; font-weight: 800; letter-spacing: -0.5px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(title)
 
+        # Subtitle card — bento
+        subtitle_card = QWidget()
+        subtitle_card.setObjectName("card")
+        subtitle_card.setStyleSheet(
+            f"""
+            QWidget#card {{
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border']};
+                border-radius: 14px;
+            }}
+            """
+        )
+        sub_l = QVBoxLayout(subtitle_card)
+        sub_l.setContentsMargins(20, 16, 20, 16)
+        sub_l.setSpacing(8)
         subtitle = QLabel(
-            "Select a session from the sidebar or open a local terminal.\n"
-            "Ctrl+N new session  ·  Ctrl+Shift+T local terminal  ·  Ctrl+P commands"
+            "Welcome to your natural workspace — calm, organic, and focused.\n"
+            "Select a session from the sidebar or open a local terminal."
         )
         subtitle.setObjectName("muted")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
-        el.addWidget(subtitle)
+        subtitle.setStyleSheet(f"font-size: 13.5px; color: {pal['fg_dim']}; line-height: 1.5;")
+        sub_l.addWidget(subtitle)
 
+        shortcuts = QLabel("⌘ N  new session   •   ⇧⌘ T  local terminal   •   ⌘ P  commands   •   ↗ quick connect")
+        shortcuts.setObjectName("caption")
+        shortcuts.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        shortcuts.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']}; letter-spacing: 0.3px;")
+        sub_l.addWidget(shortcuts)
+
+        sub_wrap = QHBoxLayout()
+        sub_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub_wrap.addWidget(subtitle_card)
+        el.addLayout(sub_wrap)
+
+        # Bento action grid
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        btn_row.setSpacing(10)
-        b1 = QPushButton("NEW SESSION")
+        btn_row.setSpacing(12)
+        b1 = QPushButton("✦  New Session")
         b1.setObjectName("primary")
+        b1.setMinimumHeight(42)
+        b1.setMinimumWidth(160)
         b1.clicked.connect(self.new_session)
-        b2 = QPushButton("LOCAL TERMINAL")
+        b2 = QPushButton("▢  Local Terminal")
         b2.setObjectName("subtle")
+        b2.setMinimumHeight(42)
+        b2.setMinimumWidth(160)
         b2.clicked.connect(self.open_local_terminal)
+        b3 = QPushButton("⌕  Commands")
+        b3.setObjectName("subtle")
+        b3.setMinimumHeight(42)
+        b3.setMinimumWidth(140)
+        b3.clicked.connect(self.open_command_palette)
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
+        btn_row.addWidget(b3)
         el.addLayout(btn_row)
+
+        # Theme hint — natural
+        theme_hint = QLabel(f"Current theme: {self.ctx.settings.theme}  —  View → Theme to explore forest, ocean, meadow, desert & more")
+        theme_hint.setObjectName("caption")
+        theme_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        theme_hint.setStyleSheet(
+            f"""
+            background: {pal['accent_subtle']};
+            border: 1px solid {pal['accent']}30;
+            border-radius: 20px;
+            padding: 6px 14px;
+            color: {pal['accent']};
+            font-size: 11px;
+            """
+        )
+        hint_wrap = QHBoxLayout()
+        hint_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_wrap.addWidget(theme_hint)
+        el.addLayout(hint_wrap)
 
         self._tabs_container = QWidget()
         tcl = QVBoxLayout(self._tabs_container)
