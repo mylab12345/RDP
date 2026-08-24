@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+- Vault `change_master()` now updates the in-memory master so later auto-saves
+  stay encrypted under the new passphrase, and rotating while locked no longer
+  writes an empty entry list over existing secrets.
+- Corrupt or hand-edited session/settings/vault files no longer crash startup:
+  numeric fields, enums, groups and forwards are coerced or skipped, and
+  structurally impossible vault envelopes (0 KDF iterations, truncated nonce)
+  raise `CryptoError` instead of hanging in the KDF.
+- ProxyJump cycles (`A → B → A`) no longer recurse until the stack overflows.
+- RDP probe and the port scanner speak IPv6, cap TPKT length so a hostile
+  peer cannot balloon the read buffer, and always close sockets.
+- Cluster runner always closes the SSH client and bounds captured output.
+
 ### Added
 - **MobaXterm-style layout.** The menu bar is reorganised into
   **File / View / Tools / Tabs / Session / Help** (session actions under

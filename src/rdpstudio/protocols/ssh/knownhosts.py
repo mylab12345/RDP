@@ -69,6 +69,12 @@ class KnownHostsVerifier(paramiko.MissingHostKeyPolicy):
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.host_keys.save(str(self.path))
+            try:
+                import os
+
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass
         except OSError:
             log.exception("could not persist known_hosts")
 

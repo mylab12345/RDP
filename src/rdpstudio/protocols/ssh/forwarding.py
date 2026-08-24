@@ -67,14 +67,22 @@ class TunnelManager:
     def start_local(self, fwd: Forward) -> int:
         if fwd.listen_port and fwd.listen_port in self._locals:
             raise TunnelError(f"port {fwd.listen_port} already forwarded locally")
-        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listen_host = fwd.listen_host or "127.0.0.1"
+        # Dual-stack when the listen host is an IPv6 literal; otherwise IPv4.
+        family = socket.AF_INET6 if ":" in listen_host else socket.AF_INET
+        listener = None
         try:
-            listener.bind((fwd.listen_host or "127.0.0.1", fwd.listen_port))
+            listener = socket.socket(family, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((listen_host, fwd.listen_port))
             listener.listen(16)
         except OSError as exc:
-            listener.close()
-            raise TunnelError(f"cannot listen on {fwd.listen_host}:{fwd.listen_port}: {exc}") from exc
+            if listener is not None:
+                try:
+                    listener.close()
+                except OSError:
+                    pass
+            raise TunnelError(f"cannot listen on {listen_host}:{fwd.listen_port}: {exc}") from exc
         listener.settimeout(0.5)
         tunnel = _LocalTunnel(fwd=fwd, listener=listener, actual_port=listener.getsockname()[1])
         self._locals[tunnel.actual_port] = tunnel

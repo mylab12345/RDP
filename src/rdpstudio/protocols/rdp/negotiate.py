@@ -45,6 +45,10 @@ TYPE_RDP_NEG_REQ = 0x01
 TYPE_RDP_NEG_RSP = 0x02
 TYPE_RDP_NEG_FAILURE = 0x03
 
+# A real X.224 Connection Confirm is tiny (10–18 bytes). Cap the TPKT length
+# so a hostile peer advertising 64 KiB cannot balloon the read buffer.
+_MAX_TPKT_LEN = 4096
+
 
 class RdpProbeError(RuntimeError):
     pass
@@ -116,11 +120,21 @@ def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
     import time
 
     result = RdpProbeResult(host=host, port=port)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
+    try:
+        port = int(port)
+        timeout = float(timeout)
+    except (TypeError, ValueError) as exc:
+        raise RdpProbeError(f"{host}:{port}: invalid port/timeout") from exc
+    if not host or port < 1 or port > 65535:
+        raise RdpProbeError(f"{host}:{port}: invalid host or port")
+    if timeout <= 0:
+        timeout = 5.0
+    sock = None
     try:
         t0 = time.monotonic()
-        sock.connect((host, port))
+        # create_connection handles IPv4 and IPv6 (and Happy Eyeballs).
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.settimeout(timeout)
         result.latency_ms = (time.monotonic() - t0) * 1000
         sock.sendall(build_connection_request())
         # A response may arrive in several TCP segments; read until the TPKT
@@ -133,8 +147,12 @@ def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
             data += chunk
             if len(data) >= 4:
                 expected = struct.unpack(">H", data[2:4])[0]
+                if expected < 10 or expected > _MAX_TPKT_LEN:
+                    break
                 if len(data) >= expected:
                     break
+            if len(data) > _MAX_TPKT_LEN:
+                break
         if not data:
             raise RdpProbeError("connection closed without a response")
         parsed = parse_connection_confirm(data)
@@ -144,7 +162,8 @@ def probe(host: str, port: int = 3389, timeout: float = 5.0) -> RdpProbeResult:
     except OSError as exc:
         raise RdpProbeError(f"{host}:{port}: {exc}") from exc
     finally:
-        try:
-            sock.close()
-        except OSError:
-            pass
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass

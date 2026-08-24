@@ -353,11 +353,16 @@ class MainWindow(QMainWindow):
 
         geo = ctx.settings.geometry
         if isinstance(geo, dict) and geo.get("size"):
-            self.resize(QSize(int(geo["size"][0]), int(geo["size"][1])))
-            if geo.get("pos"):
-                self.move(QPoint(int(geo["pos"][0]), int(geo["pos"][1])))
-            if geo.get("maximized"):
-                self.showMaximized()
+            try:
+                w, h = int(geo["size"][0]), int(geo["size"][1])
+                if w >= 400 and h >= 300:
+                    self.resize(QSize(w, h))
+                if geo.get("pos"):
+                    self.move(QPoint(int(geo["pos"][0]), int(geo["pos"][1])))
+                if geo.get("maximized"):
+                    self.showMaximized()
+            except (TypeError, ValueError, KeyError, IndexError):
+                pass
 
     # ------------------------------------------------------------------
     def _build_menu(self) -> None:
