@@ -145,3 +145,108 @@ def test_key_encoding():
     assert encode_key_event(_FakeEvent(Qt.Key.Key_Delete, ""), _FakeScreen()) == b"\x1b[3~"
     assert encode_key_event(_FakeEvent(Qt.Key.Key_Backspace, "\x7f"), _FakeScreen()) == b"\x7f"
     assert encode_key_event(_FakeEvent(Qt.Key.Key_B, "b", alt=True), _FakeScreen()) == b"\x1bb"
+
+
+# ----------------------------------------------------------------------
+# Modern TUI compatibility (opencode / helix / zellij / ratatui / crossterm)
+# ----------------------------------------------------------------------
+# These toolkits emit 24-bit color with colon sub-parameters
+# (``ESC[38:2:R:G:Bm``) instead of the legacy semicolon form that pyte
+# parses natively.  pyte would otherwise drop the SGR and leak the raw
+# parameter bytes onto the screen.
+
+def test_colon_truecolor_foreground():
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[38:2:40:44:52mhello")
+    assert core.screen.buffer[0][0].fg == "282c34"
+    line = core.line_at(core.total_lines() - core.rows)
+    assert "2:" not in line and "m" not in line.replace("hello", "")
+
+
+def test_colon_truecolor_background():
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[48:2:97:175:239mworld")
+    assert core.screen.buffer[0][0].bg == "61afef"
+
+
+def test_colon_truecolor_empty_colorspace():
+    # ``38:2::R:G:B`` form (empty color-space id).
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[38:2::40:44:52mX")
+    assert core.screen.buffer[0][0].fg == "282c34"
+
+
+def test_colon_truecolor_fg_and_bg_in_one_sgr():
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[48:2:97:175:239;38:2:0:0:0mhi")
+    cell = core.screen.buffer[0][0]
+    assert cell.bg == "61afef"
+    assert cell.fg == "000000"
+
+
+def test_colon_256color_palette():
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[38:5:200mX")
+    # xterm-256 colour index 200 is 0xff00d7.
+    assert core.screen.buffer[0][0].fg == "ff00d7"
+
+
+def test_semicolon_truecolor_still_works():
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[38;2;40;44;52mX")
+    assert core.screen.buffer[0][0].fg == "282c34"
+
+
+def test_colon_truecolor_split_across_chunks():
+    # A color SGR split mid-sequence by the transport must reassemble, not
+    # leak a half-parsed sequence as text.
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[2J\x1b[H\x1b[48:2:97:175")
+    core.feed(b":239mSPLIT")
+    row = core.screen.buffer[0]
+    assert row[0].bg == "61afef"
+    assert "".join(row[x].data for x in range(5)) == "SPLIT"
+
+
+def test_no_inline_parameter_garbage():
+    # The exact "weird screen" symptom: leftover ``2:..:..m`` must not print.
+    core = TerminalCore(cols=30, rows=3)
+    core.feed(b"\x1b[48:2:97:175:239mHELLO")
+    line = core.line_at(core.total_lines() - core.rows)
+    assert line.strip() == "HELLO"
+
+
+def test_synchronized_output_stripped():
+    core = TerminalCore(cols=20, rows=2)
+    core.feed(b"\x1b[?2026hSYNC\x1b[?2026l")
+    line = core.line_at(core.total_lines() - core.rows)
+    assert "2026" not in line
+    assert "SYNC" in line
+
+
+def test_osc8_hyperlink_uri_stripped():
+    core = TerminalCore(cols=40, rows=2)
+    core.feed(b"\x1b]8;;https://example.com\x07click here\x1b]8;;\x07")
+    line = core.line_at(core.total_lines() - core.rows)
+    assert "https" not in line
+    assert "click here" in line
+
+
+def test_private_mode_csi_not_mangled():
+    # Alternate-screen / bracketed-paste toggles must pass through untouched
+    # (the SGR normalizer must never rewrite '?' private-mode sequences).
+    core = TerminalCore(cols=20, rows=3)
+    core.feed(b"\x1b[?1049h\x1b[2J\x1b[H\x1b[?2004hOK")
+    assert core.bracketed_paste is True  # tracked by TerminalCore
+    assert core.screen.buffer[0][0].data == "O"
+    assert core.screen.buffer[0][1].data == "K"
+
+
+def test_mixed_sgr_and_cursor_csi_unaffected():
+    # Cursor positioning with semicolons (no colons) must be left intact,
+    # and a colon-truecolor SGR later in the stream must still normalize.
+    core = TerminalCore(cols=20, rows=12)
+    core.feed(b"\x1b[10H\x1b[38:2:10:20:30mX")
+    # ESC[10H is row 10 (1-based) -> buffer row 9 (0-based), col 0.
+    assert core.screen.buffer[9][0].data == "X"
+    assert core.screen.buffer[9][0].fg == "0a141e"

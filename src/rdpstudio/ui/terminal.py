@@ -86,6 +86,62 @@ _MAX_PENDING_SEQ = 1024
 # Largest OSC-52 base64 payload accepted from the remote host (~768 KiB text).
 _MAX_OSC52_B64 = 1_048_576
 
+# --- Modern-terminal compatibility shims ---------------------------------
+# pyte 0.8.x only parses the legacy *semicolon* form of the 24-bit color SGR
+# (``ESC[38;2;R;G;Bm``).  Modern TUI toolkits (the Rust ``crossterm``/
+# ``ratatui`` stack used by opencode, helix, zellij, etc.) emit the colon
+# sub-parameter form ``ESC[38:2:R:G:Bm`` (and the ``::`` variant with an empty
+# colour-space id).  pyte's CSI tokenizer splits parameters only on ``;``, so
+# it sees a single bogus parameter ``38:2:R:G:B``, drops the whole SGR, and —
+# worse — the leftover bytes ``2:R:G:Bm`` get echoed to the screen as literal
+# text, producing the "weird screen" (inline garbage like ``2:40:44:52m`` and
+# no colors).  We rewrite the colon form into semicolons *only* inside SGR
+# sequences (CSI … ``m``), where colons carry no other meaning for us.
+_SGR_COLON_RE = re.compile(rb"(\x1b\[[0-9?][0-9:;]*?)(m)")
+
+# Synchronized-output (DECSET 2026) is purely a rendering hint — atomic frame
+# updates.  pyte has no concept of it and the unsupported private mode is
+# harmless, but strip it so it is never mistaken for printable content.
+_SYNC_RE = re.compile(rb"\x1b\[\?2026[hl]")
+
+# OSC 8 (hyperlinks): ``ESC]8;;URI BEL text ESC]8;; BEL``.  pyte ignores the
+# opening OSC but the URI bytes between it and the BEL would otherwise be
+# printed inline.  Strip the wrapper sequences; the visible link text stays.
+_OSC8_RE = re.compile(rb"\x1b\]8;[^;\x07\x1b]*;[^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def _normalize_sgr(match: re.Match) -> bytes:
+    """Rewrite colon-subparameter SGR colors to the semicolon form pyte parses.
+
+    ``38:2:R:G:B``  -> ``38;2;R;G;B``   (direct foreground)
+    ``48:2:R:G:B``  -> ``48;2;R;G;B``   (direct background)
+    ``38:5:N``      -> ``38;5;N``       (256-color palette, same toolkit)
+    The empty color-space-id variant (``38:2::R:G:B``) is collapsed too.
+    Everything else in the sequence is left byte-for-byte intact.
+    """
+    # Group 1 is the whole CSI prefix, e.g. b"\x1b[1;38:2:1:2:3" (no final).
+    prefix = match.group(1)
+    body = prefix[2:]  # strip ESC[ (any private introducer follows directly)
+    if b":" not in body:
+        return match.group(0)
+    # Preserve a private-mode introducer ('?') if present (it never is for
+    # SGR colors, but stay correct for any CSI this regex happens to catch).
+    introducer = b"\x1b["
+    if body[:1] == b"?":
+        introducer = b"\x1b[?"
+        body = body[1:]
+    # Tokenize on ';' first (separate SGR sub-commands), then flatten any
+    # colon sub-parameters within each one.
+    out_parts: list[bytes] = []
+    for part in body.split(b";"):
+        if b":" in part and part[:2] in (b"38", b"48"):
+            # Drop empty fields (the color-space-id placeholder "38:2::R…").
+            fields = [f for f in part.split(b":") if f != b""]
+            out_parts.append(b";".join(fields))
+        else:
+            out_parts.append(part)
+    return introducer + b";".join(out_parts) + b"m"
+
 
 class TerminalCore:
     def __init__(self, cols: int = 80, rows: int = 24, history: int = 5000) -> None:
@@ -110,6 +166,17 @@ class TerminalCore:
         """
         data = self._tail + data
         self._tail = b""
+
+        # Normalize modern terminal escape sequences that pyte 0.8.x does not
+        # understand, so TUI apps (opencode, helix, zellij, …) render correctly
+        # instead of leaking raw parameter bytes onto the screen.
+        if b"\x1b[" in data:
+            # Cheap guard: the regex only does work on chunks that actually
+            # carry CSI sequences, and rewriting is a no-op without colons.
+            data = _SGR_COLON_RE.sub(_normalize_sgr, data)
+            data = _SYNC_RE.sub(b"", data)
+        if b"\x1b]8;" in data:
+            data = _OSC8_RE.sub(b"", data)
 
         # Extract OSC 52 before pyte sees it (pyte would ignore it anyway).
         # Guarded by a cheap substring check so the (expensive) regex only
@@ -291,7 +358,11 @@ def _seq_complete(window: bytes) -> bool:
     if body[:1] == b"]":  # OSC: terminated by BEL or ST
         return b"\x07" in body or b"\x1b\\" in body
     if body[:1] == b"[":  # CSI: ends with a letter or ~
-        return bool(re.match(rb"^\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]", body))
+        # ':' is a valid sub-parameter separator in modern CSI sequences
+        # (notably the colon form of 24-bit color SGR, ``38:2:R:G:B``); it
+        # must be accepted here or a complete colon-SGR is wrongly held back
+        # and a split one is mis-classified.
+        return bool(re.match(rb"^\[[0-9;?<=>!\"#$%&'()*+,\-./: ]*[@-~]", body))
     if body[:1] == b"P":  # DCS
         return b"\x1b\\" in body
     return True

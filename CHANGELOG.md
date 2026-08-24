@@ -34,6 +34,15 @@
   PBKDF2 default (310k).
 
 ### Fixed
+- **Modern TUI apps (opencode, helix, zellij, etc.) render correctly over SSH.**
+  These apps emit 24-bit color with colon sub-parameters (`ESC[38:2:R:G:Bm`,
+  the form used by the Rust `crossterm`/`ratatui` stack). pyte only parses the
+  legacy semicolon form, so the sequence was dropped and its leftover bytes
+  (`2:R:G:Bm`) were printed inline as garbage, with all colors lost. The
+  terminal now normalizes colon SGR colors to semicolons (including the
+  `38:2::` empty-color-space variant and colon 256-color), even when a color
+  sequence is split across transport chunks. Synchronized-output (`?2026`) and
+  OSC-8 hyperlink wrappers are also stripped so they never leak as text.
 - Vault `change_master()` now updates the in-memory master so later auto-saves
   stay encrypted under the new passphrase, and rotating while locked no longer
   writes an empty entry list over existing secrets.
