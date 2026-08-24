@@ -81,6 +81,20 @@ _speedup_pyte()
 _OSC52_RE = re.compile(rb"\x1b\]52;([a-zA-Z0-9]+);([A-Za-z0-9+/=]*)\x07|\x1b\]52;([a-zA-Z0-9]+);([A-Za-z0-9+/=]*)\x1b\\")
 _BPASTE_RE = re.compile(rb"\x1b\[\?2004([hl])")
 
+# OSC 10/11 "report your default foreground/background color" probes
+# (xterm).  Full-screen TUIs (opencode, vim colorschemes, …) ask this at
+# startup to auto-pick a dark/light theme; they stall and/or guess wrong
+# when the terminal never answers.
+_OSC_COLOR_Q_RE = re.compile(rb"\x1b\]1([01])\s*;\s*\?\s*(?:\x07|\x1b\\)")
+
+# Any SGR sequence (for kitty-style colon sub-parameters, see
+# :func:`_flatten_sgr_subparams`).
+_SGR_ANY_RE = re.compile(rb"\x1b\[([0-9;:]*?)m")
+
+# pyte reports 256-color and 24-bit RGB cell attributes as hex strings
+# *without* the leading '#' ("67e2f9", "00d7ff").
+_HEX6_RE = re.compile(r"[0-9a-fA-F]{6}\Z")
+
 # Largest escape-sequence prefix we will buffer waiting for its terminator.
 _MAX_PENDING_SEQ = 1024
 # Largest OSC-52 base64 payload accepted from the remote host (~768 KiB text).
@@ -94,6 +108,9 @@ class TerminalCore:
         self.stream.attach(self.screen)
         self.bracketed_paste = False
         self.osc52_last_clipboard: str | None = None
+        # OSC color queries (10 = fg, 11 = bg) waiting to be answered by the
+        # view, which owns the transport back to the host.
+        self._terminal_queries: list[int] = []
         self._tail = b""
         # Screen rows (0-based) changed since the last drain; populated from
         # pyte's own ``screen.dirty`` tracking (see :meth:`feed`).
@@ -126,6 +143,19 @@ class TerminalCore:
         if b"\x1b[?2004" in data:
             for m in _BPASTE_RE.finditer(data):
                 self.bracketed_paste = m.group(1) == b"h"
+
+        # Sniff "what are your colors?" queries before pyte silently drops
+        # them; strip them so they never reach the screen either.
+        if b"\x1b]" in data and _OSC_COLOR_Q_RE.search(data):
+            for m in _OSC_COLOR_Q_RE.finditer(data):
+                self._terminal_queries.append(10 + int(m.group(1)))
+            data = _OSC_COLOR_Q_RE.sub(b"", data)
+
+        # Kitty-style SGR colon sub-parameters (\x1b[4:3m, \x1b[58:2::r:g:bm)
+        # fall outside pyte's CSI grammar: the tail leaks onto the screen as
+        # literal fragments ("3m…") and can even wedge the hold-back buffer.
+        if b":" in data and b"\x1b[" in data:
+            data = _flatten_sgr_subparams(data)
 
         # Hold back a potentially incomplete tail sequence (no terminator yet).
         esc = data.rfind(b"\x1b")
@@ -167,6 +197,16 @@ class TerminalCore:
         rows = self._changed_rows
         self._changed_rows = set()
         return rows
+
+    def take_terminal_queries(self) -> list[int]:
+        """Drain pending OSC color queries (10 = foreground, 11 = background).
+
+        The remote host is asking what colors this terminal displays; the
+        view turns these into xterm-style replies on the transport.
+        """
+        queries = self._terminal_queries
+        self._terminal_queries = []
+        return queries
 
     # ------------------------------------------------------------------
     @property
@@ -279,6 +319,13 @@ class TerminalCore:
         return matches
 
 
+def _osc_color_reply(code: int, r: int, g: int, b: int) -> bytes:
+    """xterm-style OSC 10/11 color report (16-bit components)."""
+    return f"\x1b]{code};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x1b\\".encode(
+        "ascii"
+    )
+
+
 def _seq_complete(window: bytes) -> bool:
     """Heuristic: does this escape-sequence-looking window look complete?"""
     if not window.startswith(b"\x1b"):
@@ -290,11 +337,31 @@ def _seq_complete(window: bytes) -> bool:
         return len(body) >= 2
     if body[:1] == b"]":  # OSC: terminated by BEL or ST
         return b"\x07" in body or b"\x1b\\" in body
-    if body[:1] == b"[":  # CSI: ends with a letter or ~
-        return bool(re.match(rb"^\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]", body))
+    if body[:1] == b"[":  # CSI: ends with a letter or ~ (':' = sub-params)
+        return bool(re.match(rb"^\[[0-9;:<=>!\"#$%&'()*+,\-./ ]*[@-~]", body))
     if body[:1] == b"P":  # DCS
         return b"\x1b\\" in body
     return True
+
+
+def _flatten_sgr_subparams(data: bytes) -> bytes:
+    """Reduce SGR colon sub-parameters to their base parameter.
+
+    ``\\x1b[4:3m`` (curly underline) becomes ``\\x1b[4m`` and
+    ``\\x1b[58:2::r:g:bm`` (underline color) becomes ``\\x1b[58m``: pyte's
+    CSI grammar stops at the colon, so without this the remainder of the
+    sequence is printed as literal text (``3m``, ``2::r:g:bm``) on screen.
+    The host-visible styling degrades to the plain base attribute.
+    """
+
+    def repl(match: re.Match[bytes]) -> bytes:
+        params = match.group(1)
+        if b":" not in params:
+            return match.group(0)
+        base = b";".join(part.split(b":", 1)[0] for part in params.split(b";"))
+        return b"\x1b[" + base + b"m"
+
+    return _SGR_ANY_RE.sub(repl, data)
 
 
 # ----------------------------------------------------------------------
@@ -552,6 +619,25 @@ class TerminalView(QWidget):
     def _on_bell(self) -> None:
         self.bellRequested.emit()
 
+    def _answer_color_queries(self, queries: list[int]) -> None:
+        """Send xterm-style replies when the host probes our colors.
+
+        Full-screen apps (opencode in particular) ask OSC 10/11 "what is
+        your default fg/bg?" at startup to auto-detect a dark or light
+        theme.  A terminal that stays silent makes them stall and then
+        guess — usually wrong — so the whole UI renders in the wrong
+        palette.  Replies use the palette this widget is actually painting
+        (the remote VM's native palette for SSH tabs, the workbench theme
+        for local shells).
+        """
+        pal = self._palette()
+        payload = bytearray()
+        for code in queries:
+            color = pal["fg"] if code == 10 else pal["bg"]
+            payload += _osc_color_reply(code, color.red(), color.green(), color.blue())
+        if payload:
+            self.dataWritten.emit(bytes(payload))
+
     def font(self) -> QFont:
         return self._font
 
@@ -694,6 +780,9 @@ class TerminalView(QWidget):
         prev_y = screen.cursor.y
         prev_top = len(screen.history.top)
         payload = self.core.feed(data)
+        queries = self.core.take_terminal_queries()
+        if queries:
+            self._answer_color_queries(queries)
         title = getattr(screen, "title", None)
         if title and title != self._last_title:
             self._last_title = str(title)
@@ -1417,6 +1506,12 @@ def _colors_for(fg_spec, bg_spec, reverse: bool, pal) -> tuple[QColor, QColor | 
             c = QColor(named[color.lower()])
         elif isinstance(color, str) and color.startswith("#"):
             c = QColor(color)
+        elif isinstance(color, str) and _HEX6_RE.match(color):
+            # pyte hands back 256-color and 24-bit RGB attributes as hex
+            # *without* the '#' ("67e2f9", "00d7ff").  Dropping these is
+            # what made rich TUIs (opencode, lazygit, …) render flat and
+            # colorless: every themed cell fell through to the default fg.
+            c = QColor("#" + color)
         else:
             return
         if is_fg:
