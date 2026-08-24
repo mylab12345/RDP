@@ -139,3 +139,21 @@ def test_settings_roundtrip(tmp_path):
     s.save(tmp_path / "settings.json")
     loaded = Settings.load(tmp_path / "settings.json")
     assert loaded.font_size == 12 and loaded.theme == "light"
+
+
+def test_font_presets_cover_multiple_families():
+    from rdpstudio.core.settings import FONT_PRESETS
+
+    assert len(FONT_PRESETS) >= 16
+    for name in (
+        "DejaVu Sans Mono",
+        "Liberation Mono",
+        "JetBrains Mono",
+        "Cascadia Code",
+        "Fira Code",
+        "IBM Plex Mono",
+        "Hack",
+        "Consolas",
+        "Courier New",
+    ):
+        assert name in FONT_PRESETS

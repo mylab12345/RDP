@@ -45,7 +45,8 @@ class SshSessionController(SessionController):
 
         from ...ui.terminal import TerminalView
 
-        self.term = TerminalView(ctx.settings)
+        # Native remote palette: do not apply workbench theme / Settings colors.
+        self.term = TerminalView(ctx.settings, native_colors=True)
         self.term.dataWritten.connect(self._on_terminal_input)
         self.term.sizeChanged.connect(lambda c, r: self._worker_call("resize_pty", c, r))
         self.term.clipboardRequested.connect(self._on_osc52)

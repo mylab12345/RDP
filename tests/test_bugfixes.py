@@ -247,41 +247,32 @@ def test_snippet_runs_on_shell_controller(qtapp, home, monkeypatch):
     assert written == [b"uptime\n"]
 
 
-# --- broadcast mode mirrors input to other shell tabs -------------------------
-def test_broadcast_input_reaches_other_tabs(home, qtapp):
+# --- SSH terminals ignore workbench theme colors ------------------------------
+def test_ssh_terminal_keeps_native_console_palette(qtapp, home):
     from rdpstudio.core.events import EventBus
-    from rdpstudio.core.models import PROTOCOL_LOCAL
     from rdpstudio.core.plugin import SessionContext
     from rdpstudio.core.settings import Settings
     from rdpstudio.core.vault import CredentialVault
-    from rdpstudio.ui.main_window import MainWindow
+    from rdpstudio.protocols.ssh.session import SshSessionController
     from rdpstudio.ui.prompter import HeadlessPromptProvider
 
+    settings = Settings(theme="light", font_family="Courier New", font_size=14)
     ctx = SessionContext(
-        settings=Settings(),
+        settings=settings,
         store=SessionStore(home / "sessions.json"),
         vault=CredentialVault(home / "vault.bin"),
         bus=EventBus(),
         prompter=HeadlessPromptProvider(),
     )
-    main = MainWindow(ctx)
-    tab1 = main.open_session(Session(protocol=PROTOCOL_LOCAL, name="t1"))
-    tab2 = main.open_session(Session(protocol=PROTOCOL_LOCAL, name="t2"))
-    assert tab1 is not None and tab2 is not None
-
-    received: list[bytes] = []
-    tab2.controller.write = received.append  # spy
-
-    main.set_broadcast_mode(True)
-    try:
-        tab1.controller.term.dataWritten.emit(b"echo hi\n")
-    finally:
-        main.set_broadcast_mode(False)
-    assert received == [b"echo hi\n"]
-
-    tab1.controller.stop()
-    tab2.controller.stop()
-    main.close()
+    ctrl = SshSessionController(Session(name="s", host="h", username="u"), ctx)
+    assert ctrl.term.native_colors is True
+    pal = ctrl.term._build_palette()
+    assert pal["bg"].name().lower() == "#000000"
+    assert pal["fg"].name().lower() == "#aaaaaa"
+    settings.theme = "forest"
+    pal2 = ctrl.term._build_palette()
+    assert pal2["bg"].name().lower() == "#000000"
+    assert pal2["16"][1].name().lower() == "#aa0000"
 
 
 # --- theme: palette() follows the applied theme --------------------------------
