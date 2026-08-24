@@ -155,6 +155,15 @@ def test_import_sessions_skips_non_sessions(tmp_path):
     assert store.sessions()[0].name == "real"
 
 
+def test_nature_theme_ids_roundtrip():
+    from rdpstudio.core.settings import THEME_IDS, Settings
+
+    nature = {"forest", "ocean", "sunset", "aurora", "meadow", "desert"}
+    assert nature <= THEME_IDS
+    for tid in nature:
+        assert Settings.from_dict({"theme": tid}).theme == tid
+
+
 def test_settings_coerce_enums_and_floats():
     s = Settings.from_dict(
         {

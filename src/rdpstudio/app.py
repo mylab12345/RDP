@@ -87,9 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setApplicationVersion(__version__)
-    theme.apply_theme(app, "dark")
-
     ctx = build_context(verbose=verbose)
+    theme.apply_theme(app, ctx.settings.theme)
 
     from .ui.main_window import MainWindow
 

@@ -853,16 +853,20 @@ class TerminalView(QWidget):
         return out
 
     def _build_palette(self) -> dict:
-        dark = self.settings.theme == "dark"
+        from .theme import is_dark_theme
+        from .theme import palette as ui_palette
+
+        ui = ui_palette(self.settings.theme)
+        dark = is_dark_theme(self.settings.theme)
         if dark:
             base = {
-                "fg": QColor("#e6eaf2"),
-                "bg": QColor("#0b0f19"),
-                "cursor": QColor("#6c8bff"),
-                "sel": QColor("#2a3a5e"),
+                "fg": QColor(ui["term_fg"]),
+                "bg": QColor(ui["term_bg"]),
+                "cursor": QColor(ui["accent"]),
+                "sel": QColor(ui["sel"]),
                 "match": QColor(251, 191, 106, 75),       # soft amber highlight
                 "match_active": QColor(251, 191, 106, 170),
-                "match_border": QColor("#fbbf6a"),
+                "match_border": QColor(ui.get("warn", "#fbbf6a")),
             }
             palette16 = [
                 "#1a1f2e", "#ff7a7a", "#6ee7a5", "#fbbf6a", "#7cc4ff", "#c4a7ff", "#6c8bff", "#e6eaf2",
@@ -870,13 +874,13 @@ class TerminalView(QWidget):
             ]
         else:
             base = {
-                "fg": QColor("#151a2b"),
-                "bg": QColor("#ffffff"),
-                "cursor": QColor("#4f6ef7"),
-                "sel": QColor("#c7d9ff"),
+                "fg": QColor(ui["term_fg"]),
+                "bg": QColor(ui["term_bg"]),
+                "cursor": QColor(ui["accent"]),
+                "sel": QColor(ui["sel"]),
                 "match": QColor(255, 230, 100, 100),
                 "match_active": QColor(255, 210, 50, 190),
-                "match_border": QColor("#d97706"),
+                "match_border": QColor(ui.get("warn", "#d97706")),
             }
             palette16 = [
                 "#000000", "#e02424", "#0e9f6e", "#c07a00", "#1a73e8", "#7c3aed", "#4f6ef7", "#5c677e",

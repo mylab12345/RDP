@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+- **Nature themes.** Settings and **View → Theme** now include Forest, Ocean,
+  Sunset, Aurora, Meadow and Desert palettes alongside Dark and Light. The
+  terminal background/cursor follow the same palette.
+
+### Changed
+- Settings no longer expose **Vault auto-lock** or **KDF iterations**. The
+  vault stays unlocked until you lock it; new vaults still use the OWASP
+  PBKDF2 default (310k).
+
 ### Fixed
 - Vault `change_master()` now updates the in-memory master so later auto-saves
   stay encrypted under the new passphrase, and rotating while locked no longer
