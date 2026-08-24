@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -430,11 +430,20 @@ class MainWindow(QMainWindow):
 
         m_view.addSeparator()
 
-        self._theme_action = QAction("&Dark theme", self)
-        self._theme_action.setCheckable(True)
-        self._theme_action.setChecked(self.ctx.settings.theme == "dark")
-        self._theme_action.toggled.connect(self._toggle_theme)
-        m_view.addAction(self._theme_action)
+        m_themes = m_view.addMenu("&Theme")
+        from ..core.settings import THEME_CHOICES
+
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_actions: dict[str, QAction] = {}
+        for tid, label in THEME_CHOICES:
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(self.ctx.settings.theme == tid)
+            act.triggered.connect(lambda checked, t=tid: checked and self.apply_theme_id(t))
+            self._theme_group.addAction(act)
+            m_themes.addAction(act)
+            self._theme_actions[tid] = act
 
         m_tools = self.menuBar().addMenu("&Tools")
         a = QAction(icon("server"), "Network Tools & Port &Scanner…", self)
@@ -1300,12 +1309,34 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             app = QApplication.instance()
             theme.apply_theme(app, self.ctx.settings.theme)
-            self._theme_action.setChecked(self.ctx.settings.theme == "dark")
+            self._sync_theme_actions()
+
+    def apply_theme_id(self, theme_id: str) -> None:
+        from ..core.settings import THEME_IDS
+
+        if theme_id not in THEME_IDS:
+            return
+        self.ctx.settings.theme = theme_id
+        self.ctx.settings.save(paths.settings_file())
+        theme.apply_theme(QApplication.instance(), theme_id)
+        self._sync_theme_actions()
+
+    def cycle_theme(self) -> None:
+        from ..core.settings import THEME_CHOICES
+
+        ids = [tid for tid, _ in THEME_CHOICES]
+        cur = self.ctx.settings.theme
+        nxt = ids[(ids.index(cur) + 1) % len(ids)] if cur in ids else ids[0]
+        self.apply_theme_id(nxt)
 
     def _toggle_theme(self, dark: bool) -> None:
-        self.ctx.settings.theme = "dark" if dark else "light"
-        self.ctx.settings.save(paths.settings_file())
-        theme.apply_theme(QApplication.instance(), self.ctx.settings.theme)
+        """Legacy dark/light flip used by older callers."""
+        self.apply_theme_id("dark" if dark else "light")
+
+    def _sync_theme_actions(self) -> None:
+        current = self.ctx.settings.theme
+        for tid, act in getattr(self, "_theme_actions", {}).items():
+            act.setChecked(tid == current)
 
     def _about(self) -> None:
         QMessageBox.about(
@@ -1393,10 +1424,9 @@ class MainWindow(QMainWindow):
             self.vault_label.setText(" ○ no vault — passwords saved per session")
 
     def _autolock(self) -> None:
-        changed = self.ctx.vault.lock_if_due(self.ctx.settings.vault_autolock_minutes)
-        if changed:
-            self._refresh_vault_label()
-            toast(self, "Vault auto-locked after inactivity", "warn")
+        # Vault auto-lock was removed from Settings; keep the timer as a
+        # no-op so existing callers/tests that start it stay safe.
+        return
 
     def closeEvent(self, event) -> None:  # noqa: N802
         # Stop the bottom monitor panel's engine before session teardown.

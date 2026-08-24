@@ -40,7 +40,7 @@ class SettingsDialog(QDialog):
         title.setObjectName("h1")
         outer.addWidget(title)
 
-        subtitle = QLabel("Appearance, terminal behavior, and security.")
+        subtitle = QLabel("Appearance, terminal behavior, and connection defaults.")
         subtitle.setObjectName("muted")
         outer.addWidget(subtitle)
 
@@ -59,8 +59,10 @@ class SettingsDialog(QDialog):
         form = QFormLayout(appearance)
         form.setSpacing(12)
         self.theme = QComboBox()
-        self.theme.addItem("Dark — modern dark", "dark")
-        self.theme.addItem("Light — clean light", "light")
+        from ..core.settings import THEME_CHOICES
+
+        for tid, label in THEME_CHOICES:
+            self.theme.addItem(label, tid)
         ti = self.theme.findData(ctx.settings.theme)
         self.theme.setCurrentIndex(ti if ti >= 0 else 0)
         form.addRow("Theme", self.theme)
@@ -146,25 +148,6 @@ class SettingsDialog(QDialog):
             cform.addRow(self.btn_xwayland)
         layout.addWidget(conn)
 
-        # --- security --------------------------------------------------------------
-        sec = QGroupBox("Security")
-        sform = QFormLayout(sec)
-        sform.setSpacing(10)
-        self.autolock = QSpinBox()
-        self.autolock.setRange(0, 240)
-        self.autolock.setSpecialValueText("never")
-        self.autolock.setValue(ctx.settings.vault_autolock_minutes)
-        sform.addRow("Vault auto-lock (min)", self.autolock)
-        self.kdf = QSpinBox()
-        self.kdf.setRange(100_000, 5_000_000)
-        self.kdf.setSingleStep(50_000)
-        self.kdf.setValue(ctx.settings.kdf_iterations)
-        sform.addRow("KDF iterations", self.kdf)
-        note = QLabel("Higher KDF = stronger vault, slower unlock. Applies to new vaults.")
-        note.setObjectName("muted")
-        sform.addRow(note)
-        layout.addWidget(sec)
-
         layout.addStretch(1)
 
         # Footer
@@ -233,7 +216,5 @@ class SettingsDialog(QDialog):
         s.reconnect_max_attempts = self.max_attempts.value()
         s.host_key_policy = self.host_key_policy.currentData()
         s.rdp_client = self.rdp_client.currentData()
-        s.vault_autolock_minutes = self.autolock.value()
-        s.kdf_iterations = self.kdf.value()
         s.save(paths.settings_file())
         self.accept()

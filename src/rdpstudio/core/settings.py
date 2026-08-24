@@ -8,6 +8,20 @@ import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+# Theme ids accepted in settings.json. Nature palettes live alongside dark/light.
+THEME_CHOICES: tuple[tuple[str, str], ...] = (
+    ("dark", "Dark — midnight indigo"),
+    ("light", "Light — clean daylight"),
+    ("forest", "Forest — pine & moss"),
+    ("ocean", "Ocean — deep teal"),
+    ("sunset", "Sunset — terracotta dusk"),
+    ("aurora", "Aurora — northern lights"),
+    ("meadow", "Meadow — sage & cream"),
+    ("desert", "Desert — sand & clay"),
+)
+THEME_IDS = {tid for tid, _ in THEME_CHOICES}
+DARK_THEMES = {"dark", "forest", "ocean", "sunset", "aurora"}
+
 
 def _as_int(value, default: int, minimum: int) -> int:
     """Best-effort int coercion that never raises (settings may be corrupt)."""
@@ -31,7 +45,7 @@ def _as_float(value, default: float, minimum: float) -> float:
 @dataclass
 class Settings:
     # appearance
-    theme: str = "dark"  # dark | light
+    theme: str = "dark"  # see THEME_IDS
     font_family: str = ""  # auto-detect when empty
     font_size: int = 10  # points
 
@@ -89,7 +103,7 @@ class Settings:
         s.reconnect_max_delay = _as_float(s.reconnect_max_delay, 60.0, minimum=0.2)
         s.vault_autolock_minutes = _as_int(s.vault_autolock_minutes, 15, minimum=0)
         s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
-        if s.theme not in ("dark", "light"):
+        if s.theme not in THEME_IDS:
             s.theme = "dark"
         if s.host_key_policy not in ("accept-new", "strict"):
             s.host_key_policy = "accept-new"
