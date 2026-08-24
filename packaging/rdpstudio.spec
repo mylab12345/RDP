@@ -7,13 +7,28 @@ from pathlib import Path
 block_cipher = None
 ROOT = Path(SPECPATH).parent  # noqa: F821
 
+# The native terminal is an optional runtime extra.  Include it in standalone
+# builds when the builder environment has it, but keep the ordinary Windows /
+# minimal-Linux build independent of that optional Qt extension.
+native_datas = []
+native_binaries = []
+native_hiddenimports = []
+try:
+    from PyInstaller.utils.hooks import collect_all
+
+    native_datas, native_binaries, native_hiddenimports = collect_all("pyside6_qtermwidget")
+except Exception:
+    pass
+
+
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=native_binaries,
     datas=[
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.svg"), "rdpstudio/resources/icons"),
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.png"), "rdpstudio/resources/icons"),
+        *native_datas,
     ],
     hiddenimports=[
         "paramiko",
@@ -21,6 +36,7 @@ a = Analysis(
         "rdpstudio.protocols.ssh",
         "rdpstudio.protocols.rdp",
         "rdpstudio.protocols.local",
+        *native_hiddenimports,
     ],
     hookspath=[],
     runtime_hooks=[],
