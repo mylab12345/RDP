@@ -26,9 +26,11 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSocketNotifier, QTimer, Signal
+from PySide6.QtCore import QEvent, QSocketNotifier, Qt, QTimer, Signal
 from PySide6.QtGui import QClipboard, QFont, QFontMetrics, QGuiApplication
-from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QMessageBox, QWidget
+
+from .terminal import encode_key_event
 
 # QTermWidget's public API is intentionally small.  Keep the import lazy and
 # behind a function: the optional wheel is built against a particular Qt ABI
@@ -44,6 +46,10 @@ _NATIVE_OSC52_B64 = 1_048_576
 _OSC52_PREFIX = b"\x1b]52;"
 _OSC_COLOR_Q_RE = re.compile(rb"\x1b\]1([01])\s*;\s*\?\s*(?:\x07|\x1b\\)")
 _BPASTE_RE = re.compile(rb"\x1b\[\?2004([hl])")
+# DECSET/DECRST 1 = application cursor keys (DECCKM).  QTermWidget tracks
+# this internally but does not expose it, and the arrow-key encoding differs
+# between the two modes, so the Python input shim tracks it from the stream.
+_APP_CURSOR_RE = re.compile(rb"\x1b\[\?1([hl])(?![0-9])")
 _CONTROL_PREFIXES = (
     _OSC52_PREFIX,
     b"\x1b[?2004",
@@ -183,6 +189,7 @@ class NativeTerminalView(QWidget):
         self._control_tail = b""
         self._osc52_pending: bytearray | None = None
         self._bracketed_paste = False
+        self._app_cursor = False
         self._closed = False
         self._last_size: tuple[int, int] | None = None
         self._last_title = ""
@@ -200,6 +207,26 @@ class NativeTerminalView(QWidget):
 
         self._configure_native()
         self._connect_native_signals()
+        # Keystroke shim: several pyside6_qtermwidget builds cannot marshal
+        # the ``sendData(const char*, int)`` signal into Python (the binding
+        # raises "parameter 0 of type const char* cannot be converted" and
+        # the bytes are silently dropped), which makes typing dead or
+        # intermittent.  Intercept key events in Python before QTermWidget
+        # sees them and encode them here instead; keys this shim does not
+        # encode still fall through to the native widget (and a working
+        # sendData binding).
+        # QTermWidget forwards keyboard input to an *internal* child widget
+        # (its focus proxy), so the filter must be installed there — a
+        # filter on the container never sees the key events.
+        self._key_targets = [
+            w for w in (
+                getattr(self._native, "focusProxy", lambda: None)(),
+                self._native,
+            )
+            if w is not None
+        ]
+        for target in self._key_targets:
+            target.installEventFilter(self)
         try:
             self._native.startTerminalTeletype()
             self._pty_fd = int(self._native.getPtySlaveFd())
@@ -265,6 +292,13 @@ class NativeTerminalView(QWidget):
             ),  # right
             ("confirm paste", lambda: native.setConfirmMultilinePaste(bool(self.settings.confirm_multiline_paste))),
             ("word characters", lambda: native.setWordCharacters("@-./_~")),
+            (
+                "context menu",
+                # The native menu's paste action emits ``sendData``, which is
+                # exactly the path some PySide bindings cannot marshal; route
+                # clipboard actions through this widget's own menu instead.
+                lambda: native.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu),
+            ),
         )
         for _name, operation in operations:
             try:
@@ -287,10 +321,14 @@ class NativeTerminalView(QWidget):
 
     def _connect_native_signals(self) -> None:
         native = self._native
-        try:
+        # ``sendData(const char*, int)`` is unusable on several PySide
+        # bindings: the ``const char*`` argument cannot be marshalled into
+        # Python, so connecting it only produces TypeErrors (and dropped
+        # keystrokes) at every emission.  Probe it once; only rely on it
+        # when a round-trip actually works — the key-event shim in
+        # :meth:`eventFilter` is the keyboard path otherwise.
+        if self._send_data_works(native):
             native.sendData.connect(self._on_native_send_data)
-        except Exception as exc:  # pragma: no cover - binding-specific
-            raise RuntimeError(f"native terminal input signal unavailable: {exc}") from exc
         for signal_name, callback in (
             ("titleChanged", self._on_native_title_changed),
             ("bell", self._on_native_bell),
@@ -302,6 +340,58 @@ class NativeTerminalView(QWidget):
                 getattr(native, signal_name).connect(callback)
             except Exception:
                 pass
+
+    @staticmethod
+    def _send_data_works(native) -> bool:
+        # ``const char*`` signal arguments cannot be marshalled into Python
+        # by several pyside6_qtermwidget builds (emitting them raises
+        # "parameter 0 of type const char* cannot be converted" and drops
+        # the bytes).  Detect that case from the signature itself.
+        try:
+            return "const char" not in str(native.sendData)
+        except Exception:  # noqa: BLE001 - defensive
+            return True
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        """Encode key events for the host before QTermWidget handles them.
+
+        See the note in ``__init__``: on bindings where ``sendData`` cannot
+        cross into Python, this shim is the only working keyboard path.
+        """
+        targets = getattr(self, "_key_targets", ())
+        if obj not in targets or self._closed:
+            return super().eventFilter(obj, event)
+        etype = event.type()
+        if etype == QEvent.Type.KeyPress:
+            data = encode_key_event(
+                event, type("_ModeStub", (), {"mode": {1 << 5} if self._app_cursor else set()})()
+            )
+            if data is not None:
+                self.dataWritten.emit(bytes(data))
+                try:
+                    self.scroll_to_bottom()
+                except Exception:
+                    pass
+                return True
+            # Not an encodable terminal key (shortcuts, modifiers…): let the
+            # native widget / Qt handle it.
+            return False
+        if etype == QEvent.Type.Wheel:
+            # Ctrl + mouse wheel zooms the terminal font (same as the pyte
+            # view).  Without Ctrl the wheel belongs to the native scroller.
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta:
+                    steps = abs(delta) // 120 or 1
+                    self._zoom_font(steps if delta > 0 else -steps)
+                return True
+            return False
+        if etype == QEvent.Type.InputMethod:
+            commit = event.commitString()
+            if commit:
+                self.write_user(commit.encode("utf-8"))
+                return True
+        return False
 
     def _on_native_send_data(self, *args) -> None:
         if not args:
@@ -407,6 +497,8 @@ class NativeTerminalView(QWidget):
         window = self._control_tail + data
         for match in _BPASTE_RE.finditer(window):
             self._bracketed_paste = match.group(1) == b"h"
+        for match in _APP_CURSOR_RE.finditer(window):
+            self._app_cursor = match.group(1) == b"h"
         replies = bytearray()
         for match in _OSC_COLOR_Q_RE.finditer(window):
             code = 10 + int(match.group(1))
@@ -490,6 +582,12 @@ class NativeTerminalView(QWidget):
         except Exception:
             pass
         self._size_timer.start()
+
+    def _zoom_font(self, step: int) -> None:
+        """Ctrl+wheel font zoom, clamped to the same range as the pyte view."""
+        size = max(6, min(48, self._font_size + step))
+        if size != self._font_size:
+            self.apply_font(self._font.family(), size)
 
     def apply_theme(self) -> None:
         """Refresh the native palette without restarting the session."""
@@ -596,6 +694,37 @@ class NativeTerminalView(QWidget):
             payload = b"\x1b[200~" + payload + b"\x1b[201~"
         self.write_user(payload)
         self.scroll_to_bottom()
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy\tCtrl+Shift+C")
+        copy_action.triggered.connect(self.copy_selection)
+        paste_action = menu.addAction("Paste\tCtrl+Shift+V")
+        paste_action.triggered.connect(
+            lambda _checked=False: self.paste_clipboard(confirm=True)
+        )
+        menu.addSeparator()
+        select_all = menu.addAction("Select all")
+        select_all.triggered.connect(self.select_all)
+        clear_sb = menu.addAction("Clear scrollback")
+        clear_sb.triggered.connect(self.clear_scrollback)
+        search = menu.addAction("Find in terminal…\tCtrl+F")
+        search.triggered.connect(self.open_search)
+        menu.exec(event.globalPos())
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        # The event filter on the native widget handles terminal keys; this
+        # widget only receives keys when it (not the native child) has focus.
+        native = getattr(self, "_native", None)
+        if native is not None:
+            data = encode_key_event(
+                event,
+                type("_ModeStub", (), {"mode": {1 << 5} if self._app_cursor else set()})(),
+            )
+            if data is not None:
+                self.dataWritten.emit(bytes(data))
+                return
+        super().keyPressEvent(event)
 
     def select_all(self) -> None:
         try:

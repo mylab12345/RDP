@@ -25,31 +25,31 @@ NASA_BLUE_BRIGHT = "#1C67E3"
 # ----------------------------------------------------------------------
 PALETTE = {
     "dark": {
-        "bg": "#05070c",
-        "bg2": "#0a1018",
-        "bg3": "#121a28",
-        "panel": "#0d1522",
-        "panel2": "#162033",
-        "panel3": "#1c2a44",
-        "border": "#1c2a44",
-        "border_strong": "#2a3d62",
-        "fg": "#e8eef6",
-        "fg_dim": "#8b97ab",
-        "fg_muted": "#5a6678",
-        "accent": NASA_RED,
-        "accent_hover": "#ff5a3c",
-        "accent_active": "#d42e16",
+        "bg": "#1a1a2e",
+        "bg2": "#222240",
+        "bg3": "#2a2a4a",
+        "panel": "#1f1f38",
+        "panel2": "#2c2c50",
+        "panel3": "#363660",
+        "border": "#33335a",
+        "border_strong": "#4a4a7a",
+        "fg": "#d4d4e8",
+        "fg_dim": "#8888aa",
+        "fg_muted": "#555570",
+        "accent": "#007acc",
+        "accent_hover": "#1c97ea",
+        "accent_active": "#005f9e",
         "accent_text": "#ffffff",
-        "accent_subtle": "#FC3D2118",
-        "good": "#3ecf8e",
-        "warn": "#f0b429",
-        "bad": NASA_RED,
-        "info": "#4db8e8",
-        "term_bg": "#000000",
-        "term_fg": "#c8d0dc",
-        "sel": "#1a3058",
+        "accent_subtle": "#007acc22",
+        "good": "#4ec9b0",
+        "warn": "#dcdcaa",
+        "bad": "#f44747",
+        "info": "#569cd6",
+        "term_bg": "#0c0c1a",
+        "term_fg": "#ccccdd",
+        "sel": "#264f78",
         "shadow": "#00000088",
-        "overlay": "#05070c99",
+        "overlay": "#1a1a2e99",
     },
     "light": {
         "bg": "#eef1f5",
@@ -338,7 +338,7 @@ _UI_MONO = (
 # NASA / MCC QSS — tight radii, telemetry type, identity accents
 # ----------------------------------------------------------------------
 _QSS = """
-/* Global — flight-ops type stack */
+/* Global — MobaXterm-style type stack */
 * {{
     font-family: {ui_sans};
     outline: none;
@@ -351,51 +351,48 @@ QWidget {{
     font-size: 13px;
 }}
 QToolTip {{
-    background: {panel};
+    background: {panel2};
     color: {fg};
     border: 1px solid {border_strong};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 5px 8px;
-    font-family: {ui_mono};
-    font-size: 11.5px;
+    font-size: 12px;
 }}
 
-/* Menu bar — mission header */
+/* Menu bar — MobaXterm style */
 QMenuBar {{
-    background: {bg};
+    background: {panel};
     border-bottom: 1px solid {border};
-    padding: 0 6px;
+    padding: 0 4px;
     spacing: 0px;
-    font-family: {ui_mono};
-    font-size: 11.5px;
-    letter-spacing: 0.8px;
+    font-size: 12px;
+    min-height: 22px;
 }}
 QMenuBar::item {{
-    padding: 7px 12px;
+    padding: 5px 10px;
     border-radius: 0px;
     color: {fg_dim};
 }}
 QMenuBar::item:selected {{
     background: {bg3};
     color: {fg};
-    border-bottom: 2px solid {accent};
 }}
 
 QMenu {{
-    background: {panel};
+    background: {panel2};
     border: 1px solid {border_strong};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 4px;
 }}
 QMenu::item {{
-    padding: 7px 14px 7px 26px;
+    padding: 6px 24px 6px 28px;
     border-radius: 2px;
     color: {fg};
-    font-size: 12.5px;
+    font-size: 12px;
 }}
 QMenu::item:selected {{
-    background: {panel2};
-    color: {fg};
+    background: {accent};
+    color: {accent_text};
 }}
 QMenu::separator {{
     height: 1px;
@@ -408,39 +405,39 @@ QMenu::indicator {{
     height: 12px;
 }}
 
+/* Toolbar — MobaXterm style with text labels */
 QToolBar {{
-    background: {bg};
+    background: {panel};
     border: none;
     border-bottom: 1px solid {border};
-    spacing: 1px;
-    padding: 3px 8px;
-    min-height: 36px;
+    spacing: 2px;
+    padding: 4px 6px;
+    min-height: 40px;
 }}
 QToolBar#moxaToolbar {{
-    spacing: 1px;
-    padding: 2px 8px;
-    min-height: 36px;
+    spacing: 2px;
+    padding: 3px 6px;
+    min-height: 40px;
 }}
 QToolBar#moxaToolbar QToolButton {{
-    padding: 5px;
-    min-width: 24px;
-    min-height: 22px;
+    padding: 4px 8px;
+    min-width: 40px;
+    min-height: 28px;
+    font-size: 10px;
 }}
 QToolBar::separator {{
     width: 1px;
     background: {border};
-    margin: 6px 8px;
+    margin: 6px 6px;
 }}
 QToolButton {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 2px;
-    padding: 6px 10px;
+    border-radius: 3px;
+    padding: 4px 8px;
     color: {fg_dim};
     font-weight: 600;
-    font-family: {ui_mono};
     font-size: 11px;
-    letter-spacing: 0.4px;
 }}
 QToolButton:hover {{
     background: {bg3};
@@ -448,7 +445,7 @@ QToolButton:hover {{
     border-color: {border};
 }}
 QToolButton:pressed {{
-    background: {panel2};
+    background: {panel3};
     border-color: {border_strong};
 }}
 QToolButton:checked {{
@@ -458,23 +455,22 @@ QToolButton:checked {{
 }}
 
 QPushButton {{
-    background: {panel};
+    background: {panel2};
     border: 1px solid {border};
-    border-radius: 2px;
-    padding: 7px 14px;
+    border-radius: 3px;
+    padding: 6px 14px;
     color: {fg};
     font-weight: 600;
-    font-family: {ui_mono};
-    font-size: 11.5px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
     min-height: 14px;
 }}
 QPushButton:hover {{
-    background: {panel2};
+    background: {panel3};
     border-color: {border_strong};
 }}
 QPushButton:pressed {{
-    background: {panel3};
+    background: {accent};
+    color: {accent_text};
 }}
 QPushButton:disabled {{
     color: {fg_muted};
@@ -517,14 +513,13 @@ QPushButton#subtle:hover {{
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
     background: {bg2};
     border: 1px solid {border};
-    border-radius: 2px;
-    padding: 6px 10px;
+    border-radius: 3px;
+    padding: 5px 8px;
     selection-background-color: {accent};
     selection-color: {accent_text};
     color: {fg};
     min-height: 16px;
-    font-family: {ui_mono};
-    font-size: 12.5px;
+    font-size: 12px;
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {{
     border-color: {accent};
@@ -574,32 +569,31 @@ QComboBox QAbstractItemView {{
 }}
 
 QTabWidget::pane {{
-    border: 1px solid {border};
-    border-radius: 2px;
-    background: {bg2};
-    top: -1px;
+    border: none;
+    background: {bg};
 }}
 QTabBar {{
-    background: transparent;
+    background: {panel};
     qproperty-drawBase: 0;
+    border-top: 1px solid {border};
 }}
 QTabBar::tab {{
-    background: transparent;
+    background: {panel};
     color: {fg_dim};
-    padding: 6px 12px;
+    padding: 5px 14px;
     border: none;
-    border-bottom: 2px solid transparent;
-    margin-right: 1px;
+    border-top: 2px solid transparent;
+    border-right: 1px solid {border};
+    margin-right: 0px;
     font-weight: 600;
-    font-family: {ui_mono};
     font-size: 11.5px;
-    letter-spacing: 0.4px;
-    min-width: 56px;
+    min-width: 80px;
+    min-height: 22px;
 }}
 QTabBar::tab:selected {{
-    background: {bg2};
+    background: {bg};
     color: {fg};
-    border-bottom: 2px solid {accent};
+    border-top: 2px solid {accent};
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
@@ -609,34 +603,33 @@ QTabBar::close-button {{
     image: none;
     subcontrol-position: right;
     width: 14px; height: 14px;
-    border-radius: 2px;
+    border-radius: 3px;
     margin-left: 6px;
 }}
 QTabBar::close-button:hover {{
-    background: {panel2};
+    background: {panel3};
 }}
 QTabBar QToolButton {{
     background: {bg3};
     border: 1px solid {border};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 3px;
 }}
 QTabBar QToolButton:hover {{
-    background: {panel2};
+    background: {panel3};
 }}
 
 QTreeView, QListView, QTableView {{
     background: {bg2};
     alternate-background-color: {bg};
-    border: 1px solid {border};
-    border-radius: 2px;
+    border: none;
+    border-radius: 0px;
     padding: 2px;
     outline: none;
-    font-family: {ui_mono};
-    font-size: 12.5px;
+    font-size: 12px;
 }}
 QTreeView::item, QListView::item, QTableView::item {{
-    padding: 6px 8px;
+    padding: 5px 8px;
     border-radius: 0px;
     margin: 0px;
     color: {fg};
@@ -645,29 +638,27 @@ QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{
     background: {bg3};
 }}
 QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
-    background: {panel2};
-    color: {fg};
+    background: {accent};
+    color: {accent_text};
     border: none;
     border-left: 2px solid {accent};
 }}
 QTreeView::item:selected:active, QListView::item:selected:active {{
-    background: {accent_subtle};
+    background: {accent};
+    color: {accent_text};
 }}
 QTreeView::branch {{
     background: transparent;
 }}
 QHeaderView::section {{
-    background: {bg2};
+    background: {panel};
     border: none;
     border-bottom: 1px solid {border};
     border-right: 1px solid {border};
-    padding: 8px 10px;
+    padding: 6px 8px;
     font-weight: 700;
     color: {fg_dim};
-    font-size: 10.5px;
-    font-family: {ui_mono};
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 11px;
 }}
 
 QSplitter::handle {{
@@ -681,31 +672,32 @@ QSplitter::handle:hover {{
 
 QScrollBar:vertical {{
     background: transparent;
-    width: 8px;
+    width: 10px;
     margin: 2px 2px 2px 0px;
     border-radius: 0px;
 }}
 QScrollBar::handle:vertical {{
-    background: {panel2};
-    border-radius: 0px;
+    background: {panel3};
+    border-radius: 4px;
     min-height: 28px;
     margin: 2px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: {panel3};
+    background: {accent};
 }}
 QScrollBar:horizontal {{
     background: transparent;
-    height: 8px;
+    height: 10px;
     margin: 0px 2px 2px 2px;
 }}
 QScrollBar::handle:horizontal {{
-    background: {panel2};
+    background: {panel3};
     min-width: 28px;
     margin: 2px;
+    border-radius: 4px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background: {panel3};
+    background: {accent};
 }}
 QScrollBar::add-line, QScrollBar::sub-line {{
     width: 0; height: 0;
@@ -716,13 +708,11 @@ QScrollBar::add-page, QScrollBar::sub-page {{
 }}
 
 QStatusBar {{
-    background: {bg2};
+    background: {panel};
     border-top: 1px solid {border};
     color: {fg_dim};
     padding: 1px 10px;
-    font-family: {ui_mono};
     font-size: 11px;
-    letter-spacing: 0.4px;
 }}
 QStatusBar::item {{
     border: none;
@@ -730,7 +720,7 @@ QStatusBar::item {{
 
 QGroupBox {{
     border: 1px solid {border};
-    border-radius: 2px;
+    border-radius: 3px;
     margin-top: 14px;
     padding: 14px 10px 10px 10px;
     background: {bg2};
@@ -744,11 +734,8 @@ QGroupBox::title {{
     background: {bg2};
     color: {fg_dim};
     border-radius: 0px;
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 700;
-    font-family: {ui_mono};
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
 }}
 
 QProgressBar {{
@@ -767,7 +754,7 @@ QProgressBar::chunk {{
 QCheckBox, QRadioButton {{
     spacing: 8px;
     color: {fg};
-    font-family: {ui_sans};
+    font-size: 12px;
 }}
 QCheckBox::indicator, QRadioButton::indicator {{
     width: 14px; height: 14px;
@@ -791,25 +778,18 @@ QLabel#muted {{
     color: {fg_dim};
 }}
 QLabel#h1 {{
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
-    letter-spacing: 1.6px;
-    font-family: {ui_mono};
-    text-transform: uppercase;
+    font-family: {ui_sans};
 }}
 QLabel#h2 {{
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 1.4px;
-    font-family: {ui_mono};
-    text-transform: uppercase;
     color: {fg_dim};
 }}
 QLabel#caption {{
     font-size: 11px;
     color: {fg_dim};
-    font-family: {ui_mono};
-    letter-spacing: 0.6px;
 }}
 QFrame#hairline {{
     background: {border};
@@ -819,43 +799,41 @@ QFrame#hairline {{
 
 QDialog {{
     background: {bg};
-    border-radius: 2px;
+    border-radius: 4px;
 }}
 
 QWidget#card {{
     background: {bg2};
     border: 1px solid {border};
-    border-radius: 2px;
+    border-radius: 0px;
 }}
 QWidget#card_hover:hover {{
     border-color: {border_strong};
 }}
 QWidget#header {{
-    background: {bg2};
+    background: {panel};
     border-bottom: 1px solid {border};
 }}
 QWidget#sidebar {{
-    background: {bg};
+    background: {panel};
     border-right: 1px solid {border};
 }}
 
 QWidget#commandBar {{
-    background: {bg2};
+    background: {panel};
     border-top: 1px solid {border};
 }}
 QLabel#commandPrompt {{
     color: {accent};
     font-size: 13px;
     font-weight: 700;
-    font-family: {ui_mono};
 }}
 QLineEdit#commandLine {{
-    background: {bg3};
+    background: {bg2};
     border: 1px solid {border};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 4px 8px;
     font-size: 12px;
-    font-family: {ui_mono};
     min-height: 12px;
 }}
 QLineEdit#commandLine:focus {{
@@ -868,7 +846,7 @@ QWidget#monitorPanel {{
     border-top: 1px solid {border};
 }}
 QWidget#monitorHeader {{
-    background: {bg3};
+    background: {panel};
     border-bottom: 1px solid {border};
     min-height: 24px;
 }}
@@ -876,30 +854,24 @@ QWidget#monitorBody {{
     background: {bg2};
 }}
 QWidget#monitorSummary {{
-    background: {bg3};
+    background: {panel};
     border: 1px solid {border};
-    border-radius: 2px;
+    border-radius: 3px;
     min-width: 150px;
 }}
 QLabel#metricTitle {{
     color: {fg_dim};
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1.1px;
-    text-transform: uppercase;
-    font-family: {ui_mono};
 }}
 QLabel#metricValue {{
     color: {fg};
     font-size: 12px;
     font-weight: 700;
-    font-family: {ui_mono};
 }}
 QLabel#monitorStatus {{
     color: {fg_dim};
     font-size: 11px;
-    font-family: {ui_mono};
-    letter-spacing: 0.6px;
 }}
 QProgressBar#metricBar {{
     background: {panel};
@@ -915,8 +887,6 @@ QProgressBar#metricBar::chunk {{
 QLabel#statusSession {{
     color: {fg_dim};
     font-size: 11px;
-    font-family: {ui_mono};
-    letter-spacing: 0.4px;
 }}
 """
 

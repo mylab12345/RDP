@@ -35,6 +35,7 @@ class SessionTree(QWidget):
     sftpRequested = Signal(str)
     newFolderRequested = Signal()
     newSessionRequested = Signal()
+    localTerminalRequested = Signal()
 
     def __init__(self, store: SessionStore, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,7 +51,7 @@ class SessionTree(QWidget):
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(4, 2, 4, 2)
-        title = QLabel("Roster")
+        title = QLabel("Sessions")
         title.setObjectName("h1")
         hl.addWidget(title)
         hl.addStretch(1)
@@ -68,7 +69,7 @@ class SessionTree(QWidget):
         sl.setSpacing(0)
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("FILTER  host / tag / name")
+        self.search.setPlaceholderText("Search sessions…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._on_search)
         sl.addWidget(self.search, 1)
@@ -90,8 +91,15 @@ class SessionTree(QWidget):
             return b
 
         btn_new = make_btn(" New", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit)
+        btn_local = make_btn(
+            " Terminal",
+            "console",
+            "Open a local shell in a new tab (Ctrl+Shift+T)",
+            self.localTerminalRequested.emit,
+        )
         btn_folder = make_btn(" Folder", "folder", "New folder", self.newFolderRequested.emit)
         bl.addWidget(btn_new, 1)
+        bl.addWidget(btn_local, 1)
         bl.addWidget(btn_folder, 1)
         layout.addWidget(bar_wrap)
 
@@ -120,12 +128,12 @@ class SessionTree(QWidget):
         )
         layout.addWidget(self.tree, 1)
 
-        # Footer hint — modern muted card
+        # Footer hint
         hint = QFrame()
         hint.setObjectName("card")
         hint_l = QHBoxLayout(hint)
         hint_l.setContentsMargins(10, 8, 10, 8)
-        self._hint = QLabel("Double-click to connect • Right-click for actions")
+        self._hint = QLabel("Double-click to connect · Right-click for actions")
         self._hint.setObjectName("caption")
         self._hint.setWordWrap(True)
         hint_l.addWidget(self._hint)

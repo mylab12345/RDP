@@ -41,14 +41,19 @@ from ..core.settings import Settings
 # pyte hot-path speedups (defensive: never break if pyte internals differ)
 # ----------------------------------------------------------------------
 def _speedup_pyte() -> None:
-    """Memoize HistoryScreen's per-access method wrappers.
+    """Pre-wrap HistoryScreen event methods once per instance.
 
     pyte's ``HistoryScreen.__getattribute__`` rebuilds a ``before_event`` /
     ``after_event`` wrapper closure on *every* attribute access for wrapped
     screen methods.  On a fast output stream (``cat bigfile``, ``dmesg``)
-    that is hundreds of thousands of throwaway closures per second.  Caching
-    the wrapper per (screen, method) keeps behavior identical while removing
-    the churn.  Applied once at import time; any failure is ignored.
+    that is hundreds of thousands of throwaway closures per second, and even
+    a caching ``__getattribute__`` replacement still taxes every single
+    attribute access.  Instead we wrap each method exactly once, right after
+    ``__init__``, store it as an instance attribute (which naturally shadows
+    the class method) and restore plain attribute lookup on the class.
+    Behavior is identical — ``before_event``/``after_event`` still run —
+    without any per-access Python overhead.  Applied once at import time;
+    any failure is ignored.
     """
     try:
         import pyte
@@ -56,22 +61,20 @@ def _speedup_pyte() -> None:
         hs = pyte.screens.HistoryScreen
         if getattr(hs, "_rdp_fast_wrapped", False):
             return
-        wrapped = set(hs._wrapped)
+        orig_init = hs.__init__
+        wrapped = sorted(getattr(hs, "_wrapped", ()))
 
-        def fast_getattribute(self, attr):  # noqa: D401 - monkey patch
-            value = object.__getattribute__(self, attr)
-            if attr in wrapped:
-                cache = object.__getattribute__(self, "__dict__").setdefault(
-                    "_rdp_wrappers", {}
-                )
-                w = cache.get(attr)
-                if w is None:
-                    w = hs._make_wrapper(self, attr, value)
-                    cache[attr] = w
-                return w
-            return value
+        def fast_init(self, *args, **kwargs):  # noqa: D401 - monkey patch
+            orig_init(self, *args, **kwargs)
+            make_wrapper = hs._make_wrapper
+            for attr in wrapped:
+                handler = object.__getattribute__(self, attr)
+                object.__setattr__(self, attr, make_wrapper(self, attr, handler))
 
-        hs.__getattribute__ = fast_getattribute
+        hs.__init__ = fast_init
+        # Instance attributes shadow class methods during normal lookup, so
+        # the custom per-access wrapping hook is no longer needed.
+        hs.__getattribute__ = object.__getattribute__
         hs._rdp_fast_wrapped = True
     except Exception:  # noqa: BLE001 - optimization only
         pass

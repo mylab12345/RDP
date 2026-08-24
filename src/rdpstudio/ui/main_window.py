@@ -517,17 +517,17 @@ class MainWindow(QMainWindow):
         bar.setObjectName("moxaToolbar")
         bar.setMovable(False)
         bar.setIconSize(QSize(18, 18))
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
-        a = bar.addAction(icon("plus"), "New session (Ctrl+N)")
+        a = bar.addAction(icon("plus"), "New")
         a.setToolTip("Create a new saved session (Ctrl+N)")
         a.triggered.connect(self.new_session)
 
-        a = bar.addAction(icon("console"), "Local terminal (Ctrl+Shift+T)")
+        a = bar.addAction(icon("console"), "Terminal")
         a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
         a.triggered.connect(self.open_local_terminal)
 
-        a = bar.addAction(icon("search"), "Command palette (Ctrl+P)")
+        a = bar.addAction(icon("search"), "Commands")
         a.setToolTip("Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)")
         a.triggered.connect(self.open_command_palette)
 
@@ -539,14 +539,14 @@ class MainWindow(QMainWindow):
         ql.setContentsMargins(8, 2, 8, 2)
         ql.setSpacing(8)
 
-        lbl = QLabel("⌕")
+        lbl = QLabel("🔗")
         lbl.setObjectName("muted")
-        lbl.setStyleSheet("font-size: 14px;")
+        lbl.setStyleSheet("font-size: 12px;")
         ql.addWidget(lbl)
 
         self.quick = QLineEdit()
-        self.quick.setPlaceholderText("LINK  user@host[:port]  ⏎")
-        self.quick.setFixedWidth(260)
+        self.quick.setPlaceholderText("user@host[:port]  ⏎")
+        self.quick.setFixedWidth(220)
         self.quick.setObjectName("search")
         self.quick.returnPressed.connect(self.quick_connect)
         ql.addWidget(self.quick)
@@ -560,10 +560,10 @@ class MainWindow(QMainWindow):
             act.triggered.connect(cb)
             return act
 
-        add_tool("server", "Scanner", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
+        add_tool("server", "Scan", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
 
-        act_monitor = bar.addAction(icon("server"), "Monitor panel")
+        act_monitor = bar.addAction(icon("server"), "Monitor")
         act_monitor.setToolTip("Toggle the bottom remote-monitor panel (live CPU/MEM/DISK/NET)")
         act_monitor.setCheckable(True)
         act_monitor.toggled.connect(self.set_monitor_panel_visible)
@@ -593,6 +593,7 @@ class MainWindow(QMainWindow):
         tl.setSpacing(0)
 
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.TabPosition.South)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True)
@@ -602,19 +603,13 @@ class MainWindow(QMainWindow):
         self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabs.tabBar().customContextMenuRequested.connect(self._tab_context_menu)
 
-        # Corner buttons (New Tab + Command Palette)
+        # Corner buttons
         corner = QWidget()
         cl = QHBoxLayout(corner)
         cl.setContentsMargins(4, 2, 8, 2)
-        cl.setSpacing(6)
+        cl.setSpacing(4)
 
-        btn_palette = QPushButton("⌕")
-        btn_palette.setObjectName("ghost")
-        btn_palette.setToolTip("Command Palette (Ctrl+P)")
-        btn_palette.clicked.connect(self.open_command_palette)
-        cl.addWidget(btn_palette)
-
-        plus = QPushButton("+ NEW")
+        plus = QPushButton("+")
         plus.setObjectName("ghost")
         plus.setToolTip("New session (Ctrl+N)")
         plus.clicked.connect(self.new_session)
@@ -628,11 +623,11 @@ class MainWindow(QMainWindow):
         self._empty = QWidget()
         el = QVBoxLayout(self._empty)
         el.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.setSpacing(16)
+        el.setSpacing(12)
         el.setContentsMargins(40, 40, 40, 40)
 
         logo = QLabel("◈")
-        logo.setStyleSheet("font-size: 42px; color: #FC3D21;")
+        logo.setStyleSheet("font-size: 36px; color: #007acc;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(logo)
 
@@ -641,14 +636,9 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(title)
 
-        callsign = QLabel("FLIGHT OPERATIONS  ·  LINK STATUS IDLE")
-        callsign.setObjectName("caption")
-        callsign.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        el.addWidget(callsign)
-
         subtitle = QLabel(
-            "Select a session from the roster, establish a new link, or open a local console.\n"
-            "Ctrl+P command palette  ·  Ctrl+Shift+T local terminal"
+            "Select a session from the sidebar or open a local terminal.\n"
+            "Ctrl+N new session  ·  Ctrl+Shift+T local terminal  ·  Ctrl+P commands"
         )
         subtitle.setObjectName("muted")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -661,15 +651,11 @@ class MainWindow(QMainWindow):
         b1 = QPushButton("NEW SESSION")
         b1.setObjectName("primary")
         b1.clicked.connect(self.new_session)
-        b2 = QPushButton("LOCAL CONSOLE")
+        b2 = QPushButton("LOCAL TERMINAL")
         b2.setObjectName("subtle")
         b2.clicked.connect(self.open_local_terminal)
-        b3 = QPushButton("COMMAND PALETTE")
-        b3.setObjectName("subtle")
-        b3.clicked.connect(self.open_command_palette)
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
-        btn_row.addWidget(b3)
         el.addLayout(btn_row)
 
         self._tabs_container = QWidget()
@@ -691,7 +677,7 @@ class MainWindow(QMainWindow):
 
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setSizes([280, 1100])
+        self.main_splitter.setSizes([240, 1100])
 
         # Bottom: MobaXterm-style remote monitoring strip
         self.monitor_panel = MonitorPanel(self)
@@ -716,6 +702,7 @@ class MainWindow(QMainWindow):
         self.sidebar.sftpRequested.connect(self._connect_and_sftp)
         self.sidebar.newSessionRequested.connect(self.new_session)
         self.sidebar.newFolderRequested.connect(self.sidebar.prompt_new_folder)
+        self.sidebar.localTerminalRequested.connect(self.open_local_terminal)
 
     def _bind_shortcuts(self) -> None:
         # Tab navigation shortcuts (Ctrl+Tab / Ctrl+Shift+Backtab live on the
