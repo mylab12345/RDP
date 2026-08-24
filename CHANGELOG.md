@@ -45,6 +45,24 @@
 - RDP probe and the port scanner speak IPv6, cap TPKT length so a hostile
   peer cannot balloon the read buffer, and always close sockets.
 - Cluster runner always closes the SSH client and bounds captured output.
+- Terminal: rich full-screen TUIs (opencode, lazygit, …) rendered flat and
+  colorless — grey text on black with occasional raw escape fragments like
+  `3m`.  Three gaps, all fixed:
+  - pyte reports 256-color and 24-bit RGB cell attributes as hex strings
+    *without* the leading `#` ("67e2f9"); the painter only recognized
+    `#rrggbb`, names and numeric indices, so every themed color was
+    silently dropped back to the default grey.  `#`-less hex is now
+    resolved to its true color.
+  - xterm OSC 10/11 "what are your default colors?" probes (used by
+    opencode to auto-detect dark vs. light themes) were dropped
+    unanswered, so the app stalled and guessed the wrong palette.  The
+    terminal now replies with the colors it is actually painting (the
+    VM's native palette for SSH tabs, the workbench theme for local
+    shells).
+  - kitty-style SGR colon sub-parameters (`ESC[4:3m` styled underline,
+    `ESC[58:2::r:g:bm` underline color) fell outside pyte's grammar and
+    leaked onto the screen as literal text; they are normalized down to
+    their base attribute before parsing.
 
 ### Added
 - **MobaXterm-style layout.** The menu bar is reorganised into

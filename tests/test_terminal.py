@@ -145,3 +145,61 @@ def test_key_encoding():
     assert encode_key_event(_FakeEvent(Qt.Key.Key_Delete, ""), _FakeScreen()) == b"\x1b[3~"
     assert encode_key_event(_FakeEvent(Qt.Key.Key_Backspace, "\x7f"), _FakeScreen()) == b"\x7f"
     assert encode_key_event(_FakeEvent(Qt.Key.Key_B, "b", alt=True), _FakeScreen()) == b"\x1bb"
+
+
+# ---- color fidelity for rich TUIs (opencode, lazygit, …) ------------------
+def test_truecolor_and_256_sgr_resolve_to_rgb(qtapp):
+    """pyte reports extended colors as '#'-less hex; the painter must honor it."""
+    from PySide6.QtGui import QColor
+
+    from rdpstudio.ui.terminal import _colors_for
+
+    core = TerminalCore()
+    core.feed(b"\x1b[38;2;103;226;249mRGB\x1b[0m \x1b[38;5;45mX\x1b[0m")
+    row = core.screen.buffer[0]
+    assert str(row[0].fg) == "67e2f9"  # 24-bit RGB, stored without '#'
+    assert str(row[4].fg) == "00d7ff"  # 256-color idx 45, normalized to hex
+
+    pal = {"fg": QColor("#aaaaaa"), "bg": QColor("#000000"), "16": [], "named": {}}
+    fg, _ = _colors_for("67e2f9", "default", False, pal)
+    assert fg.name() == "#67e2f9"
+    fg, _ = _colors_for("00d7ff", "default", False, pal)
+    assert fg.name() == "#00d7ff"
+    # bg works the same way (48;2 / 48;5 sequences)
+    _, bg = _colors_for("default", "0e141d", False, pal)
+    assert bg is not None and bg.name() == "#0e141d"
+    # named 16-color attributes are untouched ("red" must not parse as hex)
+    fg, _ = _colors_for("brightred", "default", False, pal)
+    assert fg.name() == pal["fg"].name() or fg.name() == "#d08770"
+
+
+def test_sgr_colon_subparameters_do_not_leak_text():
+    core = TerminalCore()
+    # kitty curly-underline + underline color: only "UX tail" may appear
+    core.feed(b"\x1b[4:3mU\x1b[58:2::255:0:0mX\x1b[0m tail")
+    line = core.line_at(core.total_lines() - core.rows)
+    assert line.startswith("UX tail")
+    row = core.screen.buffer[0]
+    assert row[0].data == "U" and row[0].underscore  # base attribute kept
+    assert row[1].data == "X"
+
+
+def test_osc_color_query_captured_and_stripped():
+    core = TerminalCore()
+    core.feed(b"\x1b]10;?\x07\x1b]11;?\x1b\\ok")
+    assert core.take_terminal_queries() == [10, 11]
+    assert core.take_terminal_queries() == []  # drained, not sticky
+    assert core.line_at(core.total_lines() - core.rows).startswith("ok")
+
+
+def test_view_answers_osc11_with_its_palette(qtapp):
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.terminal import TerminalView
+
+    term = TerminalView(Settings(), native_colors=True)  # VM palette: bg black
+    sent: list[bytes] = []
+    term.dataWritten.connect(sent.append)
+    term.feed(b"\x1b]11;?\x07")
+    assert sent == [b"\x1b]11;rgb:0000/0000/0000\x1b\\"]
+    assert term.core.take_terminal_queries() == []  # answered, not pending
+    term.deleteLater()
