@@ -2,7 +2,6 @@
 #   pyinstaller packaging/rdpstudio.spec
 # Output: dist/KB-Remote/ (onedir, faster startup + updatable)
 
-import sys
 from pathlib import Path
 
 block_cipher = None
@@ -14,6 +13,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.svg"), "rdpstudio/resources/icons"),
+        (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.png"), "rdpstudio/resources/icons"),
     ],
     hiddenimports=[
         "paramiko",
@@ -41,9 +41,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # GUI app; logs go to KB_REMOTE_HOME/logs
-    icon=str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "logo.svg")
-    if sys.platform != "win32"
-    else None,
+    icon=str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "logo.png"),
 )
 
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="KB-Remote")

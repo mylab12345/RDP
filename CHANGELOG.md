@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **App icon.** A new key + terminal mark for KB-Remote (window, launcher, and packaging).
 - **Nature themes.** Settings and **View → Theme** now include Forest, Ocean,
   Sunset, Aurora, Meadow and Desert palettes alongside Dark and Light. The
   terminal background/cursor follow the same palette.

@@ -9,6 +9,7 @@ VENV_DIR="${KB_REMOTE_VENV:-${RDPSTUDIO_VENV:-$HOME/.kb-remote/venv}}"
 BIN_DIR="${KB_REMOTE_BIN:-${RDPSTUDIO_BIN:-$HOME/.local/bin}}"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+ICON_PNG_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 
 say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -38,8 +39,11 @@ EOF
 chmod +x "$BIN_DIR/rdpstudio"
 
 say "Installing desktop entry"
-mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
+mkdir -p "$DESKTOP_DIR" "$ICON_DIR" "$ICON_PNG_DIR"
 cp src/rdpstudio/resources/icons/logo.svg "$ICON_DIR/rdpstudio.svg"
+if [ -f src/rdpstudio/resources/icons/logo.png ]; then
+  cp src/rdpstudio/resources/icons/logo.png "$ICON_PNG_DIR/rdpstudio.png"
+fi
 cat > "$DESKTOP_DIR/rdpstudio.desktop" <<EOF
 [Desktop Entry]
 Type=Application
