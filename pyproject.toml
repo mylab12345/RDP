@@ -61,7 +61,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-rdpstudio = ["resources/*.qss", "resources/icons/*.svg", "resources/*.License"]
+rdpstudio = ["resources/*.qss", "resources/icons/*.svg", "resources/icons/*.png", "resources/*.License"]
 
 
 [tool.ruff]

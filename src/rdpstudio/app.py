@@ -89,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationVersion(__version__)
     ctx = build_context(verbose=verbose)
     theme.apply_theme(app, ctx.settings.theme)
+    app.setWindowIcon(theme.icon("logo"))
 
     from .ui.main_window import MainWindow
 

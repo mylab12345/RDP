@@ -271,12 +271,17 @@ GLYPH_FALLBACK = {
 
 
 def icon(name: str) -> QIcon:
-    """Load an SVG icon; falls back to a drawn text glyph when unavailable."""
+    """Load a PNG or SVG icon; falls back to a drawn text glyph when unavailable."""
     cached = _icon_cache.get(name)
     if cached is not None:
         return cached
-    path = ICONS / f"{name}.svg"
-    ic = QIcon(str(path)) if path.exists() else QIcon()
+    ic = QIcon()
+    for ext in (".png", ".svg"):
+        path = ICONS / f"{name}{ext}"
+        if path.exists():
+            ic = QIcon(str(path))
+            if not ic.isNull():
+                break
     if ic.isNull() or not ic.availableSizes():
         ic = _glyph_icon(GLYPH_FALLBACK.get(name, "•"))
     _icon_cache[name] = ic
