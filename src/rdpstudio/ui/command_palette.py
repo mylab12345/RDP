@@ -1,4 +1,4 @@
-"""Spotlight-style command palette and quick switcher (Ctrl+P / Ctrl+K)."""
+"""Spotlight-style command palette and quick switcher — beautiful natural bento 2026."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .theme import icon, palette
 
 @dataclass
 class PaletteItem:
-    category: str  # "Tabs" | "Sessions" | "Tools" | "Actions"
+    category: str
     title: str
     subtitle: str
     action: Callable[[], Any]
@@ -34,7 +34,7 @@ class PaletteItem:
 
 
 class CommandPaletteDialog(QDialog):
-    """Modern keyboard-driven launcher & switcher."""
+    """Modern keyboard-driven launcher — natural bento, soft shadows."""
 
     def __init__(self, main_window, parent=None) -> None:
         super().__init__(parent or main_window)
@@ -42,69 +42,95 @@ class CommandPaletteDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setModal(True)
-        self.resize(620, 440)
+        self.resize(680, 480)
 
         pal = palette()
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(20, 20, 20, 20)
 
         self.card = QWidget()
         self.card.setObjectName("card")
         self.card.setStyleSheet(
             f"""
             QWidget#card {{
-                background: {pal['panel']};
-                border: 1.5px solid {pal['border_strong']};
-                border-radius: 14px;
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border']};
+                border-radius: 20px;
             }}
             """
         )
 
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(32)
-        shadow.setOffset(0, 8)
+        shadow.setBlurRadius(40)
+        shadow.setOffset(0, 16)
         shadow.setColor(QColor(pal["shadow"] or "#00000066"))
         self.card.setGraphicsEffect(shadow)
 
         outer.addWidget(self.card)
 
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(12, 12, 12, 10)
-        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(16, 16, 16, 14)
+        card_layout.setSpacing(14)
 
-        # Search bar row
-        search_row = QHBoxLayout()
-        search_row.setSpacing(10)
+        # Search bar row — pill, natural
+        search_row = QWidget()
+        search_row.setObjectName("searchRow")
+        search_row.setStyleSheet(
+            f"""
+            QWidget#searchRow {{
+                background: {pal['bg3']};
+                border: 1.5px solid {pal['border_subtle']};
+                border-radius: 16px;
+            }}
+            QWidget#searchRow:focus-within {{
+                border-color: {pal['accent']};
+                background: {pal['bg2']};
+            }}
+            """
+        )
+        sr_l = QHBoxLayout(search_row)
+        sr_l.setContentsMargins(6, 6, 6, 6)
+        sr_l.setSpacing(10)
 
         icon_lbl = QLabel("⌕")
-        icon_lbl.setObjectName("muted")
-        icon_lbl.setStyleSheet("font-size: 18px; font-weight: bold;")
-        search_row.addWidget(icon_lbl)
+        icon_lbl.setStyleSheet(f"color: {pal['accent']}; font-size: 18px; font-weight: 800; padding-left: 8px;")
+        sr_l.addWidget(icon_lbl)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search sessions, open tabs, tools, commands… (Esc to close)")
-        self.search.setObjectName("search")
+        self.search.setPlaceholderText("Search sessions, tabs, tools, commands…")
+        self.search.setObjectName("paletteSearch")
         self.search.setStyleSheet(
             f"""
-            QLineEdit {{
-                background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 10px;
-                padding: 10px 14px;
-                font-size: 14px;
+            QLineEdit#paletteSearch {{
+                background: transparent;
+                border: none;
+                padding: 10px 8px;
+                font-size: 15px;
                 color: {pal['fg']};
-            }}
-            QLineEdit:focus {{
-                border-color: {pal['accent']};
             }}
             """
         )
         self.search.textChanged.connect(self._on_search)
-        search_row.addWidget(self.search, 1)
-        card_layout.addLayout(search_row)
+        sr_l.addWidget(self.search, 1)
 
-        # Results list
+        esc_hint = QLabel("Esc")
+        esc_hint.setStyleSheet(
+            f"""
+            background: {pal['panel2']};
+            border: 1px solid {pal['border']};
+            border-radius: 6px;
+            padding: 3px 8px;
+            color: {pal['fg_dim']};
+            font-size: 11px;
+            font-weight: 600;
+            """
+        )
+        sr_l.addWidget(esc_hint)
+
+        card_layout.addWidget(search_row)
+
+        # Results list — bento cards
         self.list = QListWidget()
         self.list.setStyleSheet(
             f"""
@@ -114,14 +140,20 @@ class CommandPaletteDialog(QDialog):
                 outline: none;
             }}
             QListWidget::item {{
-                padding: 8px 10px;
-                border-radius: 8px;
-                margin: 2px 0px;
+                padding: 12px 14px;
+                border-radius: 12px;
+                margin: 3px 2px;
                 color: {pal['fg']};
+                border: 1px solid transparent;
+            }}
+            QListWidget::item:hover {{
+                background: {pal['bg3']};
+                border-color: {pal['border_subtle']};
             }}
             QListWidget::item:selected {{
-                background: {pal['panel2']};
-                border: 1px solid {pal['accent']}55;
+                background: {pal['accent_subtle']};
+                border: 1.5px solid {pal['accent']}40;
+                color: {pal['fg']};
             }}
             """
         )
@@ -129,13 +161,35 @@ class CommandPaletteDialog(QDialog):
         self.list.itemClicked.connect(self._on_item_activated)
         card_layout.addWidget(self.list, 1)
 
-        # Footer hints
+        # Footer hints — pill badges
         footer = QHBoxLayout()
-        hint = QLabel("↑↓ Navigate  •  ⏎ Execute / Switch  •  Esc Close")
-        hint.setObjectName("caption")
-        hint.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 11px;")
-        footer.addWidget(hint)
+        footer.setSpacing(8)
+
+        def footer_pill(text):
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"""
+                background: {pal['bg3']};
+                border: 1px solid {pal['border_subtle']};
+                border-radius: 20px;
+                padding: 4px 10px;
+                color: {pal['fg_dim']};
+                font-size: 11px;
+                font-weight: 600;
+                """
+            )
+            return lbl
+
+        footer.addWidget(footer_pill("↑↓ Navigate"))
+        footer.addWidget(footer_pill("⏎ Execute"))
+        footer.addWidget(footer_pill("Esc Close"))
         footer.addStretch(1)
+
+        hint = QLabel(f"{len(self._items) if hasattr(self, '_items') else 0} commands")
+        hint.setObjectName("caption")
+        hint.setStyleSheet(f"color: {pal['fg_muted']}; font-size: 11px;")
+        footer.addWidget(hint)
+
         card_layout.addLayout(footer)
 
         self._items: list[PaletteItem] = []
@@ -147,7 +201,6 @@ class CommandPaletteDialog(QDialog):
         main = self.main
         ctx = main.ctx
 
-        # 1. Open tabs
         for i in range(main.tabs.count()):
             tab_title = main.tabs.tabText(i)
             widget = main.tabs.widget(i)
@@ -166,7 +219,6 @@ class CommandPaletteDialog(QDialog):
                 )
             )
 
-        # 2. Saved sessions
         for s in ctx.store.sessions():
             self._items.append(
                 PaletteItem(
@@ -178,7 +230,6 @@ class CommandPaletteDialog(QDialog):
                 )
             )
 
-        # 3. Tools & Diagnostics
         self._items.extend(
             [
                 PaletteItem(
@@ -198,7 +249,7 @@ class CommandPaletteDialog(QDialog):
                 PaletteItem(
                     category="Tools & Diagnostics",
                     title="Remote Monitoring",
-                    subtitle="Bottom live CPU, memory, disk and network monitor for SSH/OpenSSH hosts on any OS",
+                    subtitle="Bottom live CPU, memory, disk and network monitor",
                     action=lambda: (main.open_monitor_dialog(), self.accept()),
                     icon_name="server",
                     shortcut="Ctrl+Shift+M",
@@ -213,7 +264,6 @@ class CommandPaletteDialog(QDialog):
             ]
         )
 
-        # 4. Actions
         self._items.extend(
             [
                 PaletteItem(
@@ -235,7 +285,7 @@ class CommandPaletteDialog(QDialog):
                 PaletteItem(
                     category="Actions",
                     title="Cycle theme",
-                    subtitle=f"Current: {ctx.settings.theme} — dark, light, and nature palettes",
+                    subtitle=f"Current: {ctx.settings.theme} — explore natural palettes",
                     action=lambda: (main.cycle_theme(), self.accept()),
                     icon_name="gear",
                 ),

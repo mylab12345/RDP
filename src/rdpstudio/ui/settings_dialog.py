@@ -1,4 +1,4 @@
-"""Application settings dialog — flight-ops layout."""
+"""Application settings dialog — beautiful natural bento layout 2026."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -22,25 +23,25 @@ from PySide6.QtWidgets import (
 from ..core import paths
 from ..core.plugin import SessionContext
 from ..core.settings import FONT_PRESETS, THEME_CHOICES
+from .theme import palette
 
 
 def _system_families() -> list[str]:
     try:
         return list(QFontDatabase.families())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
 
 def _is_fixed(family: str) -> bool:
     try:
         return bool(QFontDatabase.isFixedPitch(family))
-    except Exception:  # noqa: BLE001
+    except Exception:
         key = family.lower()
         return any(tok in key for tok in ("mono", "consol", "courier", "code", "term", "fixed"))
 
 
 def collect_terminal_fonts() -> list[str]:
-    """Recommended presets first, then every monospaced face on this machine."""
     installed = _system_families()
     installed_set = set(installed)
     out: list[str] = []
@@ -53,7 +54,6 @@ def collect_terminal_fonts() -> list[str]:
         if name not in seen:
             out.append(name)
             seen.add(name)
-    # Still offer the remaining presets so the operator can type a known name.
     for name in FONT_PRESETS:
         if name not in seen:
             out.append(name)
@@ -67,47 +67,86 @@ class SettingsDialog(QDialog):
         self.ctx = ctx
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(640, 700)
+        self.resize(700, 760)
+
+        pal = palette()
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 16)
-        outer.setSpacing(14)
+        outer.setContentsMargins(24, 24, 24, 18)
+        outer.setSpacing(16)
 
+        # Header with accent dot
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        dot = QLabel("◉")
+        dot.setStyleSheet(f"color: {pal['accent']}; font-size: 16px;")
+        header_row.addWidget(dot)
         title = QLabel("Settings")
         title.setObjectName("h1")
-        outer.addWidget(title)
+        title.setStyleSheet("font-size: 22px; font-weight: 800; letter-spacing: -0.4px;")
+        header_row.addWidget(title)
+        header_row.addStretch(1)
+
+        # Theme preview pill
+        theme_pill = QLabel(f"🌿 {ctx.settings.theme}")
+        theme_pill.setStyleSheet(
+            f"""
+            background: {pal['accent_subtle']};
+            border: 1px solid {pal['accent']}35;
+            border-radius: 20px;
+            padding: 4px 12px;
+            color: {pal['accent']};
+            font-size: 11.5px;
+            font-weight: 700;
+            """
+        )
+        header_row.addWidget(theme_pill)
+        outer.addLayout(header_row)
 
         subtitle = QLabel(
-            "Workbench appearance and local-console defaults. "
-            "SSH sessions keep the remote host’s own terminal colors."
+            "Beautiful natural themes — forest, ocean, meadow, desert & more. "
+            "SSH sessions keep the remote host's own terminal colors."
         )
-        subtitle.setObjectName("muted")
+        subtitle.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 13px;")
         subtitle.setWordWrap(True)
         outer.addWidget(subtitle)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         page = QWidget()
         scroll.setWidget(page)
         outer.addWidget(scroll, 1)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(2, 2, 8, 2)
-        layout.setSpacing(16)
+        layout.setContentsMargins(2, 2, 10, 2)
+        layout.setSpacing(18)
 
         # --- appearance ------------------------------------------------------
-        appearance = QGroupBox("Appearance")
+        appearance = QGroupBox("🎨 Appearance — Natural Themes")
         form = QFormLayout(appearance)
-        form.setSpacing(12)
+        form.setSpacing(14)
+        form.setContentsMargins(18, 24, 18, 18)
+
         self.theme = QComboBox()
+        self.theme.setMinimumHeight(40)
         for tid, label in THEME_CHOICES:
             self.theme.addItem(label, tid)
         ti = self.theme.findData(ctx.settings.theme)
         self.theme.setCurrentIndex(ti if ti >= 0 else 0)
+        # Theme description
+        theme_desc = QLabel(
+            "🌲 Forest: deep pine & moss  •  🌊 Ocean: Atlantic teal  •  🌅 Sunset: terracotta dusk\n"
+            "✨ Aurora: northern lights  •  🌾 Meadow: sage & cream  •  🏜️ Desert: sand & clay"
+        )
+        theme_desc.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 11px; line-height: 1.4;")
+        theme_desc.setWordWrap(True)
         form.addRow("Theme", self.theme)
+        form.addRow(theme_desc)
 
         self.font_family = QComboBox()
         self.font_family.setEditable(True)
+        self.font_family.setMinimumHeight(38)
         fonts = collect_terminal_fonts()
         self.font_family.addItems(fonts)
         if ctx.settings.font_family:
@@ -123,13 +162,22 @@ class SettingsDialog(QDialog):
         self.font_size = QSpinBox()
         self.font_size.setRange(7, 24)
         self.font_size.setValue(ctx.settings.font_size)
+        self.font_size.setMinimumHeight(38)
         form.addRow("Font size", self.font_size)
 
         self._font_preview = QLabel("ABCDEFGHIJK  0123456789  ls -la  ~/ops  ERROR  NOMINAL")
         self._font_preview.setObjectName("card")
         self._font_preview.setWordWrap(True)
-        self._font_preview.setMinimumHeight(44)
-        self._font_preview.setContentsMargins(10, 8, 10, 8)
+        self._font_preview.setMinimumHeight(52)
+        self._font_preview.setStyleSheet(
+            f"""
+            background: {pal['bg3']};
+            border: 1.5px solid {pal['border']};
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 13px;
+            """
+        )
         form.addRow("Preview", self._font_preview)
         self.font_family.currentTextChanged.connect(lambda _t: self._refresh_font_preview())
         self.font_size.valueChanged.connect(lambda _v: self._refresh_font_preview())
@@ -137,13 +185,14 @@ class SettingsDialog(QDialog):
 
         note = QLabel(
             "Typefaces listed here are the fonts installed on this workstation. "
-            "Nothing extra is downloaded."
+            "Nothing extra is downloaded — natural & local."
         )
-        note.setObjectName("muted")
+        note.setStyleSheet(f"color: {pal['fg_muted']}; font-size: 11px;")
         note.setWordWrap(True)
         form.addRow(note)
 
         self.cursor = QComboBox()
+        self.cursor.setMinimumHeight(38)
         self.cursor.addItem("Block █", "block")
         self.cursor.addItem("Underline _", "underline")
         self.cursor.addItem("Bar │", "bar")
@@ -153,22 +202,25 @@ class SettingsDialog(QDialog):
         layout.addWidget(appearance)
 
         # --- terminal ---------------------------------------------------------
-        terminal = QGroupBox("Terminal")
+        terminal = QGroupBox("💻 Terminal")
         tform = QFormLayout(terminal)
-        tform.setSpacing(10)
+        tform.setSpacing(12)
+        tform.setContentsMargins(18, 24, 18, 18)
         ssh_note = QLabel(
-            "SSH / OpenSSH tabs render the remote VM’s own console palette "
+            "SSH / OpenSSH tabs render the remote VM's own console palette "
             "(VGA / linux / xterm ANSI). Theme colors are not applied to those sessions."
         )
-        ssh_note.setObjectName("muted")
+        ssh_note.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 12px;")
         ssh_note.setWordWrap(True)
         tform.addRow(ssh_note)
         self.scrollback = QSpinBox()
         self.scrollback.setRange(200, 100_000)
         self.scrollback.setSingleStep(500)
         self.scrollback.setValue(ctx.settings.scrollback_lines)
+        self.scrollback.setMinimumHeight(38)
         tform.addRow("Scrollback", self.scrollback)
         self.terminal_backend = QComboBox()
+        self.terminal_backend.setMinimumHeight(38)
         self.terminal_backend.addItem("Automatic — native on Linux when available", "auto")
         self.terminal_backend.addItem("Native — QTermWidget/Konsole-style renderer", "native")
         self.terminal_backend.addItem("Python fallback — pyte renderer", "pyte")
@@ -177,10 +229,10 @@ class SettingsDialog(QDialog):
         tform.addRow("Terminal engine", self.terminal_backend)
         backend_note = QLabel(
             "The native engine keeps VT parsing, scrollback and painting in compiled code, "
-            "like SSH Pilot’s Linux VTE path. Install the optional native-terminal extra "
+            "like SSH Pilot's Linux VTE path. Install the optional native-terminal extra "
             "to enable it; existing tabs keep their current engine until reopened."
         )
-        backend_note.setObjectName("muted")
+        backend_note.setStyleSheet(f"color: {pal['fg_muted']}; font-size: 11px;")
         backend_note.setWordWrap(True)
         tform.addRow(backend_note)
         self.copy_on_select = QCheckBox("Copy on select — instant copy when you select text")
@@ -195,24 +247,29 @@ class SettingsDialog(QDialog):
         layout.addWidget(terminal)
 
         # --- connection -------------------------------------------------------
-        conn = QGroupBox("Connection")
+        conn = QGroupBox("🔗 Connection")
         cform = QFormLayout(conn)
-        cform.setSpacing(10)
+        cform.setSpacing(12)
+        cform.setContentsMargins(18, 24, 18, 18)
         self.keepalive = QSpinBox()
         self.keepalive.setRange(5, 300)
         self.keepalive.setValue(ctx.settings.default_keepalive)
+        self.keepalive.setMinimumHeight(38)
         cform.addRow("Keepalive", self.keepalive)
         self.max_attempts = QSpinBox()
         self.max_attempts.setRange(1, 100)
         self.max_attempts.setValue(ctx.settings.reconnect_max_attempts)
+        self.max_attempts.setMinimumHeight(38)
         cform.addRow("Reconnect attempts", self.max_attempts)
         self.host_key_policy = QComboBox()
+        self.host_key_policy.setMinimumHeight(38)
         self.host_key_policy.addItem("TOFU — trust on first use", "accept-new")
         self.host_key_policy.addItem("Strict — always prompt", "strict")
         hi = self.host_key_policy.findData(ctx.settings.host_key_policy)
         self.host_key_policy.setCurrentIndex(hi if hi >= 0 else 0)
         cform.addRow("Host key policy", self.host_key_policy)
         self.rdp_client = QComboBox()
+        self.rdp_client.setMinimumHeight(38)
         self.rdp_client.addItem("Built-in — inside app", "embedded")
         self.rdp_client.addItem("External — separate window", "external")
         self.rdp_client.addItem("Automatic", "auto")
@@ -220,11 +277,12 @@ class SettingsDialog(QDialog):
         self.rdp_client.setCurrentIndex(ri if ri >= 0 else 2)
         cform.addRow("RDP display", self.rdp_client)
         self.rdp_status = QLabel("")
-        self.rdp_status.setObjectName("muted")
+        self.rdp_status.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 12px;")
         self.rdp_status.setWordWrap(True)
         cform.addRow(self.rdp_status)
         self.btn_xwayland = QPushButton("Restart via XWayland now")
         self.btn_xwayland.setObjectName("subtle")
+        self.btn_xwayland.setMinimumHeight(38)
         self.btn_xwayland.clicked.connect(self._restart_via_xwayland)
         self._refresh_rdp_status()
         if self._xwayland_useful:
@@ -241,9 +299,10 @@ class SettingsDialog(QDialog):
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setObjectName("primary")
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setMinimumHeight(36)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Save Settings")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setMinimumHeight(42)
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setObjectName("subtle")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setMinimumHeight(36)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setMinimumHeight(42)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
@@ -262,12 +321,12 @@ class SettingsDialog(QDialog):
         self._xwayland_useful = False
         ok, reason = embedded_support()
         if ok:
-            self.rdp_status.setText("In-app display active — remote desktops render inside KB-Remote.")
+            self.rdp_status.setText("✦ In-app display active — remote desktops render inside KB-Remote.")
         elif embed_blocked_on_wayland():
             self._xwayland_useful = True
             self.rdp_status.setText(
-                "Wayland session detected: in-app RDP needs X11. KB-Remote can restart\n"
-                "through XWayland — it also does so automatically at startup when saved\n"
+                "Wayland session detected: in-app RDP needs X11. KB-Remote can restart "
+                "through XWayland — it also does so automatically at startup when saved "
                 "RDP sessions exist."
             )
         elif reason:

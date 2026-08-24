@@ -1,12 +1,8 @@
-"""Bottom-docked remote monitoring panel (MobaXterm-style).
+"""Bottom-docked remote monitoring panel — beautiful natural bento design 2026.
 
 A compact, always-available strip along the bottom of the main window that
 shows live CPU / memory / disk / network figures for the *active* monitor-capable
-remote session — the same data the standalone Remote Monitor dialog reports,
-but docked where MobaXterm keeps its per-session stats. The panel follows the
-active tab, reusing :class:`~rdpstudio.protocols.ssh.monitor.MonitorEngine`
-over the session's existing SSH transport (Linux, BSD/macOS, and Windows
-OpenSSH probes; no agent to install).
+remote session.
 """
 
 from __future__ import annotations
@@ -25,25 +21,41 @@ from PySide6.QtWidgets import (
 
 from ..protocols.ssh.monitor import DEFAULT_INTERVAL_MS, MonitorEngine
 from .monitor_dialog import INTERVALS, Sparkline, format_uptime
+from .theme import palette
 from .widgets import format_bytes
 
 
 class _MetricCell(QWidget):
-    """One compact metric: title + value, bar, caption or sparkline."""
+    """One bento metric: title + value, bar, caption or sparkline — natural."""
 
     def __init__(self, title: str, color: str, with_spark: bool = False, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("metricCell")
+        pal = palette()
+        self.setStyleSheet(
+            f"""
+            QWidget#metricCell {{
+                background: {pal['bg2']};
+                border: 1.5px solid {pal['border_subtle']};
+                border-radius: 12px;
+            }}
+            QWidget#metricCell:hover {{
+                border-color: {pal['border']};
+            }}
+            """
+        )
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(2)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(4)
 
         head = QHBoxLayout()
-        head.setSpacing(6)
+        head.setSpacing(8)
         name = QLabel(title)
         name.setObjectName("metricTitle")
+        name.setStyleSheet(f"font-size: 10.5px; font-weight: 700; color: {pal['fg_dim']}; letter-spacing: 0.6px;")
         self.value = QLabel("—")
         self.value.setObjectName("metricValue")
+        self.value.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {pal['fg']};")
         head.addWidget(name)
         head.addStretch(1)
         head.addWidget(self.value)
@@ -52,13 +64,13 @@ class _MetricCell(QWidget):
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(7)
+        self.bar.setFixedHeight(8)
         self.bar.setObjectName("metricBar")
         layout.addWidget(self.bar)
 
         if with_spark:
             self.spark = Sparkline(color)
-            self.spark.setFixedHeight(22)
+            self.spark.setFixedHeight(24)
             layout.addWidget(self.spark)
             self.caption = None
         else:
@@ -95,11 +107,10 @@ class _MetricCell(QWidget):
 
 
 class MonitorPanel(QWidget):
-    """Live monitoring strip bound to the active monitor-capable session controller."""
+    """Live monitoring strip — beautiful natural bento."""
 
-    openFullMonitor = Signal()  # main window opens the full MonitorDialog
+    openFullMonitor = Signal()
 
-    # Cross-thread bridges to the engine (which lives on its own QThread).
     _sigStart = Signal()
     _sigStop = Signal()
     _sigInterval = Signal(int)
@@ -113,28 +124,29 @@ class MonitorPanel(QWidget):
         self._paused = False
         self._bound_name = ""
 
+        pal = palette()
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ------------------------------------------------ header ----------
+        # Header — bento pill style
         header = QWidget()
         header.setObjectName("monitorHeader")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(10, 3, 8, 3)
-        hl.setSpacing(8)
+        hl.setContentsMargins(14, 8, 12, 8)
+        hl.setSpacing(10)
 
         icon_lbl = QLabel("▤")
-        icon_lbl.setObjectName("metricTitle")
+        icon_lbl.setStyleSheet(f"color: {pal['accent']}; font-size: 14px; font-weight: 800;")
         hl.addWidget(icon_lbl)
 
         title = QLabel("Remote monitor")
-        title.setObjectName("metricTitle")
+        title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {pal['fg']}; letter-spacing: 0.3px;")
         hl.addWidget(title)
 
         self.host_label = QLabel("")
-        self.host_label.setObjectName("muted")
-        self.host_label.setStyleSheet("font-size: 12px;")
+        self.host_label.setStyleSheet(f"font-size: 12px; color: {pal['fg_dim']};")
         hl.addWidget(self.host_label)
 
         self.status = QLabel("idle")
@@ -145,7 +157,7 @@ class MonitorPanel(QWidget):
 
         self.interval = QComboBox()
         self.interval.setToolTip("Probe refresh rate")
-        self.interval.setStyleSheet("font-size: 11.5px; padding: 3px 8px; min-height: 0;")
+        self.interval.setMinimumHeight(28)
         for label, ms in INTERVALS:
             self.interval.addItem(label, ms)
         default = self.interval.findData(DEFAULT_INTERVAL_MS)
@@ -154,24 +166,23 @@ class MonitorPanel(QWidget):
         hl.addWidget(self.interval)
 
         self.btn_pause = QPushButton("⏸ Pause")
-        self.btn_pause.setObjectName("ghost")
-        self.btn_pause.setFixedWidth(84)
-        self.btn_pause.setStyleSheet("font-size: 11.5px; padding: 3px 8px;")
+        self.btn_pause.setObjectName("subtle")
+        self.btn_pause.setFixedWidth(88)
+        self.btn_pause.setMinimumHeight(28)
         self.btn_pause.clicked.connect(self.toggle_pause)
         hl.addWidget(self.btn_pause)
 
         self.btn_details = QPushButton("Details")
-        self.btn_details.setObjectName("ghost")
-        self.btn_details.setFixedWidth(70)
-        self.btn_details.setStyleSheet("font-size: 11.5px; padding: 3px 8px;")
+        self.btn_details.setObjectName("subtle")
+        self.btn_details.setFixedWidth(76)
+        self.btn_details.setMinimumHeight(28)
         self.btn_details.setToolTip("Open the full remote monitor window")
         self.btn_details.clicked.connect(self.openFullMonitor.emit)
         hl.addWidget(self.btn_details)
 
         self.btn_collapse = QPushButton("⌄")
         self.btn_collapse.setObjectName("ghost")
-        self.btn_collapse.setFixedSize(26, 22)
-        self.btn_collapse.setStyleSheet("font-size: 11.5px; padding: 0;")
+        self.btn_collapse.setFixedSize(32, 28)
         self.btn_collapse.setToolTip("Collapse / expand the monitor panel")
         self.btn_collapse.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
         hl.addWidget(self.btn_collapse)
@@ -184,12 +195,12 @@ class MonitorPanel(QWidget):
         self._hairline.setFixedHeight(1)
         root.addWidget(self._hairline)
 
-        # ------------------------------------------------- body ----------
+        # Body — bento grid
         body = QWidget()
         body.setObjectName("monitorBody")
         bl = QHBoxLayout(body)
-        bl.setContentsMargins(6, 4, 6, 6)
-        bl.setSpacing(6)
+        bl.setContentsMargins(12, 10, 12, 12)
+        bl.setSpacing(10)
 
         self.cpu = _MetricCell("CPU", "good", with_spark=True)
         self.mem = _MetricCell("Memory", "info")
@@ -202,24 +213,32 @@ class MonitorPanel(QWidget):
         summary = QWidget()
         summary.setObjectName("monitorSummary")
         sl = QVBoxLayout(summary)
-        sl.setContentsMargins(8, 2, 8, 2)
-        sl.setSpacing(1)
+        sl.setContentsMargins(14, 10, 14, 10)
+        sl.setSpacing(6)
         self.lbl_uptime = QLabel("Uptime —")
         self.lbl_load = QLabel("Load —")
         self.lbl_users = QLabel("Users —")
         self.lbl_swap = QLabel("Swap —")
         for lbl in (self.lbl_uptime, self.lbl_load, self.lbl_users, self.lbl_swap):
-            lbl.setObjectName("muted")
-            lbl.setStyleSheet("font-size: 11.5px;")
+            lbl.setStyleSheet(f"font-size: 11.5px; color: {pal['fg_dim']};")
             sl.addWidget(lbl)
         bl.addWidget(summary, 0)
 
         self.placeholder = QLabel(
-            "No monitor-capable remote session — open or focus any SSH/OpenSSH host to monitor it live."
+            "🌿 No monitor-capable remote session — open or focus any SSH host to see live metrics"
         )
         self.placeholder.setObjectName("muted")
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder.setStyleSheet("font-size: 12px;")
+        self.placeholder.setStyleSheet(
+            f"""
+            font-size: 12.5px;
+            color: {pal['fg_dim']};
+            background: {pal['bg3']};
+            border: 1px dashed {pal['border']};
+            border-radius: 12px;
+            padding: 16px;
+            """
+        )
 
         self.body = body
         root.addWidget(body)
@@ -227,9 +246,8 @@ class MonitorPanel(QWidget):
 
         self._collapsed = False
         self.set_collapsed(False)
-        self._no_session()  # initial state: no bound session
+        self._no_session()
 
-    # ------------------------------------------------------------------
     @property
     def collapsed(self) -> bool:
         return self._collapsed
@@ -247,13 +265,7 @@ class MonitorPanel(QWidget):
         self.body.setVisible(not self._collapsed and has_engine)
         self.placeholder.setVisible(not self._collapsed and not has_engine)
 
-    # ------------------------------------------------------------------
     def bind(self, controller) -> None:
-        """Attach to a session controller (or ``None`` for no session).
-
-        Safe to call on every tab switch: the engine is only (re)created
-        when the controller actually changes.
-        """
         if controller is self._controller:
             return
         self._teardown_engine()
@@ -269,7 +281,7 @@ class MonitorPanel(QWidget):
         name = ""
         try:
             name = controller.definition.display_name()
-        except Exception:  # noqa: BLE001
+        except Exception:
             name = "session"
         self._bound_name = name
         self.host_label.setText(f"— {name}")
@@ -285,7 +297,6 @@ class MonitorPanel(QWidget):
         self._sigStop.connect(self._engine.stop)
         self._sigInterval.connect(self._engine.set_interval)
         self._thread.start()
-        # queued → delivered on the engine's thread once its loop is up
         self._sigStart.emit()
         if self._paused:
             self._sigStop.emit()
@@ -294,7 +305,7 @@ class MonitorPanel(QWidget):
     def _no_session(self) -> None:
         self._bound_name = ""
         self.host_label.setText("")
-        self.status.setText("no monitor-capable session")
+        self.status.setText("no session")
         self.btn_pause.setEnabled(False)
         for cell in (self.cpu, self.mem, self.disk, self.net):
             cell.reset()
@@ -309,16 +320,16 @@ class MonitorPanel(QWidget):
         self._engine, self._thread = None, None
         self.btn_pause.setEnabled(True)
         if engine is not None:
-            try:  # disconnect while the object is still alive
+            try:
                 self._sigStart.disconnect(engine.start)
                 self._sigStop.disconnect(engine.stop)
                 self._sigInterval.disconnect(engine.set_interval)
             except (RuntimeError, TypeError):
                 pass
-            self._sigStop.emit()  # queued → engine's thread
+            self._sigStop.emit()
         if thread is not None:
             thread.quit()
-            if not thread.wait(800):  # a probe in flight may block briefly
+            if not thread.wait(800):
                 thread.terminate()
                 thread.wait(200)
         if engine is not None:
@@ -383,9 +394,7 @@ class MonitorPanel(QWidget):
         rx, tx = data.get("rx_rate", 0.0), data.get("tx_rate", 0.0)
         self.net.set_rate(f"↓ {format_bytes(rx)}/s  ↑ {format_bytes(tx)}/s", rx + tx)
 
-    # ------------------------------------------------------------------
     def shutdown(self) -> None:
-        """Full teardown (window close)."""
         self._teardown_engine()
         self._controller = None
 
