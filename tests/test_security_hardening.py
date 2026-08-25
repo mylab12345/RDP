@@ -97,29 +97,3 @@ def test_osc52_rejects_oversized_payload():
     core = TerminalCore()
     huge = b"QQ" * _MAX_OSC52_B64
     assert core.feed(b"\x1b]52;c;" + huge + b"\x07") is None
-
-
-# --- monitoring probe is read-only and injection-free -------------------------
-def test_monitor_probe_is_read_only():
-    from rdpstudio.protocols.ssh.monitor import PROBE_SCRIPT
-
-    lowered = PROBE_SCRIPT.lower()
-    for dangerous in ("rm ", "curl", "wget", "chmod", "chown", "dd ", "mkdir", "tee "):
-        assert dangerous not in lowered, f"probe should be read-only, found {dangerous!r}"
-    # Only stderr suppression (`2>/dev/null`) is allowed; no file writes.
-    redirects = [
-        part for part in lowered.split(">")[:-1] if not part.endswith("2")
-    ]
-    assert not redirects, "probe must not redirect output into files"
-    # No interpolation points: the script is a constant, so nothing
-    # user-controlled can be injected into the remote shell.
-    assert "{" not in PROBE_SCRIPT and "%s" not in PROBE_SCRIPT
-
-
-def test_monitor_parser_survives_garbage():
-    from rdpstudio.protocols.ssh.monitor import parse_probe
-
-    for junk in ("", "###end", "nonsense", "###stat\ncpu x y z\n###end", "###df\n\n"):
-        sample, _ = parse_probe(junk)
-        assert sample.ok
-        assert 0.0 <= sample.mem_percent <= 100.0

@@ -163,7 +163,7 @@ class NativeTerminalView(QWidget):
     its slave fd.  Remote/local controllers write output to that fd; native
     ``sendData`` signals carry key presses back to the controller.  No shell or
     SSH process is owned here, so the existing lifecycle, authentication,
-    reconnect, logging, SFTP and monitor code stays unchanged.
+    reconnect, logging and SFTP code stays unchanged.
     """
 
     dataWritten = Signal(bytes)

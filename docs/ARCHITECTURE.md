@@ -69,8 +69,7 @@ the real PTY or Paramiko channel, while the native widget owns VT parsing,
 scrollback, selection and painting. Remote bytes are written to the native
 emulator's empty PTY through a lossless non-blocking queue; key bytes cross
 back over `dataWritten`. This removes Python cell parsing and full-widget
-painting from the hot path without changing authentication, reconnect, SFTP
-or monitoring.
+painting from the hot path without changing authentication, reconnect or SFTP.
 
 If the optional binding is unavailable, `TerminalView` remains the complete
 pyte-based fallback. Set `RDPSTUDIO_TERMINAL_BACKEND=pyte` to compare or

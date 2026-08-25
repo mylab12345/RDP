@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..core import paths
 from ..core.settings import FONT_PRESETS, THEME_CHOICES
-from .theme import PALETTE, palette
+from .theme import PALETTE, icon, palette
 
 
 def _system_families() -> list[str]:
@@ -221,7 +222,7 @@ class SettingsDialog(QDialog):
         outer.setContentsMargins(24, 24, 24, 18)
         outer.setSpacing(16)
 
-        # ── header ──
+        # ── header (title + live search across every settings group) ──
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
         title = QLabel("Settings")
@@ -229,6 +230,17 @@ class SettingsDialog(QDialog):
         title.setStyleSheet("font-size: 16px; font-weight: 700; letter-spacing: -0.2px;")
         header_row.addWidget(title)
         header_row.addStretch(1)
+
+        self._settings_search = QLineEdit()
+        self._settings_search.setPlaceholderText("Search settings…")
+        self._settings_search.setClearButtonEnabled(True)
+        self._settings_search.setFixedWidth(220)
+        self._settings_search.setMinimumHeight(32)
+        search_act = self._settings_search.addAction(
+            icon("search"), QLineEdit.ActionPosition.LeadingPosition
+        )
+        search_act.setToolTip("Filter settings groups")
+        header_row.addWidget(self._settings_search)
         outer.addLayout(header_row)
 
         # ── tab widget (left-side tab bar) ──
@@ -310,6 +322,35 @@ class SettingsDialog(QDialog):
         # Switch to RDP tab if the xwayland button needs to be visible
         if getattr(self, "_xwayland_useful", False) and self._rdp_tab_idx >= 0:
             tabs.setCurrentIndex(self._rdp_tab_idx)
+
+        # Wire the header search: it filters top-level groups on every tab.
+        self._search_groups: list[tuple[QWidget, str]] = []
+        for i in range(tabs.count()):
+            page = tabs.widget(i)
+            inner = page.widget() if isinstance(page, QScrollArea) else page
+            page_lay = inner.layout() if inner else None
+            if page_lay is None:
+                continue
+            for j in range(page_lay.count()):
+                w = page_lay.itemAt(j).widget()
+                if w is not None and w.objectName() == "card":
+                    self._search_groups.append((w, self._group_haystack(w)))
+        self._settings_search.textChanged.connect(self._filter_settings)
+
+    def _group_haystack(self, group: QWidget) -> str:
+        parts: list[str] = []
+        for child in group.findChildren(QWidget):
+            if isinstance(child, (QLabel, QCheckBox)):
+                parts.append(child.text())
+            elif isinstance(child, QComboBox):
+                for k in range(child.count()):
+                    parts.append(child.itemText(k))
+        return " ".join(parts).lower()
+
+    def _filter_settings(self, text: str) -> None:
+        needle = text.strip().lower()
+        for group, hay in self._search_groups:
+            group.setVisible(not needle or needle in hay)
 
     # ── General tab ──────────────────────────────────────────────────────
 
@@ -410,6 +451,35 @@ class SettingsDialog(QDialog):
         row.addWidget(self.cursor, 1)
         grp3_lay.addLayout(row)
         lay.addWidget(grp3)
+
+        # -- user interface (density / chrome / motion) --
+        grp4, grp4_lay = _make_group("User Interface", pal)
+
+        r_d = QHBoxLayout()
+        r_d.setSpacing(12)
+        r_d.addWidget(_make_row_label("Density", pal))
+        self.density = QComboBox()
+        self.density.setMinimumHeight(38)
+        self.density.addItem("Comfortable — roomier spacing", "comfortable")
+        self.density.addItem("Compact — denser menus, inputs & lists", "compact")
+        di = self.density.findData(settings.density)
+        self.density.setCurrentIndex(di if di >= 0 else 0)
+        r_d.addWidget(self.density, 1)
+        grp4_lay.addLayout(r_d)
+
+        self.toolbar_labels = QCheckBox("Show labels next to toolbar icons")
+        self.toolbar_labels.setChecked(settings.toolbar_labels)
+        self.toolbar_labels.setToolTip("Off = icon-only toolbar, saves horizontal space")
+        grp4_lay.addWidget(self.toolbar_labels)
+
+        self.animations = QCheckBox("Interface animations")
+        self.animations.setChecked(settings.animations)
+        self.animations.setToolTip("Turn off for reduced motion — sidebar, dialogs and pulses go static")
+        grp4_lay.addWidget(self.animations)
+
+        note4 = _make_hint("Applied immediately on Save. Density affects menus, inputs and lists app-wide.", pal)
+        grp4_lay.addWidget(note4)
+        lay.addWidget(grp4)
 
         lay.addStretch(1)
 
@@ -751,6 +821,9 @@ class SettingsDialog(QDialog):
         defaults = Settings()
         self.result_settings = defaults
         self._selected_theme = defaults.theme
+        self.density.setCurrentIndex(self.density.findData(defaults.density))
+        self.toolbar_labels.setChecked(defaults.toolbar_labels)
+        self.animations.setChecked(defaults.animations)
         self.font_family.setCurrentText(defaults.font_family or "")
         self.font_size.setValue(defaults.font_size)
         self.cursor.setCurrentIndex(self.cursor.findData(defaults.cursor_style))
@@ -776,6 +849,9 @@ class SettingsDialog(QDialog):
     def _save(self) -> None:
         s = self.result_settings
         s.theme = self._selected_theme
+        s.density = self.density.currentData() or "comfortable"
+        s.toolbar_labels = self.toolbar_labels.isChecked()
+        s.animations = self.animations.isChecked()
         s.font_family = self.font_family.currentText()
         s.font_size = self.font_size.value()
         s.cursor_style = self.cursor_tab.currentData() or self.cursor.currentData()

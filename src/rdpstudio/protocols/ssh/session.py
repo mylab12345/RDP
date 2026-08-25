@@ -64,7 +64,7 @@ class SshSessionController(SessionController):
 
     # ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
-        return capability_set(shell=True, sftp=True, tunnels=True, monitor=True)
+        return capability_set(shell=True, sftp=True, tunnels=True)
 
     def widget(self) -> QWidget:
         return self.term
@@ -363,19 +363,12 @@ class SshSessionController(SessionController):
         if win is not None:
             win.open_tunnels_for_controller(self)
 
-    def open_monitor(self) -> None:
-        from ...ui.main_window import get_main_window
-
-        win = get_main_window(self.ctx.parent_widget)
-        if win is not None:
-            win.open_monitor_for_controller(self)
-
     def transport_provider(self):
-        """Callable for SftpEngine/MonitorEngine: returns the live transport.
+        """Callable for SftpEngine: returns the live transport.
 
         Resolves ``self._worker`` at call time (not when the provider is
-        created) so SFTP/monitoring keep working after a reconnect, when the
-        old worker object has been replaced.
+        created) so SFTP keeps working after a reconnect, when the old worker
+        object has been replaced.
         """
 
         def provider():
@@ -388,7 +381,7 @@ class SshSessionController(SessionController):
 class SshPlugin(ProtocolPlugin):
     id = "ssh"
     title = "SSH"
-    description = "Secure shell/OpenSSH to Linux, Windows, BSD and macOS hosts: terminal, SFTP, tunnels, monitoring."
+    description = "Secure shell/OpenSSH to Linux, Windows, BSD and macOS hosts: terminal, SFTP, tunnels."
     default_port = 22
     icon_name = "terminal"
     tags = ["ssh", "shell", "sftp"]

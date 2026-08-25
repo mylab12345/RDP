@@ -21,9 +21,13 @@ THEME_CHOICES: tuple[tuple[str, str], ...] = (
     ("aurora", "Aurora — deep teal · mint & lavender"),
     ("meadow", "Meadow — sage & cream · airy light"),
     ("desert", "Desert — sand & clay · warm"),
+    ("contrast", "High contrast — pure black & white · accessibility"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
-DARK_THEMES = {"dark", "graphite", "nord", "dracula", "forest", "ocean", "sunset", "aurora"}
+DARK_THEMES = {
+    "dark", "graphite", "nord", "dracula", "forest", "ocean", "sunset",
+    "aurora", "contrast",
+}
 
 # Curated terminal typefaces (system-installed only; nothing is bundled).
 FONT_PRESETS: tuple[str, ...] = (
@@ -88,6 +92,9 @@ def _as_float(value, default: float, minimum: float) -> float:
 class Settings:
     # appearance
     theme: str = "dark"  # see THEME_IDS
+    density: str = "comfortable"  # comfortable | compact
+    toolbar_labels: bool = True  # icon+label vs icon-only toolbar
+    animations: bool = True  # disable for reduced motion
     font_family: str = ""  # auto-detect when empty
     font_size: int = 10  # points
 
@@ -123,6 +130,8 @@ class Settings:
 
     # window
     geometry: dict = field(default_factory=dict)
+    # command palette: recently executed commands (titles, newest first)
+    palette_recents: list = field(default_factory=list)
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -151,6 +160,13 @@ class Settings:
         s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
         if s.theme not in THEME_IDS:
             s.theme = "dark"
+        if s.density not in ("comfortable", "compact"):
+            s.density = "comfortable"
+        s.toolbar_labels = bool(s.toolbar_labels)
+        s.animations = bool(s.animations)
+        if not isinstance(s.palette_recents, list):
+            s.palette_recents = []
+        s.palette_recents = [t for t in s.palette_recents if isinstance(t, str)][:8]
         if s.host_key_policy not in ("accept-new", "strict"):
             s.host_key_policy = "accept-new"
         if s.rdp_client not in ("auto", "embedded", "external"):

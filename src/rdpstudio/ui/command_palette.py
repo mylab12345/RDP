@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import paths
 from .theme import icon, palette
 
 
@@ -31,6 +32,35 @@ class PaletteItem:
     action: Callable[[], Any]
     icon_name: str = "gear"
     shortcut: str = ""
+
+
+def fuzzy_score(needle: str, text: str) -> int:
+    """Subsequence fuzzy matcher — higher is better, 0 means no match.
+
+    Rewards early hits, consecutive runs and word-boundary matches, so
+    "nw" ranks "Network Tools" above "New Session". Pure function (tested).
+    """
+    needle = needle.lower()
+    text = text.lower()
+    if not needle:
+        return 1
+    if len(needle) > len(text):
+        return 0
+    score = 0
+    ti = 0
+    prev = -2
+    for ch in needle:
+        found = text.find(ch, ti)
+        if found < 0:
+            return 0
+        score += max(0, 10 - found // 2)  # prefer matches near the start
+        if found == prev + 1:
+            score += 6  # consecutive run bonus
+        if found == 0 or text[found - 1] in " \t·/_&-:(":
+            score += 5  # word-boundary bonus
+        prev = found
+        ti = found + 1
+    return score
 
 
 class CommandPaletteDialog(QDialog):
@@ -185,10 +215,10 @@ class CommandPaletteDialog(QDialog):
         footer.addWidget(footer_pill("Esc Close"))
         footer.addStretch(1)
 
-        hint = QLabel(f"{len(self._items) if hasattr(self, '_items') else 0} commands")
-        hint.setObjectName("caption")
-        hint.setStyleSheet(f"color: {pal['fg_muted']}; font-size: 11px;")
-        footer.addWidget(hint)
+        self._hint = QLabel("0 commands")
+        self._hint.setObjectName("caption")
+        self._hint.setStyleSheet(f"color: {pal['fg_muted']}; font-size: 11px;")
+        footer.addWidget(self._hint)
 
         card_layout.addLayout(footer)
 
@@ -245,14 +275,6 @@ class CommandPaletteDialog(QDialog):
                     subtitle="Key generator, randomart visualizer, and PuTTY PPK converter",
                     action=lambda: (main.open_key_utility(), self.accept()),
                     icon_name="key",
-                ),
-                PaletteItem(
-                    category="Tools & Diagnostics",
-                    title="Remote Monitoring",
-                    subtitle="Bottom live CPU, memory, disk and network monitor",
-                    action=lambda: (main.open_monitor_dialog(), self.accept()),
-                    icon_name="server",
-                    shortcut="Ctrl+Shift+M",
                 ),
                 PaletteItem(
                     category="Tools & Diagnostics",
@@ -314,18 +336,87 @@ class CommandPaletteDialog(QDialog):
             ]
         )
 
+        # Every real menu action becomes searchable — full menu coverage.
+        mb = main.menuBar()
+        for top_act in mb.actions():
+            menu = top_act.menu()
+            if menu is None:
+                continue
+            menu_title = menu.title().replace("&", "").strip()
+            for act in menu.actions():
+                if act.isSeparator() or not act.isEnabled() or act.menu() is not None:
+                    continue
+                label = act.text().replace("&", "").replace("\t", "").strip()
+                if not label:
+                    continue
+                seqs = act.shortcuts()
+                shortcut = seqs[0].toString() if seqs else ""
+                self._items.append(
+                    PaletteItem(
+                        category=f"Menu · {menu_title}",
+                        title=label,
+                        subtitle="Menu command",
+                        action=lambda a=act: (a.trigger(), self.accept()),
+                        icon_name="gear",
+                        shortcut=shortcut,
+                    )
+                )
+
+    def _recents(self) -> list[PaletteItem]:
+        """Recently executed commands, mapped back to live items."""
+        recents = list(getattr(self.main.ctx.settings, "palette_recents", []) or [])
+        by_title = {item.title: item for item in self._items}
+        out: list[PaletteItem] = []
+        for title in recents:
+            base = by_title.get(title)
+            if base is None:
+                continue
+            out.append(
+                PaletteItem(
+                    category="Recent",
+                    title=base.title,
+                    subtitle=base.subtitle,
+                    action=base.action,
+                    icon_name="clock",
+                    shortcut=base.shortcut,
+                )
+            )
+        return out
+
     def _populate_list(self, filter_text: str) -> None:
         self.list.clear()
-        needle = filter_text.strip().lower()
+        needle = filter_text.strip()
 
-        filtered: list[PaletteItem] = []
-        for item in self._items:
-            if not needle:
+        if needle:
+            scored = []
+            for item in self._items:
+                combined = f"{item.title} {item.subtitle} {item.category} {item.shortcut}"
+                score = fuzzy_score(needle, combined)
+                if score > 0:
+                    scored.append((score, item))
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+            filtered = [item for _, item in scored]
+        else:
+            # No query: recents first, then everything else in build order.
+            seen = set()
+            filtered = []
+            for item in self._recents():
+                key = item.title
+                if key in seen:
+                    continue
+                seen.add(key)
                 filtered.append(item)
-            else:
-                combined = f"{item.category} {item.title} {item.subtitle} {item.shortcut}".lower()
-                if needle in combined:
+            for item in self._items:
+                if item.title not in seen:
+                    seen.add(item.title)
                     filtered.append(item)
+
+        if not filtered:
+            empty = QListWidgetItem("No matching commands")
+            empty.setForeground(QColor(palette()["fg_muted"]))
+            self.list.addItem(empty)
+            self._hint.setText("0 matches")
+            return
 
         for item in filtered:
             disp = f"{item.title}\n{item.subtitle}"
@@ -335,8 +426,8 @@ class CommandPaletteDialog(QDialog):
             list_item.setData(Qt.ItemDataRole.UserRole, item)
             self.list.addItem(list_item)
 
-        if self.list.count() > 0:
-            self.list.setCurrentRow(0)
+        self._hint.setText(f"{len(filtered)} command{'s' if len(filtered) != 1 else ''}")
+        self.list.setCurrentRow(0)
 
     def _on_search(self, text: str) -> None:
         self._populate_list(text)
@@ -344,7 +435,19 @@ class CommandPaletteDialog(QDialog):
     def _on_item_activated(self, item: QListWidgetItem) -> None:
         p_item: PaletteItem | None = item.data(Qt.ItemDataRole.UserRole)
         if p_item and p_item.action:
+            self._remember(p_item.title)
             p_item.action()
+
+    def _remember(self, title: str) -> None:
+        """Keep the last 8 executed commands for the "Recent" section."""
+        try:
+            s = self.main.ctx.settings
+            recents = [t for t in (getattr(s, "palette_recents", []) or []) if t != title]
+            recents.insert(0, title)
+            s.palette_recents = recents[:8]
+            s.save(paths.settings_file())
+        except Exception:
+            pass
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):

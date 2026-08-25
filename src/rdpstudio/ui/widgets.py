@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -118,6 +119,55 @@ def format_bytes(n: float) -> str:
             return f"{n:.0f} {unit}" if unit in ("B",) else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} PB"
+
+
+# How many samples the sparklines keep.
+HISTORY = 120
+
+
+class Sparkline(QWidget):
+    """Tiny history plot; values are percentages (0-100) unless scaled."""
+
+    def __init__(self, color: str = "accent", parent=None) -> None:
+        super().__init__(parent)
+        self._values: list[float] = []
+        self._color = color
+        self.setMinimumHeight(38)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+
+    def push(self, value: float) -> None:
+        self._values.append(float(value))
+        if len(self._values) > HISTORY:
+            del self._values[: len(self._values) - HISTORY]
+        self.update()
+
+    def clear(self) -> None:
+        self._values.clear()
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        pal = palette()
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(pal["bg2"]))
+        values = self._values
+        if len(values) < 2:
+            painter.end()
+            return
+        peak = max(max(values), 1.0)
+        width, height = self.width(), self.height()
+        step = width / (HISTORY - 1)
+        offset = width - step * (len(values) - 1)
+        color = QColor(pal.get(self._color, pal["accent"]))
+
+        points = [
+            (offset + i * step, height - 2 - (v / peak) * (height - 5))
+            for i, v in enumerate(values)
+        ]
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(color, 1.6))
+        for (x1, y1), (x2, y2) in zip(points, points[1:], strict=False):
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+        painter.end()
 
 
 class Toast(QWidget):
@@ -1100,3 +1150,110 @@ class ConnectionStatusBar(QWidget):
 
     def set_display_mode(self, mode: str) -> None:
         self._display.setText(mode)
+
+
+# ----------------------------------------------------------------------
+# Motion, shadows and shimmer — 2026 polish layer (all optional via
+# Settings → UI; see theme.MOTIONS_ENABLED)
+# ----------------------------------------------------------------------
+def _motion_on() -> bool:
+    from .theme import MOTIONS_ENABLED
+
+    return MOTIONS_ENABLED
+
+
+def animate_in(widget: QWidget, duration: int = 140) -> None:
+    """Fade a dialog/panel in (opacity 0.55 → 1, ease-out).
+
+    Skipped entirely when animations are disabled in Settings.
+    """
+    if not _motion_on():
+        return
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    effect.setOpacity(0.55)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(0.55)
+    anim.setEndValue(1.0)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    widget._kb_anim = anim  # keep a reference so the loop owns it
+
+    def _cleanup() -> None:
+        if widget.graphicsEffect() is effect:
+            widget.setGraphicsEffect(None)
+        anim.deleteLater()
+
+    anim.finished.connect(_cleanup)
+    anim.start()
+
+
+def pulse(widget: QWidget, duration: int = 320) -> None:
+    """One soft opacity pulse — used when a session connects."""
+    if not _motion_on():
+        return
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setKeyValueAt(0.0, 1.0)
+    anim.setKeyValueAt(0.5, 0.45)
+    anim.setKeyValueAt(1.0, 1.0)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    widget._kb_anim = anim
+
+    def _cleanup() -> None:
+        if widget.graphicsEffect() is effect:
+            widget.setGraphicsEffect(None)
+        anim.deleteLater()
+
+    anim.finished.connect(_cleanup)
+    anim.start()
+
+
+def soft_shadow(widget: QWidget, blur: int = 14, dy: int = 3, alpha: int = 90) -> None:
+    """Bento-style soft drop shadow on floating surfaces (menus, cards)."""
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(blur)
+    shadow.setOffset(0, dy)
+    shadow.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(shadow)
+
+
+class ShimmerProgressBar(QProgressBar):
+    """Progress bar with a moving highlight band while a transfer runs."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setTextVisible(False)
+        self.setRange(0, 1000)
+        self.setValue(0)
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(50)
+        self._timer.timeout.connect(self._tick)
+
+    def set_percent(self, pct: float) -> None:
+        self.setValue(int(max(0.0, min(100.0, pct)) * 10))
+
+    def start_shimmer(self) -> None:
+        if _motion_on():
+            self._timer.start()
+
+    def stop_shimmer(self) -> None:
+        self._timer.stop()
+        self.setStyleSheet("")
+
+    def _tick(self) -> None:
+        from .theme import palette
+
+        pal = palette()
+        self._phase = (self._phase + 0.12) % 1.0
+        s = f"{self._phase:.2f}"
+        self.setStyleSheet(
+            "QProgressBar { background: transparent; border: none; }"
+            f"QProgressBar::chunk {{ border-radius: 4px;"
+            f" background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+            f" stop:0 {pal['accent']}, stop:{s} {pal['accent_hover']},"
+            f" stop:1 {pal['accent']}); }}"
+        )

@@ -13,9 +13,11 @@ No bundled fonts or extra resources — only system fonts and SVG icons.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
 RESOURCES = Path(__file__).parent.parent / "resources"
@@ -72,7 +74,7 @@ PALETTE = {
         "border_subtle": "#f0ebe2",
         "fg": "#1e1f24",
         "fg_dim": "#6b7280",
-        "fg_muted": "#9ca3af",
+        "fg_muted": "#7c8591",  # bumped for WCAG AA on light surfaces
         "accent": "#2d6a4f",
         "accent_hover": "#3a8a66",
         "accent_active": "#1e4a36",
@@ -237,7 +239,7 @@ PALETTE = {
         "border_subtle": "#eef4e8",
         "fg": "#1c2a18",
         "fg_dim": "#5a6e52",
-        "fg_muted": "#8a9c82",
+        "fg_muted": "#6f8264",  # bumped for WCAG AA on light surfaces
         "accent": "#4a7c59",
         "accent_hover": "#5c946c",
         "accent_active": "#3a6346",
@@ -270,7 +272,7 @@ PALETTE = {
         "border_subtle": "#f5eee0",
         "fg": "#2c2418",
         "fg_dim": "#7a6a54",
-        "fg_muted": "#a89880",
+        "fg_muted": "#8a7a5c",  # bumped for WCAG AA on light surfaces
         "accent": "#c27a3a",
         "accent_hover": "#d48e4e",
         "accent_active": "#a8662e",
@@ -356,6 +358,39 @@ PALETTE = {
         "overlay": "#2e3440cc",
         "card_shadow": "#00000044",
     },
+    # High contrast — pure black & white, WCAG AAA (accessibility preset)
+    "contrast": {
+        "bg": "#000000",
+        "bg2": "#0a0a0a",
+        "bg3": "#1a1a1a",
+        "panel": "#000000",
+        "panel2": "#111111",
+        "panel3": "#262626",
+        "border": "#4d4d4d",
+        "border_strong": "#808080",
+        "border_subtle": "#333333",
+        "fg": "#ffffff",
+        "fg_dim": "#d4d4d4",
+        "fg_muted": "#a3a3a3",
+        "accent": "#4da3ff",
+        "accent_hover": "#74b6ff",
+        "accent_active": "#2f87e6",
+        "accent_text": "#ffffff",
+        "accent_subtle": "#4da3ff33",
+        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4da3ff, stop:1 #2f87e6)",
+        "good": "#3fb950",
+        "warn": "#d29922",
+        "bad": "#f85149",
+        "info": "#58a6ff",
+        "term_bg": "#000000",
+        "term_fg": "#ffffff",
+        "sel": "#1f3a5f",
+        "sel_hover": "#27476e",
+        "shadow": "#000000",
+        "shadow_soft": "#00000088",
+        "overlay": "#000000e6",
+        "card_shadow": "#00000066",
+    },
     # Dracula — purple night, pink & cyan on dark violet
     "dracula": {
         "bg": "#1e1f29",
@@ -420,21 +455,101 @@ GLYPH_FALLBACK = {
 }
 
 
-def icon(name: str) -> QIcon:
-    """Load a PNG or SVG icon; falls back to a drawn text glyph when unavailable."""
-    cached = _icon_cache.get(name)
+def icon(name: str, tint: str | None = None) -> QIcon:
+    """Load a PNG or SVG icon.
+
+    SVGs are re-rendered in ``tint`` (default: the current theme's icon
+    colour, ``fg_dim``) so they stay legible and consistent in every theme.
+    Falls back to a drawn text glyph when no icon file can be loaded.
+    """
+    key = (name, tint or "")
+    cached = _icon_cache.get(key)
     if cached is not None:
         return cached
-    ic = QIcon()
+
+    ic: QIcon | None = None
     for ext in (".png", ".svg"):
         path = ICONS / f"{name}{ext}"
-        if path.exists():
-            ic = QIcon(str(path))
-            if not ic.isNull():
-                break
-    if ic.isNull() or not ic.availableSizes():
+        if not path.exists():
+            continue
+        if ext == ".png":
+            candidate = QIcon(str(path))
+            if not candidate.isNull() and candidate.availableSizes():
+                ic = candidate
+        else:
+            color = tint or palette()["fg_dim"]
+            candidate = _tinted_svg(path, color)
+            # Vector icons are scalable, so Qt reports no fixed
+            # availableSizes() for them. Trust the icon once the engine
+            # actually rasterises it — otherwise every button would fall
+            # back to a drawn text glyph.
+            if not candidate.isNull() and not candidate.pixmap(QSize(16, 16)).isNull():
+                ic = candidate
+        if ic is not None:
+            break
+
+    if ic is None:
         ic = _glyph_icon(GLYPH_FALLBACK.get(name, "•"))
-    _icon_cache[name] = ic
+    _icon_cache[key] = ic
+    return ic
+
+
+_HEX_COLOR = re.compile(r'(stroke|fill)="#[0-9a-fA-F]{3,8}"')
+_ICON_SIZES = (16, 20, 24, 32, 48, 64)
+
+
+def _svg_to_icon(svg_text: str) -> QIcon:
+    """Render SVG text at a set of sizes into one scalable-friendly QIcon."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtSvg import QSvgRenderer
+
+    renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+    if not renderer.isValid():
+        return QIcon()
+    ic = QIcon()
+    for s in _ICON_SIZES:
+        pix = QPixmap(s, s)
+        pix.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pix)
+        renderer.render(painter)
+        painter.end()
+        if not pix.isNull():
+            ic.addPixmap(pix)
+    return ic
+
+
+def _tinted_svg(path: Path, color: str) -> QIcon:
+    """Load an SVG with every hardcoded colour recoloured to ``color``."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return QIcon()
+    # fill="none" survives — the pattern only matches hex colours.
+    text = _HEX_COLOR.sub(lambda m: f'{m.group(1)}="{color}"', text)
+    return _svg_to_icon(text)
+
+
+def badge_icon(name: str, size: int = 16, tint: str | None = None) -> QIcon:
+    """Icon on a rounded surface tile — protocol marks for tabs and rows."""
+    pal = palette()
+    key = (f"badge:{name}:{size}", tint or "")
+    cached = _icon_cache.get(key)
+    if cached is not None:
+        return cached
+    pix = QPixmap(size, size)
+    pix.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(pal["bg3"]))
+    painter.drawRoundedRect(0, 0, size, size, 4, 4)
+    inner = icon(name, tint or pal["fg_dim"]).pixmap(
+        QSize(int(size * 0.72), int(size * 0.72))
+    )
+    painter.drawPixmap((size - inner.width()) // 2, (size - inner.height()) // 2, inner)
+    painter.end()
+    ic = QIcon(pix)
+    _icon_cache[key] = ic
     return ic
 
 
@@ -462,10 +577,16 @@ def _glyph_icon(glyph: str) -> QIcon:
 # Theme currently applied to the app (see apply_theme). Widgets that build
 # colors at construction time use this so light theme doesn't render dark.
 _current_theme = "dark"
+_density = "comfortable"  # comfortable | compact
+MOTIONS_ENABLED = True  # global motion switch (Settings → UI → Animations)
 
 
 def current_theme() -> str:
     return _current_theme
+
+
+def current_density() -> str:
+    return _density
 
 
 def palette(theme: str | None = None) -> dict[str, str]:
@@ -551,7 +672,7 @@ QMenu {{
 }}
 QMenu::item {{
     padding: 6px 14px 6px 30px;
-    border-radius: 5px;
+    border-radius: 4px;
     color: {fg};
     font-size: 12.5px;
     margin: 0px 1px;
@@ -573,7 +694,7 @@ QMenu::indicator {{
     left: 9px;
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: 4px;
 }}
 QMenu::indicator:checked {{
     background: {accent};
@@ -609,7 +730,7 @@ QToolBar::separator {{
 QToolButton {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 4px 9px;
     color: {fg_dim};
     font-weight: 600;
@@ -627,6 +748,10 @@ QToolButton:checked {{
     background: {accent_subtle};
     color: {accent};
     border-color: {accent}55;
+}}
+QToolButton:focus {{
+    outline: 1px solid {accent};
+    outline-offset: 1px;
 }}
 
 
@@ -651,6 +776,8 @@ QPushButton:pressed {{
 }}
 QPushButton:focus {{
     border-color: {accent};
+    outline: 1px solid {accent};
+    outline-offset: 1px;
 }}
 QPushButton:disabled {{
     color: {fg_muted};
@@ -658,7 +785,7 @@ QPushButton:disabled {{
     border-color: {border_subtle};
 }}
 QPushButton#primary {{
-    background: {accent};
+    background: {accent_gradient};
     color: {accent_text};
     border: 1px solid {accent};
     font-weight: 600;
@@ -676,7 +803,7 @@ QPushButton#ghost {{
     background: transparent;
     border: 1px solid transparent;
     color: {fg_dim};
-    border-radius: 5px;
+    border-radius: 6px;
 }}
 QPushButton#ghost:hover {{
     background: {bg3};
@@ -687,7 +814,7 @@ QPushButton#subtle {{
     background: {bg3};
     border: 1px solid {border};
     color: {fg_dim};
-    border-radius: 5px;
+    border-radius: 6px;
 }}
 QPushButton#subtle:hover {{
     background: {panel2};
@@ -738,6 +865,8 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {{
     border: 1px solid {accent};
     background: {bg2};
+    outline: 1px solid {accent};
+    outline-offset: 1px;
 }}
 QLineEdit:hover, QSpinBox:hover, QComboBox:hover {{
     border-color: {border_strong};
@@ -811,6 +940,9 @@ QTabBar::tab {{
     font-weight: 600;
     font-size: 12px;
     min-height: 22px;
+    /* bounded tabs + the built-in » overflow menu keep the chrome tidy
+       when many sessions are open */
+    max-width: 180px;
 }}
 QTabBar::tab:selected {{
     background: {bg};
@@ -855,10 +987,13 @@ QTreeView, QListView, QTableView {{
 }}
 QTreeView::item, QListView::item, QTableView::item {{
     padding: 4px 8px;
-    border-radius: 5px;
+    border-radius: 6px;
     margin: 1px 1px;
     color: {fg};
     border: 1px solid transparent;
+}}
+QTreeView::item:focus, QListView::item:focus, QTableView::item:focus {{
+    outline: 1px solid {accent};
 }}
 QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{
     background: {bg3};
@@ -917,7 +1052,7 @@ QScrollBar:vertical {{
     background: transparent;
     width: 10px;
     margin: 0px;
-    border-radius: 5px;
+    border-radius: 4px;
 }}
 QScrollBar::handle:vertical {{
     background: {panel3};
@@ -1061,7 +1196,7 @@ QFrame#hairline {{
 /* ================= Dialogs ================= */
 QDialog {{
     background: {bg};
-    border-radius: 8px;
+    border-radius: 14px;
 }}
 
 /* ================= Surfaces ================= */
@@ -1115,66 +1250,12 @@ QLineEdit#commandLine:hover {{
     border-color: {border_strong};
 }}
 
-/* ================= Monitor panel ================= */
-QWidget#monitorPanel {{
-    background: {bg2};
-    border-top: 1px solid {border_subtle};
-    border-radius: 0px;
-}}
-QWidget#monitorHeader {{
-    background: {panel};
-    border-bottom: 1px solid {border_subtle};
-    min-height: 28px;
-}}
-QWidget#monitorBody {{
-    background: {bg2};
-}}
-QWidget#monitorSummary {{
-    background: {panel};
-    border: 1px solid {border};
-    border-radius: 6px;
-    min-width: 150px;
-}}
-QWidget#metricCell {{
-    background: {bg2};
-    border: 1px solid {border_subtle};
-    border-radius: 6px;
-}}
-QLabel#metricTitle {{
-    color: {fg_muted};
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-}}
-QLabel#metricValue {{
-    color: {fg};
-    font-size: 12.5px;
-    font-weight: 700;
-}}
-QLabel#monitorStatus {{
-    color: {fg_dim};
-    font-size: 11px;
-    background: {bg3};
-    border-radius: 4px;
-    padding: 1px 8px;
-    border: 1px solid {border_subtle};
-}}
-QProgressBar#metricBar {{
-    background: {bg3};
-    border: 1px solid {border_subtle};
-    border-radius: 3px;
-    min-height: 5px;
-    max-height: 5px;
-}}
-QProgressBar#metricBar::chunk {{
-    background: {accent};
-    border-radius: 3px;
-}}
-
 /* ================= Status session chip ================= */
 QLabel#statusSession {{
     color: {fg_dim};
+    /* monospace = tabular figures: the line never jitters as ciphers,
+       versions and byte counts tick */
+    font-family: {ui_mono};
     font-size: 11px;
     background: {bg3};
     border-radius: 4px;
@@ -1224,18 +1305,54 @@ QSpinBox::down-arrow {{
 """
 
 
-def apply_theme(app: QApplication, theme: str = "dark") -> None:
-    global _current_theme
+_QSS_COMPACT = """
+/* ================= Compact density (Settings → UI) ================= */
+QWidget {{ font-size: 12px; }}
+QMenuBar {{ min-height: 22px; font-size: 12px; }}
+QMenuBar::item {{ padding: 3px 8px; }}
+QMenu::item {{ padding: 4px 14px 4px 28px; }}
+QToolBar {{ min-height: 32px; padding: 2px 6px; }}
+QToolButton {{ padding: 3px 7px; min-height: 22px; font-size: 11.5px; }}
+QPushButton {{ padding: 3px 12px; min-height: 15px; font-size: 12px; }}
+QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
+    padding: 3px 9px; min-height: 15px; font-size: 12px;
+}}
+QTabBar::tab {{ padding: 3px 12px; min-height: 18px; }}
+QTreeView::item, QListView::item, QTableView::item {{ padding: 2px 8px; }}
+QStatusBar {{ min-height: 18px; font-size: 11px; }}
+QGroupBox {{ margin-top: 10px; padding: 10px 10px 8px 10px; }}
+QCheckBox, QRadioButton {{ font-size: 12px; }}
+"""
+
+
+def apply_theme(
+    app: QApplication,
+    theme: str = "dark",
+    density: str = "comfortable",
+    animations: bool = True,
+) -> None:
+    global _current_theme, _density, MOTIONS_ENABLED
     _current_theme = theme if theme in PALETTE else "dark"
+    _density = density if density in ("comfortable", "compact") else "comfortable"
+    MOTIONS_ENABLED = bool(animations)
     pal = palette(theme)
-    app.setStyleSheet(
-        _QSS.format(
+    qss = _QSS.format(
+        **pal,
+        ui_sans=_UI_SANS,
+        ui_mono=_UI_MONO,
+        ui_display=_UI_DISPLAY,
+    )
+    if _density == "compact":
+        qss += _QSS_COMPACT.format(
             **pal,
             ui_sans=_UI_SANS,
             ui_mono=_UI_MONO,
             ui_display=_UI_DISPLAY,
         )
-    )
+    app.setStyleSheet(qss)
+    # Icon colours follow the theme — drop the cache so widgets built after
+    # the switch pick up the new tint.
+    _icon_cache.clear()
     from PySide6.QtGui import QPalette
 
     qpal = QPalette()

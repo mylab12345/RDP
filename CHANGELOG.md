@@ -3,6 +3,52 @@
 ## Unreleased
 
 ### Added
+- **Theme-aware icon tinting.** `theme.icon(name, tint=…)` re-renders any SVG
+  icon in an arbitrary colour (strokes recoloured before rasterising), so
+  icons now follow the active palette, dim/disable states and the accent —
+  e.g. the Stop glyph renders in `accent_text` on the gradient Stop button.
+  New `theme.badge_icon()` composes a 2-tone protocol badge (glyph on a
+  rounded tile) for one-glance protocol reading.
+- **High-contrast theme.** A pure black/white accessibility preset
+  (`View → Theme → High contrast`, also registered in `THEME_IDS`/
+  `DARK_THEMES`) for WCAG AAA sessions.
+- **Density mode.** `Settings → General → User Interface → Density`
+  (Comfortable/Compact) — compact trims fonts/padding across menus, inputs,
+  lists, toolbars and status bar via one QSS block in `theme.apply_theme()`.
+- **Collapsible sidebar with a 140 ms tween.** New **Sidebar** toolbar button
+  and **View → Toggle Sidebar** (`Ctrl+B`); width and collapsed state persist
+  in `settings.geometry`.
+- **Pinned sessions.** Right-click a session → **Pin** (★). Pinned sessions
+  float to the top of the sidebar and the dashboard "Recent Connections"
+  (star-marked); stored in `session.options["pinned"]`, fully backward
+  compatible.
+- **Command palette v2.** Every menu action is now a searchable palette item;
+  a subsequence fuzzy ranker (`fuzzy_score`, unit-tested) replaces plain
+  substring matching; the last 8 executed commands are remembered
+  (`settings.palette_recents`) and listed first under "Recent"; an explicit
+  "No matching commands" empty state.
+- **Keyboard shortcuts dialog.** `Help → Keyboard shortcuts…` shows the full
+  grouped shortcut reference (new `ui/shortcuts_dialog.py`).
+- **Searchable settings.** A header search box filters every settings group
+  live (match on group title, row labels, control text and combo options).
+- **UI preferences in settings.** `Settings → General → User Interface`:
+  Density, "Show labels next to toolbar icons" (icon-only mode) and
+  "Interface animations" (global reduce-motion switch honoured by every
+  animation helper).
+- **SFTP transfer status bar.** Bottom of the Files (SFTP) dialog: live
+  byte/percent caption, speed + file count in a monospace run, and a shimmer
+  progress line (`widgets.ShimmerProgressBar`) while transfers are in
+  flight.
+- **Dual Stop / Reconnect button.** The per-tab action button is now state
+  aware: **Stop** (white glyph on accent gradient) while connected,
+  **Reconnect** when down — one affordance instead of two hidden buttons;
+  the state chip pulses once on connect.
+- **System tray icon (where available).** Logo tile with Show/hide + Quit;
+  auto-disabled on platforms without a tray.
+- **Inline session validation.** Empty/invalid host or port now marks the
+  field itself (red border + faint wash via `#invalid`) and clears as soon as
+  you type a fix — no generic error dialog.
+- **Tab double-click rename** (matches the context-menu action).
 - **NASA / mission-control chrome.** Workbench QSS restyled as flight-ops
   consoles: NASA red / NASA blue accents, telemetry type, tight radii. Uses
   only system fonts already on the machine — no extra assets.
@@ -15,6 +61,31 @@
   Sunset, Aurora, Meadow and Desert palettes alongside Dark and Light.
 
 ### Changed
+- **Focus visibility.** Keyboard focus now draws a 1 px accent outline
+  (offset 1 px) on buttons, tool buttons, inputs, tabs and tree rows —
+  the previous QSS removed `outline` globally.
+- **Unified radius scale** (4/6/8/14 px) across menus, indicators, buttons,
+  inputs, tabs, tree rows, scrollbars and dialogs.
+- **Accent gradient** now drives the primary buttons (`#primary`) in every
+  theme.
+- **Status bar figures are tabular** — the session chip uses the mono stack
+  (`{ui_mono}`) so ciphers/versions/byte counts stop jittering.
+- **Tab overflow:** tabs are bounded (max-width 180 px) with Qt's built-in
+  `»` overflow menu so many sessions can't squish the chrome.
+- **WCAG AA contrast bumps** for `fg_muted` in the light, meadow and desert
+  palettes.
+- **Dashboard** now shows a real logo mark (vector) and pinned-first recents.
+- New icons: `panel` (sidebar toggle), `star` (pin), `clock` (recents).
+
+### Fixed
+- **Icons rendered as tofu/box glyphs.** Root cause: SVG `QIcon`s report an
+  empty `availableSizes()` in Qt 6, so `theme.icon()` discarded every valid
+  SVG and fell back to drawn text glyphs. The loader now verifies with a
+  rasterised pixmap. All 14 core icons were also redrawn in a consistent
+  2 px-stroke language.
+- Duplicate `QMainWindow.closeEvent()` propagation in the main window.
+
+### Changed
 - **SSH keeps the remote VM’s own console colors.** Opening an SSH session no
   longer applies Tools → Settings theme colors (or the workbench 16-color
   palette) to the terminal. SSH tabs render the classic VGA / linux / xterm
@@ -23,6 +94,21 @@
 - Removed from the UI: Broadcast input, Command snippets, Port forwarding,
   Multi-host parallel runner, and the Credential vault. Session passwords
   stay on the session itself.
+- **Refreshed icon set.** Toolbar, menu, palette and tab icons were redrawn as
+  a consistent stroke style (unified 24×24 grid, even weights, single neutral
+  tone) so each action gets a distinct, legible glyph at 16 px. Resource-only
+  change — no code or behaviour touched.
+
+### Removed
+- **Remote monitoring.** The live CPU / memory / disk / network monitor is
+  gone: the bottom-docked monitor strip, the full monitor window
+  (`Tools → Remote monitor…`, `Ctrl+Shift+M`), the per-tab **Monitor**
+  button, the SSH `monitor` capability and the probe engine
+  (`protocols/ssh/monitor.py`). SFTP still rides the session transport
+  (the shared `Sparkline` widget moved to `ui/widgets.py` for the network
+  tools dialog). If remote metrics come back later, treat it as a new
+  plugin capability — nothing in the core session machinery references
+  it anymore.
 
 ### Added
 - **Nature themes (labels).** Forest, Ocean, Sunset, Aurora, Meadow and Desert

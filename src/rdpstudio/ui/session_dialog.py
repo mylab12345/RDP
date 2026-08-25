@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -283,6 +282,8 @@ class SessionDialog(QDialog):
             f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
             f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
             f"QLineEdit:focus {{ border-color: {self._pal['accent']}; }}"
+            f"QLineEdit#invalid {{ border-color: {self._pal['bad']}; "
+            f"background: {self._pal['bad']}14; }}"
             f"QLineEdit:disabled {{ color: {self._pal['fg_muted']}; "
             f"background: {self._pal['bg2']}; border-color: {self._pal['border_subtle']}; }}"
         )
@@ -300,6 +301,8 @@ class SessionDialog(QDialog):
             f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
             f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
             f"QSpinBox:focus {{ border-color: {self._pal['accent']}; }}"
+            f"QSpinBox#invalid {{ border-color: {self._pal['bad']}; "
+            f"background: {self._pal['bad']}14; }}"
             f"QSpinBox:disabled {{ color: {self._pal['fg_muted']}; "
             f"background: {self._pal['bg2']}; border-color: {self._pal['border_subtle']}; }}"
         )
@@ -391,6 +394,7 @@ class SessionDialog(QDialog):
         host_col.setSpacing(4)
         host_col.addWidget(self._make_label("Host / IP"))
         self.host = self._make_input(self.session.host, "10.0.0.5 or web.example.com")
+        self.host.textChanged.connect(self._clear_host_invalid)
         host_col.addWidget(self.host)
         row1.addLayout(host_col, 3)
 
@@ -400,6 +404,7 @@ class SessionDialog(QDialog):
         port_col.setSpacing(4)
         port_col.addWidget(self._make_label("Port"))
         self.port = self._make_spinbox(self.session.port or 22, 1, 65535)
+        self.port.valueChanged.connect(self._clear_port_invalid)
         port_col.addWidget(self.port)
         row1.addWidget(self._port_widget)
         self._port_widget.hide()
@@ -838,69 +843,34 @@ class SessionDialog(QDialog):
     # Validation
     # ------------------------------------------------------------------
 
+    def _clear_host_invalid(self, text: str) -> None:
+        """Drop the inline highlight the moment the host becomes non-empty."""
+        if text.strip() and self.host.objectName() == "invalid":
+            self.host.setObjectName("")
+
+    def _clear_port_invalid(self, value: int) -> None:
+        if 1 <= value <= 65535 and self.port.objectName() == "invalid":
+            self.port.setObjectName("")
+
     def _validate_fields(self) -> bool:
-        p = self._pal
         ok = True
         pid = self.protocol.currentData() or PROTOCOL_SSH
         is_local = pid == PROTOCOL_LOCAL
 
         if not is_local:
             host_text = self.host.text().strip()
+            # Persistent inline highlight (red border + faint wash) until the
+            # user fixes the field — no generic error dialog.
+            self.host.setObjectName("invalid" if not host_text else "")
             if not host_text:
-                self.host.setStyleSheet(
-                    f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1px solid {p['bad']}; border-radius: 8px; "
-                    f"background: {p['bg3']}; color: {p['fg']}; }}"
-                    f"QLineEdit:focus {{ border-color: {p['bad']}; }}"
-                )
                 ok = False
-            else:
-                self.host.setStyleSheet(
-                    f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1px solid {p['border']}; border-radius: 8px; "
-                    f"background: {p['bg3']}; color: {p['fg']}; }}"
-                    f"QLineEdit:focus {{ border-color: {p['accent']}; }}"
-                )
+                self.host.setFocus()
 
-            port_val = self.port.value()
-            if port_val < 1 or port_val > 65535:
-                self.port.setStyleSheet(
-                    f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1px solid {p['bad']}; border-radius: 8px; "
-                    f"background: {p['bg3']}; color: {p['fg']}; }}"
-                    f"QSpinBox:focus {{ border-color: {p['bad']}; }}"
-                )
+            port_ok = 1 <= self.port.value() <= 65535
+            self.port.setObjectName("invalid" if not port_ok else "")
+            if not port_ok:
                 ok = False
-            else:
-                self.port.setStyleSheet(
-                    f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1px solid {p['border']}; border-radius: 8px; "
-                    f"background: {p['bg3']}; color: {p['fg']}; }}"
-                    f"QSpinBox:focus {{ border-color: {p['accent']}; }}"
-                )
         return ok
-
-    def _flash_invalid(self, widget: QWidget) -> None:
-        p = self._pal
-        wname = type(widget).__name__
-        widget.setStyleSheet(
-            f"{wname} {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {p['bad']}; border-radius: 8px; "
-            f"background: {p['bg3']}; color: {p['fg']}; }}"
-            f"{wname}:focus {{ border-color: {p['bad']}; }}"
-        )
-        QTimer.singleShot(1200, lambda w=widget: self._reset_field_style(w))
-
-    def _reset_field_style(self, widget: QWidget) -> None:
-        p = self._pal
-        wname = type(widget).__name__
-        widget.setStyleSheet(
-            f"{wname} {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {p['border']}; border-radius: 8px; "
-            f"background: {p['bg3']}; color: {p['fg']}; "
-            f"font-size: 13px; }}"
-            f"{wname}:focus {{ border-color: {p['accent']}; }}"
-        )
 
     # ------------------------------------------------------------------
     # Save / connect / test / delete

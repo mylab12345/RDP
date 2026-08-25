@@ -1,4 +1,4 @@
-"""Local-terminal button, simplified session UI and remote monitoring."""
+"""Local-terminal button and simplified session UI."""
 
 from __future__ import annotations
 
@@ -246,83 +246,3 @@ def test_ctrl_wheel_zooms_terminal_font(qtapp):
     wheel(120, ctrl=False)
     assert term._font_size == base
     term.close()
-
-
-# --- remote monitoring ----------------------------------------------------------
-def test_monitor_parses_a_realistic_probe():
-    from rdpstudio.protocols.ssh.monitor import parse_probe
-
-    first = (
-        "###uptime\n90061.5 100.0\n"
-        "###loadavg\n0.50 0.40 0.30 1/200 1234\n"
-        "###stat\ncpu 100 0 100 800 0 0 0 0 0 0\n"
-        "###meminfo\nMemTotal: 8000000 kB\nMemAvailable: 2000000 kB\n"
-        "SwapTotal: 1000000 kB\nSwapFree: 750000 kB\n"
-        "###netdev\nlo: 5 0 0 0 0 0 0 0 5 0\neth0: 1000 0 0 0 0 0 0 0 500 0\n"
-        "###df\n/dev/sda1 100000 25000 75000 25% /\n"
-        "###who\n3\n"
-        "###end\n"
-    )
-    sample, prev = parse_probe(first)
-    assert sample.cpu_percent is None  # needs two readings
-    assert sample.mem_percent == pytest.approx(75.0)
-    assert sample.disk_percent == pytest.approx(25.0)
-    assert sample.swap_percent == pytest.approx(25.0)
-    assert sample.users == 3
-    assert sample.load1 == pytest.approx(0.5)
-
-    # second reading: 200 more jiffies, 100 of them idle ⇒ 50% busy
-    second = first.replace(
-        "cpu 100 0 100 800 0 0 0 0 0 0", "cpu 150 0 150 900 0 0 0 0 0 0"
-    ).replace("eth0: 1000 0 0 0 0 0 0 0 500 0", "eth0: 3000 0 0 0 0 0 0 0 1500 0")
-    sample2, _ = parse_probe(second, prev)
-    assert sample2.cpu_percent == pytest.approx(50.0)
-    # loopback excluded, deltas clamped at >= 0
-    assert sample2.rx_rate == 2000
-    assert sample2.tx_rate == 1000
-
-
-def test_monitor_parses_cross_platform_direct_sections():
-    from rdpstudio.protocols.ssh.monitor import parse_probe
-
-    first = (
-        "###uptime\n3600\n"
-        "###loadavg\n0 0 0\n"
-        "###cpu\n37 8\n"
-        "###meminfo\nMemTotal: 16000000 kB\nMemAvailable: 4000000 kB\n"
-        "SwapTotal: 2000000 kB\nSwapFree: 1000000 kB\n"
-        "###netio\n10000 5000\n"
-        "###df\nC: 200000 50000 0 0\n"
-        "###who\n2\n"
-        "###end\n"
-    )
-    sample, prev = parse_probe(first)
-    assert sample.cpu_percent == pytest.approx(37.0)
-    assert sample.cpu_cores == 8
-    assert sample.mem_percent == pytest.approx(75.0)
-    assert sample.disk_percent == pytest.approx(25.0)
-    assert sample.users == 2
-
-    second = first.replace("37 8", "42 8").replace("10000 5000", "13000 7000")
-    sample2, _ = parse_probe(second, prev)
-    assert sample2.cpu_percent == pytest.approx(42.0)
-    assert sample2.rx_rate == 3000
-    assert sample2.tx_rate == 2000
-
-
-def test_monitor_capability_and_uptime_format():
-    from rdpstudio.core.plugin import registry
-    from rdpstudio.ui.monitor_dialog import format_uptime
-
-    ssh = registry().require("ssh")
-    from rdpstudio.core.models import Session
-
-    controller = ssh.create_session(Session(protocol="ssh", host="h"), _ctx())
-    assert controller.capabilities().monitor is True
-    # local shells have no remote host to monitor
-    local = registry().require("local")
-    assert local.create_session(Session(protocol="local"), _ctx()).capabilities().monitor is False
-
-    assert format_uptime(90061) == "1d 1h"
-    assert format_uptime(3700) == "1h 1m"
-    assert format_uptime(120) == "2m"

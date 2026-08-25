@@ -350,7 +350,7 @@ def test_worker_emits_disconnected_once():
     assert seen == ["first"]
 
 
-# --- monitor engine: transport provider resolved lazily ------------------------
+# --- sftp: transport provider resolved lazily across reconnects ---------------
 def test_ssh_transport_provider_follows_reconnect(home, qtapp):
     from rdpstudio.core.events import EventBus
     from rdpstudio.core.plugin import SessionContext

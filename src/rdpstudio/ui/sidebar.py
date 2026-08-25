@@ -207,8 +207,11 @@ class SessionTree(QWidget):
         for s in sessions:
             groups.setdefault(s.group or "", []).append(s)
 
-        # top-level sessions first
-        for s in sorted(groups.get("", []), key=lambda x: x.display_name().lower()):
+        # top-level sessions first — pinned sessions float to the top
+        def _sort_key(x: Session):
+            return (not x.options.get("pinned", False), x.display_name().lower())
+
+        for s in sorted(groups.get("", []), key=_sort_key):
             self._add_session_item(self.tree.invisibleRootItem(), s, reg)
         for name in sorted(g for g in groups if g):
             folder = QTreeWidgetItem([name])
@@ -216,7 +219,7 @@ class SessionTree(QWidget):
             folder.setIcon(0, icon("folder"))
             folder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             folder.setToolTip(0, f"Folder: {name} ({len(groups[name])} sessions)")
-            for s in sorted(groups[name], key=lambda x: x.display_name().lower()):
+            for s in sorted(groups[name], key=_sort_key):
                 self._add_session_item(folder, s, reg)
             folder.setExpanded(True)
             self.tree.addTopLevelItem(folder)
@@ -225,7 +228,9 @@ class SessionTree(QWidget):
             self.tree.expandAll()
 
     def _add_session_item(self, parent, s: Session, reg) -> None:
-        item = QTreeWidgetItem([s.display_name()])
+        pinned = bool(s.options.get("pinned", False))
+        label = f"★ {s.display_name()}" if pinned else s.display_name()
+        item = QTreeWidgetItem([label])
         item.setData(0, ROLE_ID, s.id)
         icon_name = reg.get(s.protocol).icon_name if reg.get(s.protocol) else "server"
         item.setIcon(0, icon(icon_name))
@@ -236,6 +241,8 @@ class SessionTree(QWidget):
             tooltip += f"\nTags: {', '.join(s.tags)}"
         if s.jump_session_id:
             tooltip += "\n(via jump host)"
+        if pinned:
+            tooltip += "\nPinned — right-click to unpin"
         item.setToolTip(0, tooltip)
         parent.addChild(item)
 
@@ -276,9 +283,16 @@ class SessionTree(QWidget):
             session_id = item.data(0, ROLE_ID)
             if session_id:
                 s = self.store.get(session_id)
+                pinned = bool(s and s.options.get("pinned", False))
                 menu.addAction(icon("connect"), "Connect", lambda: self.connectRequested.emit(session_id))
                 if s and s.protocol == "ssh":
                     menu.addAction(icon("folder"), "Browse files (SFTP)", lambda: self.sftpRequested.emit(session_id))
+                pin_icon = icon("star", palette()["warn"]) if pinned else icon("star")
+                menu.addAction(
+                    pin_icon,
+                    "Unpin session" if pinned else "Pin session",
+                    lambda: self._toggle_pin(session_id),
+                )
                 menu.addSeparator()
                 menu.addAction(icon("edit"), "Edit…", lambda: self.editRequested.emit(session_id))
                 menu.addAction(icon("plus"), "Duplicate", lambda: self.duplicateRequested.emit(session_id))
@@ -301,6 +315,14 @@ class SessionTree(QWidget):
         menu.addAction(icon("plus"), "New session…", self.newSessionRequested.emit)
         menu.addAction(icon("folder"), "New folder…", self.newFolderRequested.emit)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _toggle_pin(self, session_id: str) -> None:
+        s = self.store.get(session_id)
+        if s is None:
+            return
+        s.options["pinned"] = not s.options.get("pinned", False)
+        self.store.upsert(s)
+        self.reload()
 
     def _rename_group(self, group: str) -> None:
         from PySide6.QtWidgets import QInputDialog

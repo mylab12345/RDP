@@ -93,7 +93,6 @@ class Capabilities:
     sftp: bool = False
     tunnels: bool = False
     external_window: bool = False  # protocol renders in its own OS window
-    monitor: bool = False  # exposes live remote host metrics
 
 
 class SessionController(QObject):
@@ -166,9 +165,6 @@ class SessionController(QObject):
 
     def open_tunnels(self) -> None:  # pragma: no cover - optional
         """Open the port-forwarding manager for this session."""
-
-    def open_monitor(self) -> None:  # pragma: no cover - optional
-        """Open the remote host monitor for this session."""
 
 
 # ----------------------------------------------------------------------

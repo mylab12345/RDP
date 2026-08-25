@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
 from ..core.plugin import SessionContext
 from ..protocols.ssh.sftp import SftpEngine
 from .file_editor_dialog import FileEditorDialog
-from .widgets import format_bytes, toast
+from .theme import palette
+from .widgets import ShimmerProgressBar, format_bytes, toast
 
 # Text / config file extensions for direct editor opening
 TEXT_EXTS = {
@@ -177,6 +178,28 @@ class SftpDialog(QDialog):
         self.queue.setMaximumHeight(140)
         self.queue.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.queue)
+
+        # Bottom transfer status bar — live bytes, rate and a shimmering
+        # progress line while files move.
+        pal = palette()
+        self._transfer_row = QWidget()
+        tr_lay = QHBoxLayout(self._transfer_row)
+        tr_lay.setContentsMargins(2, 0, 2, 0)
+        tr_lay.setSpacing(10)
+        self._transfer_label = QLabel("Transferring…")
+        self._transfer_label.setStyleSheet(f"font-size: 11.5px; font-weight: 600; color: {pal['fg_dim']};")
+        tr_lay.addWidget(self._transfer_label)
+        tr_lay.addStretch(1)
+        self._transfer_rate = QLabel("")
+        self._transfer_rate.setStyleSheet(
+            f"font-family: {pal.get('ui_mono') or 'monospace'}; font-size: 11px; color: {pal['fg_muted']};"
+        )
+        tr_lay.addWidget(self._transfer_rate)
+        self._shimmer = ShimmerProgressBar()
+        self._shimmer.setFixedHeight(4)
+        self._transfer_row.setVisible(False)
+        layout.addWidget(self._transfer_row)
+        layout.addWidget(self._shimmer)
 
         # Wire engine signals
         self.engine.listed.connect(self._on_listed)
@@ -437,7 +460,11 @@ class SftpDialog(QDialog):
         arrow = "⇩ download" if direction == "download" else "⇧ upload"
         item = QTreeWidgetItem([arrow, f"{len(names)} item(s) → {dest}", "0 %", "", "running…"])
         self.queue.addTopLevelItem(item)
-        self._ops[op_id] = {"item": item}
+        self._ops[op_id] = {"item": item, "pct": 0.0}
+        self._transfer_row.setVisible(True)
+        self._shimmer.set_percent(0)
+        self._shimmer.start_shimmer()
+        self._transfer_label.setText(f"{arrow} — {len(names)} item(s)")
 
     def _on_progress(self, op_id, done, total, files, files_total, rate) -> None:
         op = self._ops.get(op_id)
@@ -445,14 +472,25 @@ class SftpDialog(QDialog):
             return
         item = op["item"]
         pct = int(done * 100 / total) if total else 0
+        op["pct"] = pct
         item.setText(2, f"{pct} %  ({format_bytes(done)} / {format_bytes(total)})")
         item.setText(3, f"{format_bytes(rate)}/s · {files}/{files_total} files")
+        # Bottom status line tracks the same numbers
+        self._shimmer.set_percent(pct)
+        self._transfer_label.setText(f"{item.text(0)} — {pct} %  ({format_bytes(done)} / {format_bytes(total)})")
+        self._transfer_rate.setText(f"{format_bytes(rate)}/s · {files}/{files_total} files")
 
     def _on_done(self, op_id, ok, message) -> None:
         op = self._ops.pop(op_id, None)
         if op:
             op["item"].setText(4, message)
         toast(self, message, "good" if ok else "bad")
+        if not self._ops:  # nothing left in flight — park the status line
+            self._shimmer.stop_shimmer()
+            self._shimmer.set_percent(100 if ok else 0)
+            self._transfer_label.setText("Transfer finished" if ok else "Transfer stopped")
+            self._transfer_rate.setText("")
+            QTimer.singleShot(1800, self._transfer_row.hide)
         self._call("list_dir", self.remote.path.text())
         self._call("list_local", self.local.path.text())
 

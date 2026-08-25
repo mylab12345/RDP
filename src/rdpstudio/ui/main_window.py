@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStatusBar,
+    QSystemTrayIcon,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -40,10 +41,9 @@ from ..core.plugin import (
 )
 from . import theme
 from .command_palette import CommandPaletteDialog
-from .monitor_panel import MonitorPanel
 from .sidebar import SessionTree
-from .theme import icon
-from .widgets import STATE_COLORS, StateChip, toast
+from .theme import icon, palette
+from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
 
 log = get_logger("ui.main")
 
@@ -193,10 +193,11 @@ class SessionTab(QWidget):
             b.setStyleSheet(b.styleSheet() + "font-size: 11.5px; padding: 2px 10px;")
             return b
 
-        self.btn_reconnect = QPushButton("Reconnect")
-        self.btn_reconnect.setIcon(icon("connect"))
+        # One state-aware action button: Stop while live, Reconnect when down.
+        self.btn_reconnect = QPushButton("Stop")
+        self.btn_reconnect.setIcon(icon("stop", palette()["accent_text"]))
         self.btn_reconnect.setObjectName("primary")
-        self.btn_reconnect.clicked.connect(controller.request_reconnect)
+        self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
         self.btn_reconnect.setFixedHeight(26)
         self.btn_reconnect.setStyleSheet(self.btn_reconnect.styleSheet() + "font-size: 11.5px; padding: 2px 12px;")
@@ -206,9 +207,6 @@ class SessionTab(QWidget):
 
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
-            h.addWidget(b)
-        if caps.monitor:
-            b = make_action_btn("Monitor", "server", "Live CPU, memory, disk and network", controller.open_monitor)
             h.addWidget(b)
 
         layout.addWidget(header)
@@ -254,10 +252,30 @@ class SessionTab(QWidget):
     def _on_command_sent(self, text: str) -> None:
         self.main._on_command_sent(self, text)
 
+    def _on_action_btn(self) -> None:
+        if self.controller.state() == SessionState.CONNECTED:
+            self.controller.stop("stopped by user")
+        else:
+            self.controller.request_reconnect()
+
     def _on_state(self, state: str) -> None:
+        pal = palette()
         self.chip.setText((state or "").upper())
         self.chip.set_color(STATE_COLORS.get(state, "fg_dim"))
-        self.btn_reconnect.setVisible(state in (SessionState.CLOSED, SessionState.FAILED))
+        visible = state in (SessionState.CONNECTED, SessionState.CLOSED, SessionState.FAILED)
+        if visible and not self.btn_reconnect.isVisible():
+            # first live connection: pulse the state chip once
+            if state == SessionState.CONNECTED:
+                pulse(self.chip)
+        self.btn_reconnect.setVisible(visible)
+        if state == SessionState.CONNECTED:
+            self.btn_reconnect.setText("Stop")
+            self.btn_reconnect.setIcon(icon("stop", pal["accent_text"]))
+            self.btn_reconnect.setToolTip("Stop this session")
+        else:
+            self.btn_reconnect.setText("Reconnect")
+            self.btn_reconnect.setIcon(icon("connect", pal["accent_text"]))
+            self.btn_reconnect.setToolTip("Reconnect this session")
 
     def _on_status(self, info: dict) -> None:
         if "connected" in info:
@@ -304,8 +322,6 @@ class MainWindow(QMainWindow):
         self.resize(1380, 880)
         self.setMinimumSize(1024, 640)
         self.controllers: dict[int, SessionTab] = {}
-        # Bottom monitor panel bookkeeping
-        self._monitor_auto_expanded: set[int] = set()
         # Last "connected" info per controller, for the status-bar summary.
         self._last_connected_info: dict[int, dict] = {}
 
@@ -313,6 +329,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_body()
         self._bind_shortcuts()
+        self._setup_tray()
 
         status = QStatusBar()
         status.setSizeGripEnabled(False)
@@ -389,13 +406,11 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self.open_command_palette)
         m_view.addAction(act)
 
-        m_view.addSeparator()
-
-        self._act_monitor_panel = QAction("▤ &Remote Monitor Panel (bottom)", self)
-        self._act_monitor_panel.setCheckable(True)
-        self._act_monitor_panel.setStatusTip("Live CPU, memory, disk and network for the active monitor-capable session")
-        self._act_monitor_panel.toggled.connect(self.set_monitor_panel_visible)
-        m_view.addAction(self._act_monitor_panel)
+        self._act_sidebar_menu = QAction(icon("panel"), "&Toggle Sidebar", self)
+        self._act_sidebar_menu.setShortcut(QKeySequence("Ctrl+B"))
+        self._act_sidebar_menu.setCheckable(True)
+        self._act_sidebar_menu.toggled.connect(self._toggle_sidebar)
+        m_view.addAction(self._act_sidebar_menu)
 
         m_view.addSeparator()
 
@@ -426,11 +441,6 @@ class MainWindow(QMainWindow):
         m_tools.addAction(a)
 
         m_tools.addSeparator()
-
-        a = QAction(icon("server"), "Remote &monitor…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+M"))
-        a.triggered.connect(self.open_monitor_dialog)
-        m_tools.addAction(a)
 
         a = QAction(icon("windows"), "RDP server &manager…", self)
         a.triggered.connect(self.open_rdp_server_manager)
@@ -503,12 +513,10 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self._sftp_current)
         m_session.addAction(a)
 
-        a = QAction(icon("server"), "Remote &monitor…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+M"))
-        a.triggered.connect(self.open_monitor_dialog)
-        m_session.addAction(a)
-
         m_help = self.menuBar().addMenu("&Help")
+        a = QAction("&Keyboard shortcuts…", self)
+        a.triggered.connect(self.open_shortcuts)
+        m_help.addAction(a)
         a = QAction("&About", self)
         a.triggered.connect(self._about)
         m_help.addAction(a)
@@ -520,6 +528,13 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         bar.setIconSize(QSize(16, 16))
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._toolbar = bar
+
+        act_sidebar = bar.addAction(icon("panel"), "Sidebar")
+        act_sidebar.setToolTip("Toggle the session sidebar (Ctrl+B)")
+        act_sidebar.setCheckable(True)
+        act_sidebar.toggled.connect(self._toggle_sidebar)
+        self._act_sidebar_toolbar = act_sidebar
 
         a = bar.addAction(icon("plus"), "New")
         a.setToolTip("Create a new saved session (Ctrl+N)")
@@ -568,25 +583,15 @@ class MainWindow(QMainWindow):
         add_tool("server", "Scan", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
 
-        act_monitor = bar.addAction(icon("server"), "Monitor")
-        act_monitor.setToolTip("Toggle the bottom remote-monitor panel (live CPU/MEM/DISK/NET)")
-        act_monitor.setCheckable(True)
-        act_monitor.toggled.connect(self.set_monitor_panel_visible)
-        self._act_monitor_panel_toolbar = act_monitor
-
         add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
 
         self.addToolBar(bar)
+        self._apply_ui_prefs()
 
     def _build_body(self) -> None:
-        # Vertical split: work area on top, MobaXterm-style bottom remote
-        # monitor panel beneath it.
         from .theme import palette as theme_palette
 
         pal = theme_palette()
-        self.vsplit = QSplitter(Qt.Orientation.Vertical, self)
-        self.vsplit.setHandleWidth(1)
-
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.main_splitter.setHandleWidth(1)
 
@@ -610,6 +615,10 @@ class MainWindow(QMainWindow):
         # Tab bar context menu
         self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabs.tabBar().customContextMenuRequested.connect(self._tab_context_menu)
+        # Double-click a tab to rename it (matches the context-menu action)
+        self.tabs.tabBarDoubleClicked.connect(
+            lambda idx: (self.tabs.setCurrentIndex(idx), self._rename_current_tab())
+        )
 
         # Corner buttons
         corner = QWidget()
@@ -640,13 +649,14 @@ class MainWindow(QMainWindow):
         header_row = QHBoxLayout()
         header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
         header_row.setSpacing(10)
-        logo = QLabel("◈")
-        logo.setStyleSheet(f"font-size: 18px; color: {pal['accent']};")
+        logo = QLabel()
+        logo.setPixmap(icon("logo").pixmap(20, 20))
         header_row.addWidget(logo)
         title = QLabel(APP_NAME)
         title.setStyleSheet(
             f"font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: {pal['fg']};"
         )
+        self._dash_header_label = title  # density-dependent font size
         header_row.addWidget(title)
         version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP")
         version.setStyleSheet(f"font-size: 11.5px; color: {pal['fg_muted']};")
@@ -708,8 +718,11 @@ class MainWindow(QMainWindow):
         actions_row.addWidget(_action_card("gear", "Settings", "Configure KB-Remote (Ctrl+,)", self.open_settings))
         el.addLayout(actions_row)
 
-        # Recent connections — compact rows
-        sessions = list(self.ctx.store.sessions())[:6]
+        # Recent connections — compact rows (pinned first, then name)
+        sessions = sorted(
+            self.ctx.store.sessions(),
+            key=lambda s: (not s.options.get("pinned", False), s.name),
+        )[:6]
         if sessions:
             recent_card = QWidget()
             recent_card.setObjectName("card")
@@ -734,6 +747,12 @@ class MainWindow(QMainWindow):
                 pi.setPixmap(proto_icon.pixmap(QSize(16, 16)))
                 pi.setFixedSize(16, 16)
                 il.addWidget(pi)
+                if sess.options.get("pinned", False):
+                    star = QLabel()
+                    star.setPixmap(icon("star", pal["warn"]).pixmap(QSize(13, 13)))
+                    star.setFixedSize(13, 13)
+                    star.setToolTip("Pinned session")
+                    il.addWidget(star)
                 name_lbl = QLabel(sess.display_name())
                 name_lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {pal['fg']};")
                 il.addWidget(name_lbl)
@@ -778,20 +797,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.setSizes([240, 1100])
 
-        # Bottom: MobaXterm-style remote monitoring strip
-        self.monitor_panel = MonitorPanel(self)
-        self.monitor_panel.set_collapsed(True)
-        self.monitor_panel.openFullMonitor.connect(self.open_monitor_dialog)
-
-        self.vsplit.addWidget(self.main_splitter)
-        self.vsplit.addWidget(self.monitor_panel)
-        self.vsplit.setStretchFactor(0, 1)
-        self.vsplit.setStretchFactor(1, 0)
-        self.vsplit.setSizes([800, 40])
-        self.setCentralWidget(self.vsplit)
-
-        self._act_monitor_panel.setChecked(False)
-        self._act_monitor_panel_toolbar.setChecked(False)
+        self.setCentralWidget(self.main_splitter)
 
         # Sidebar events
         self.sidebar.connectRequested.connect(self.connect_session)
@@ -802,6 +808,90 @@ class MainWindow(QMainWindow):
         self.sidebar.newSessionRequested.connect(self.new_session)
         self.sidebar.newFolderRequested.connect(self.sidebar.prompt_new_folder)
         self.sidebar.localTerminalRequested.connect(self.open_local_terminal)
+
+        # Restore sidebar state (persistence) then sync the checkable actions.
+        # "checked" on the toggle actions means the sidebar is *visible*.
+        self._last_sidebar_width = 260
+        saved_w = self.ctx.settings.geometry.get("sidebar_width")
+        if isinstance(saved_w, int) and 150 <= saved_w <= 480:
+            self._last_sidebar_width = saved_w
+        self._sidebar_collapsed = bool(self.ctx.settings.geometry.get("sidebar_collapsed", False))
+        self.main_splitter.setSizes(
+            [0 if self._sidebar_collapsed else self._last_sidebar_width, 1200]
+        )
+        self._sync_sidebar_actions()
+
+    def _sidebar_width(self) -> int:
+        if not hasattr(self, "main_splitter"):
+            return 240
+        return self.main_splitter.sizes()[0]
+
+    def _set_sidebar_width(self, width: int) -> None:
+        sizes = self.main_splitter.sizes()
+        total = sum(sizes)
+        self.main_splitter.setSizes([width, max(320, total - width)])
+        self._sidebar_collapsed = width <= 0
+
+    def _toggle_sidebar(self, checked: bool = None) -> None:
+        """checked=True shows the sidebar, checked=False collapses it.
+
+        Called with the action's new state; if None (plain trigger), invert.
+        """
+        if not hasattr(self, "main_splitter"):
+            return
+        if checked is None:
+            checked = self._sidebar_collapsed  # invert the current state
+        self._sync_sidebar_actions(checked)
+        target = max(220, self._last_sidebar_width) if checked else 0
+        self._animate_splitter(self._sidebar_width(), target)
+
+    def _animate_splitter(self, start: int, end: int) -> None:
+        from PySide6.QtCore import QVariantAnimation
+
+        if not theme.MOTIONS_ENABLED or start == end:
+            self._set_sidebar_width(end)
+            return
+        anim = QVariantAnimation(self)
+        anim.setDuration(140)
+        anim.setStartValue(start)
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.valueChanged.connect(lambda v: self._set_sidebar_width(int(v)))
+        self._sidebar_anim = anim  # keep alive across the event loop
+        anim.finished.connect(anim.deleteLater)
+        anim.start()
+
+    def _sync_sidebar_actions(self, visible: bool = None) -> None:
+        if visible is None:
+            visible = not self._sidebar_collapsed
+        for act in (
+            getattr(self, "_act_sidebar_toolbar", None),
+            getattr(self, "_act_sidebar_menu", None),
+        ):
+            if act is not None:
+                act.blockSignals(True)
+                act.setChecked(visible)
+                act.blockSignals(False)
+
+    def _apply_ui_prefs(self) -> None:
+        """Apply density / toolbar-labels / animation settings to the chrome."""
+        s = self.ctx.settings
+        theme.apply_theme(
+            QApplication.instance(), s.theme, density=s.density, animations=s.animations
+        )
+        if hasattr(self, "_toolbar"):
+            if s.toolbar_labels:
+                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                self._toolbar.setIconSize(QSize(16, 16))
+            else:
+                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                self._toolbar.setIconSize(QSize(18, 18))
+        if hasattr(self, "_dash_header_label"):
+            # Compact density trims the dashboard header; comfortable stays roomy.
+            self._dash_header_label.setStyleSheet(
+                f"font-size: {15 if s.density == 'compact' else 17}px; font-weight: 700; "
+                f"letter-spacing: -0.2px; color: {palette()['fg']};"
+            )
 
     def _bind_shortcuts(self) -> None:
         # Tab navigation shortcuts (Ctrl+Tab / Ctrl+Shift+Backtab live on the
@@ -872,6 +962,22 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self._rename_tab(idx, self.tabs.widget(idx))
 
+    def _safe_to_close(self, tab: SessionTab) -> bool:
+        """Ask before losing a session that is actively writing a log."""
+        term = getattr(tab.controller, "term", None)
+        if term is not None and hasattr(term, "is_logging") and term.is_logging():
+            box = QMessageBox(self)
+            box.setWindowTitle(APP_NAME)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText(f"Close “{self.tabs.tabText(self.tabs.indexOf(tab))}”?")
+            box.setInformativeText("Terminal logging is running — the capture will stop.")
+            box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.button(QMessageBox.StandardButton.Yes).setText("Stop & Close")
+            box.button(QMessageBox.StandardButton.No).setText("Keep Session")
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            return box.exec() == QMessageBox.StandardButton.Yes
+        return True
+
     def _reconnect_current(self) -> None:
         tab = self._current_tab()
         if tab is not None:
@@ -920,12 +1026,9 @@ class MainWindow(QMainWindow):
         act_log.triggered.connect(lambda: self._toggle_tab_logging(widget))
 
         caps = widget.controller.capabilities()
-        if caps.sftp or caps.monitor:
+        if caps.sftp:
             menu.addSeparator()
-            if caps.sftp:
-                menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
-            if caps.monitor:
-                menu.addAction("Remote Monitor", widget.controller.open_monitor)
+            menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
 
         menu.exec(tab_bar.mapToGlobal(pos))
 
@@ -1023,12 +1126,9 @@ class MainWindow(QMainWindow):
                 self.tabs.setTabText(idx, t)
 
         controller.titleChanged.connect(_set_title)
-        # Status-bar summary + bottom monitor panel follow the session.
+        # Status-bar summary follows the session.
         controller.statusInfo.connect(
             lambda info, c=controller: self._on_controller_status(info, c)
-        )
-        controller.stateChanged.connect(
-            lambda state, c=controller: self._on_session_state(state, c)
         )
         controller.start()
         self._update_empty_state()
@@ -1036,6 +1136,8 @@ class MainWindow(QMainWindow):
 
     def close_tab(self, index: int) -> None:
         widget = self.tabs.widget(index)
+        if isinstance(widget, SessionTab) and not self._safe_to_close(widget):
+            return
         self.tabs.removeTab(index)
         if isinstance(widget, SessionTab):
             try:
@@ -1047,12 +1149,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 log.exception("error stopping session controller")
             self._last_connected_info.pop(id(widget.controller), None)
-            self._monitor_auto_expanded.discard(id(widget.controller))
             widget.controller.deleteLater()
         if widget is not None:
             widget.deleteLater()
         self._update_empty_state()
-        self._bind_monitor_panel(self.current_controller())
         self._update_session_status(self.current_controller())
 
     def current_controller(self) -> SessionController | None:
@@ -1067,38 +1167,10 @@ class MainWindow(QMainWindow):
             caps = widget.controller.capabilities()
             if caps.shell:
                 QTimer.singleShot(0, lambda: widget.controller.widget().setFocus())
-        self._bind_monitor_panel(self.current_controller())
         self._update_session_status(self.current_controller())
 
     # ------------------------------------------------------------------
-    # Bottom remote-monitor panel (MobaXterm-style)
-    # ------------------------------------------------------------------
-    def set_monitor_panel_visible(self, visible: bool) -> None:
-        self.monitor_panel.setVisible(bool(visible))
-        self._act_monitor_panel.setChecked(bool(visible))
-        self._act_monitor_panel_toolbar.setChecked(bool(visible))
-        if visible:
-            self._bind_monitor_panel(self.current_controller())
-
-    def _bind_monitor_panel(self, controller) -> None:
-        """Follow the active tab: monitor any monitor-capable remote session."""
-        if not self.monitor_panel.isVisible():
-            return
-        caps = controller.capabilities() if controller is not None else None
-        target = controller if (caps is not None and caps.monitor) else None
-        self.monitor_panel.bind(target)
-
-    def _on_session_state(self, state: str, controller: SessionController) -> None:
-        if state != SessionState.CONNECTED:
-            return
-        # A new live session: expand the bottom monitor once so the data is
-        # discoverable (the user can still collapse it).
-        if self.monitor_panel.isVisible() and id(controller) not in self._monitor_auto_expanded:
-            self._monitor_auto_expanded.add(id(controller))
-            self.monitor_panel.set_collapsed(False)
-
-    # ------------------------------------------------------------------
-    # Status-bar session summary (MobaXterm-style)
+    # Status-bar session summary
     # ------------------------------------------------------------------
     def _update_session_status(self, controller: SessionController | None) -> None:
         if controller is None:
@@ -1126,8 +1198,6 @@ class MainWindow(QMainWindow):
         feats = []
         if caps.sftp:
             feats.append("SFTP")
-        if caps.monitor:
-            feats.append("TELEM")
         if feats:
             parts.append("·  " + "  ".join(feats))
         self.session_info_label.setText("   ".join(parts))
@@ -1232,24 +1302,6 @@ class MainWindow(QMainWindow):
 
         TunnelsDialog(self.ctx, controller, self).show()
 
-    def open_monitor_dialog(self) -> None:
-        controller = self.current_controller()
-        if controller is None or not controller.capabilities().monitor:
-            for i in range(self.tabs.count()):
-                w = self.tabs.widget(i)
-                if isinstance(w, SessionTab) and w.controller.capabilities().monitor:
-                    controller = w.controller
-                    break
-        if controller is None or not controller.capabilities().monitor:
-            toast(self, "Open a monitor-capable remote session first — monitoring runs over SSH/OpenSSH.", "warn")
-            return
-        self.open_monitor_for_controller(controller)
-
-    def open_monitor_for_controller(self, controller) -> None:
-        from .monitor_dialog import MonitorDialog
-
-        MonitorDialog(self.ctx, controller, self).show()
-
     def open_sftp_for_controller(self, controller) -> None:
         from .sftp_dialog import SftpDialog
 
@@ -1264,9 +1316,9 @@ class MainWindow(QMainWindow):
         from .settings_dialog import SettingsDialog
 
         dlg = SettingsDialog(self.ctx.settings, self)
+        animate_in(dlg)
         if dlg.exec():
-            app = QApplication.instance()
-            theme.apply_theme(app, self.ctx.settings.theme)
+            self._apply_ui_prefs()
             self._sync_theme_actions()
             self._apply_terminal_prefs()
 
@@ -1293,7 +1345,12 @@ class MainWindow(QMainWindow):
             return
         self.ctx.settings.theme = theme_id
         self.ctx.settings.save(paths.settings_file())
-        theme.apply_theme(QApplication.instance(), theme_id)
+        theme.apply_theme(
+            QApplication.instance(),
+            theme_id,
+            density=self.ctx.settings.density,
+            animations=self.ctx.settings.animations,
+        )
         self._sync_theme_actions()
         self._apply_terminal_prefs()
 
@@ -1313,6 +1370,44 @@ class MainWindow(QMainWindow):
         current = self.ctx.settings.theme
         for tid, act in getattr(self, "_theme_actions", {}).items():
             act.setChecked(tid == current)
+
+    def open_shortcuts(self) -> None:
+        from .shortcuts_dialog import ShortcutsDialog
+
+        dlg = ShortcutsDialog(self)
+        animate_in(dlg)
+        dlg.exec()
+
+    def _setup_tray(self) -> None:
+        """Optional system-tray icon (only where a tray actually exists)."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray = QSystemTrayIcon(self)
+        tray.setIcon(icon("logo"))
+        tray.setToolTip(APP_NAME)
+        menu = QMenu()
+        a = menu.addAction("Show / hide window")
+        a.triggered.connect(self._toggle_visible)
+        a = menu.addAction("Quit")
+        a.triggered.connect(self.close)
+        tray.setContextMenu(menu)
+        tray.activated.connect(
+            lambda reason: self._tray_activated(reason)
+        )
+        tray.show()
+        self._tray = tray
+
+    def _tray_activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._toggle_visible()
+
+    def _toggle_visible(self) -> None:
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+            self.activateWindow()
 
     def _about(self) -> None:
         QMessageBox.about(
@@ -1392,11 +1487,6 @@ class MainWindow(QMainWindow):
         return
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        # Stop the bottom monitor panel's engine before session teardown.
-        try:
-            self.monitor_panel.shutdown()
-        except Exception:  # noqa: BLE001
-            log.exception("error stopping monitor panel on shutdown")
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
@@ -1412,6 +1502,8 @@ class MainWindow(QMainWindow):
             "size": [self.width(), self.height()],
             "pos": [self.x(), self.y()],
             "maximized": self.isMaximized(),
+            "sidebar_collapsed": self._sidebar_collapsed,
+            "sidebar_width": self._last_sidebar_width if not self._sidebar_collapsed else None,
         }
         settings.save(paths.settings_file())
         super().closeEvent(event)

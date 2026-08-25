@@ -39,9 +39,8 @@ from ..tools.network_scanner import (
     parse_target_hosts,
     tcp_ping,
 )
-from .monitor_dialog import Sparkline
 from .theme import icon
-from .widgets import toast
+from .widgets import Sparkline, toast
 
 
 class _ScannerThread(QThread):

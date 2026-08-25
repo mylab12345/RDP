@@ -3,9 +3,8 @@
 **A cross-platform remote-access workbench, inspired by MobaXterm.**
 Tabbed SSH/OpenSSH sessions to Linux, Windows, BSD and macOS hosts, RDP sessions to Windows hosts,
 SFTP file transfer, and a plugin architecture for adding protocols — all in one
-NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, a **command
-line under each terminal tab**, and a live **remote monitor docked along the
-bottom** of the window. SSH tabs keep the remote VM’s own console colors.
+NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
+**command line under each terminal tab**. SSH tabs keep the remote VM’s own console colors.
 
 ![Main window](docs/screenshots/main-window.png)
 
@@ -28,7 +27,6 @@ bottom** of the window. SSH tabs keep the remote VM’s own console colors.
 | **In-terminal search** | Floating search overlay (`Ctrl+F` / `F3` / `Shift+F3`): case-sensitive search, visual match highlight rectangles on screen, match count indicator, and match navigation |
 | **Network diagnostics** | Standalone & workbench tool (`Ctrl+Shift+N`): multi-threaded TCP port scanner, TCP ping latency tester with jitter and loss stats, and forward/reverse DNS lookup |
 | **SSH key utility** | Standalone key tool (`Ctrl+Shift+U`): key generation (Ed25519/RSA/ECDSA), visual Randomart (Drunken Bishop algorithm), and OpenSSH ⇄ PuTTY `.ppk` converter |
-| **Remote monitoring** | Live CPU, memory, swap, disk, load average (where the OS exposes it), logged-in users and network throughput for any SSH/OpenSSH host — Linux, Windows, BSD and macOS — with sparkline history and a selectable refresh rate (`Ctrl+Shift+M`). **Docked along the bottom** of the window (MobaXterm-style) it follows the active tab for every monitor-capable machine, auto-expands on first connect, and collapses to a one-line strip; the **Details** button opens the full monitor window. Uses a single read-only platform probe per sample over the session's existing SSH transport — no agent to install |
 | **File transfer & edit** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, hidden files toggle (`.*`), and **in-app text file editor** with direct SFTP save-and-upload (`Ctrl+S`) |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`) |
