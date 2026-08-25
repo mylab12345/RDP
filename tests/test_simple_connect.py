@@ -61,6 +61,7 @@ def test_rdp_file_smart_sizing():
     from rdpstudio.protocols.rdp.rdpfile import build_rdp_text
 
     s = Session(protocol="rdp", host="w", username="a")
+    s.rdp_fit_screen = False
     assert "smart sizing:i:0" in build_rdp_text(s).splitlines()
     s.rdp_fit_screen = True
     assert "smart sizing:i:1" in build_rdp_text(s).splitlines()

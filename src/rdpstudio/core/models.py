@@ -149,7 +149,7 @@ class Session:
     rdp_height: int = 900
     rdp_color_depth: int = 32
     rdp_fullscreen: bool = False
-    rdp_fit_screen: bool = False  # scale the remote desktop to fit the RDP window
+    rdp_fit_screen: bool = True  # scale the remote desktop to fit the RDP window
     rdp_clipboard: bool = True
     rdp_drives: bool = False
     rdp_cert_ignore: bool = False
@@ -280,7 +280,7 @@ class Session:
         s.rdp_height = _as_int(d.get("rdp_height", 900) or 900, 900, minimum=480, maximum=4320)
         s.rdp_color_depth = _as_int(d.get("rdp_color_depth", 32) or 32, 32, minimum=8, maximum=32)
         s.rdp_fullscreen = bool(d.get("rdp_fullscreen", False))
-        s.rdp_fit_screen = bool(d.get("rdp_fit_screen", False))
+        s.rdp_fit_screen = bool(d.get("rdp_fit_screen", True))
         s.rdp_clipboard = bool(d.get("rdp_clipboard", True))
         s.rdp_drives = bool(d.get("rdp_drives", False))
         s.rdp_cert_ignore = bool(d.get("rdp_cert_ignore", False))

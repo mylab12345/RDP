@@ -44,6 +44,7 @@ from ...core.plugin import (
     SessionController,
     SessionState,
 )
+from ...core.reconnect import ReconnectPolicy
 from ..base_caps import capability_set
 from .embed import (
     EMBEDDABLE_CLIENTS,  # noqa: F401  (re-exported for tests/docs)
@@ -64,6 +65,7 @@ _MAX_RDP_W, _MAX_RDP_H = 7680, 4320
 # Below this the surface is not laid out yet (widget not mapped); fall back
 # to the session's saved resolution instead of launching a tiny desktop.
 _MIN_MAPPED_W, _MIN_MAPPED_H = 320, 200
+_STARTUP_GRACE_MS = 15000
 
 
 def find_rdp_client() -> tuple[str, str] | None:
@@ -299,6 +301,13 @@ class RdpSessionController(SessionController):
         self._proc_stderr: str = ""
         self._proc_stdout: str = ""
         self._proc_start_time: float = 0.0
+        self._startup_complete = False
+        self._startup_error: str | None = None
+        self._attempt = 0
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setSingleShot(True)
+        self._startup_timer.timeout.connect(self._mark_connected)
+        self._policy = ReconnectPolicy.from_settings(ctx.settings)
         self._sigProbeResult.connect(self._on_probe_result)
         self._build_ui()
         # resolved up-front so the tab shows the right page before start()
@@ -557,6 +566,8 @@ class RdpSessionController(SessionController):
         self._proc_stderr = ""
         self._proc_stdout = ""
         self._proc_start_time = _time.monotonic()
+        self._startup_complete = False
+        self._startup_error = None
         # capture client output for diagnostics (exit code 145 etc.)
         self._proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
         self._proc.readyReadStandardError.connect(self._on_proc_stderr)
@@ -606,7 +617,10 @@ class RdpSessionController(SessionController):
             return
         if self._proc.state() != QProcess.ProcessState.Running:
             return
-        if self._state not in (SessionState.CONNECTED, SessionState.CONNECTING):
+        # Layout changes during the initial handshake are expected while the
+        # tab becomes visible; restarting then can kill the only connection
+        # attempt and leave a blank embedded surface.
+        if self._state != SessionState.CONNECTED:
             return
         log.info("RDP tab resized — restarting embedded client to refit")
         self._surface.set_launch_size((self._surface.width(), self._surface.height()))
@@ -642,6 +656,25 @@ class RdpSessionController(SessionController):
             # keep buffer bounded
             if len(self._proc_stderr) > 8000:
                 self._proc_stderr = self._proc_stderr[-8000:]
+            if not self._startup_complete and self._startup_error is None:
+                failure_markers = (
+                    "errconnect_",
+                    "authentication failed",
+                    "logon failure",
+                    "connection refused",
+                    "unable to connect",
+                    "transport error",
+                    "host key",
+                    "host key verification failed",
+                    "verification failed",
+                    "remote host identification has changed",
+                )
+                for line in reversed(data.splitlines()):
+                    if any(marker in line.lower() for marker in failure_markers):
+                        self._startup_error = line.strip()[:300]
+                        log.warning("RDP startup failed: %s", self._startup_error)
+                        self._proc.kill()
+                        break
         except Exception:
             pass
 
@@ -659,6 +692,24 @@ class RdpSessionController(SessionController):
     def _on_proc_started(self) -> None:
         # Give the client a moment to parse /args-from, then shred the file.
         QTimer.singleShot(4000, self._cleanup_args_file)
+        # QProcess.started only means the local executable spawned. Keep the
+        # session in CONNECTING until FreeRDP survives its handshake window.
+        self._startup_timer.start(_STARTUP_GRACE_MS)
+        self._status.setText("RDP client started; negotiating with server…")
+        if self._mode == "embedded":
+            self._set_emb_hint("Negotiating with server…")
+        self._btn_connect.setEnabled(False)
+        self._btn_stop.setEnabled(True)
+
+    def _mark_connected(self) -> None:
+        if (
+            self._startup_error is not None
+            or self._proc is None
+            or self._proc.state() != QProcess.ProcessState.Running
+        ):
+            return
+        self._startup_complete = True
+        self._attempt = 0
         self.set_state(SessionState.CONNECTED)
         self._set_emb_hint("")
         if self._mode == "embedded":
@@ -668,8 +719,6 @@ class RdpSessionController(SessionController):
                 "RDP session window is open (external client). "
                 "This tab monitors the connection."
             )
-        self._btn_connect.setEnabled(False)
-        self._btn_stop.setEnabled(True)
         self.titleChanged.emit(self.definition.display_name())
         self.ctx.publish("session/connected", {"protocol": "rdp", "host": self.definition.host})
 
@@ -678,6 +727,8 @@ class RdpSessionController(SessionController):
         self._on_proc_stderr()
         self._on_proc_stdout()
         self._cleanup_args_file()
+        self._startup_timer.stop()
+        startup_failure = not self._startup_complete and not self._resized_restart
         code = self._proc.exitCode() if self._proc else 0
         status = self._proc.exitStatus() if self._proc else QProcess.ExitStatus.NormalExit
         # QProcess reports crash separately
@@ -704,7 +755,9 @@ class RdpSessionController(SessionController):
                     if line.strip():
                         diag_line = line.strip()[:300]
                         break
-        if resized:
+        if self._startup_error is not None:
+            reason = f"RDP startup failed: {self._startup_error}"
+        elif resized:
             reason = "refitting to new window size"
         else:
             # map known FreeRDP quirks
@@ -743,20 +796,33 @@ class RdpSessionController(SessionController):
             log.warning("RDP client finished code=%s status=%s elapsed=%.1fs stderr=%r", code, status, elapsed, self._proc_stderr[-2000:])
         # rapid non-zero exit should NOT auto-reconnect (would loop); treat as FAILED
         rapid_failure = (not resized) and code != 0 and elapsed < 2.0 and self._mode == "embedded" and code == 145
+        security_failure = startup_failure and self._startup_error is not None and any(
+            marker in self._startup_error.lower()
+            for marker in ("host key", "verification failed")
+        )
         should_reconnect = (
-            self._state in (SessionState.CONNECTED, SessionState.RECONNECTING)
+            self._state in (SessionState.CONNECTING, SessionState.CONNECTED, SessionState.RECONNECTING)
             and self.definition.auto_reconnect
-            and not rapid_failure
+            and (startup_failure or not rapid_failure)
+            and not security_failure
             and not (code != 0 and elapsed < 1.5)  # don't loop on instant config errors
         )
+        if startup_failure and self.definition.auto_reconnect and not security_failure:
+            # Early exits are commonly transient NLA/network startup failures.
+            should_reconnect = self._policy.should_retry(self._attempt + 1)
         if should_reconnect:
             self.set_state(SessionState.RECONNECTING)
             if self._mode == "embedded":
                 self._set_emb_hint(reason + " — reconnecting…")
             else:
                 self._status.setText(reason + " — auto-reconnecting…")
-            self.reconnectScheduled.emit(1, 1.0 if resized else 3.0)
-            delay = 500 if resized else 3000
+            if startup_failure:
+                self._attempt += 1
+                delay_seconds = self._policy.delay_for_attempt(self._attempt)
+            else:
+                delay_seconds = 1.0 if resized else 3.0
+            self.reconnectScheduled.emit(self._attempt or 1, delay_seconds)
+            delay = int(delay_seconds * 1000)
             QTimer.singleShot(delay, lambda: self.start() if self._state == SessionState.RECONNECTING else None)
         else:
             if code != 0 and not resized:
@@ -778,6 +844,10 @@ class RdpSessionController(SessionController):
             QProcess.ProcessError.ReadError: "read error",
             QProcess.ProcessError.UnknownError: "unknown error",
         }
+        if error == QProcess.ProcessError.Crashed and not self._startup_complete:
+            # QProcess emits Crashed before finished; let finished classify it
+            # as a retryable startup failure instead of ending the session.
+            return
         self._on_error_text(names.get(error, "error"))
 
     def _on_error_text(self, message: str) -> None:
