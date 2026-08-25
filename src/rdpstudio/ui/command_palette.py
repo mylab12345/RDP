@@ -55,8 +55,8 @@ class CommandPaletteDialog(QDialog):
             f"""
             QWidget#card {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 20px;
+                border: 1px solid {pal['border']};
+                border-radius: 6px;
             }}
             """
         )
@@ -80,8 +80,8 @@ class CommandPaletteDialog(QDialog):
             f"""
             QWidget#searchRow {{
                 background: {pal['bg3']};
-                border: 1.5px solid {pal['border_subtle']};
-                border-radius: 16px;
+                border: 1px solid {pal['border_subtle']};
+                border-radius: 8px;
             }}
             QWidget#searchRow:focus-within {{
                 border-color: {pal['accent']};
@@ -141,7 +141,7 @@ class CommandPaletteDialog(QDialog):
             }}
             QListWidget::item {{
                 padding: 12px 14px;
-                border-radius: 12px;
+                border-radius: 6px;
                 margin: 3px 2px;
                 color: {pal['fg']};
                 border: 1px solid transparent;
@@ -152,7 +152,7 @@ class CommandPaletteDialog(QDialog):
             }}
             QListWidget::item:selected {{
                 background: {pal['accent_subtle']};
-                border: 1.5px solid {pal['accent']}40;
+                border: 1px solid {pal['accent']}40;
                 color: {pal['fg']};
             }}
             """
@@ -171,7 +171,7 @@ class CommandPaletteDialog(QDialog):
                 f"""
                 background: {pal['bg3']};
                 border: 1px solid {pal['border_subtle']};
-                border-radius: 20px;
+                border-radius: 6px;
                 padding: 4px 10px;
                 color: {pal['fg_dim']};
                 font-size: 11px;

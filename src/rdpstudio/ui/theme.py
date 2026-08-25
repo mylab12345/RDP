@@ -26,37 +26,37 @@ ICONS = RESOURCES / "icons"
 # Each palette is a complete design system with bg, surfaces, text, accents
 # ----------------------------------------------------------------------
 PALETTE = {
-    # Midnight — refined dark, not purple, natural slate with mint accent
+    # Dark — restrained neutral slate, one blue accent (default)
     "dark": {
-        "bg": "#0e1016",
-        "bg2": "#171b26",
-        "bg3": "#1f2433",
-        "panel": "#141821",
-        "panel2": "#1c2130",
-        "panel3": "#272d42",
-        "border": "#212636",
-        "border_strong": "#2d344b",
-        "border_subtle": "#1a1f2e",
-        "fg": "#e8eaf0",
-        "fg_dim": "#9aa3b8",
-        "fg_muted": "#636c82",
-        "accent": "#6ee7b7",
-        "accent_hover": "#86efc5",
-        "accent_active": "#34d399",
-        "accent_text": "#052e1a",
-        "accent_subtle": "#6ee7b722",
-        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6ee7b7, stop:1 #34d399)",
-        "good": "#6ee7b7",
-        "warn": "#fcd34d",
-        "bad": "#fb7185",
-        "info": "#7dd3fc",
-        "term_bg": "#0a0e14",
-        "term_fg": "#cbd5e1",
-        "sel": "#1e3a4a",
-        "sel_hover": "#243d52",
+        "bg": "#14161b",
+        "bg2": "#1a1d23",
+        "bg3": "#22262e",
+        "panel": "#17191f",
+        "panel2": "#1e222a",
+        "panel3": "#282d37",
+        "border": "#2a2e37",
+        "border_strong": "#3b4150",
+        "border_subtle": "#22252d",
+        "fg": "#e4e7ec",
+        "fg_dim": "#9aa1ad",
+        "fg_muted": "#6b7280",
+        "accent": "#4c8dff",
+        "accent_hover": "#6ba1ff",
+        "accent_active": "#3a76e8",
+        "accent_text": "#ffffff",
+        "accent_subtle": "#4c8dff26",
+        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4c8dff, stop:1 #3a76e8)",
+        "good": "#3fb950",
+        "warn": "#d29922",
+        "bad": "#f85149",
+        "info": "#58a6ff",
+        "term_bg": "#101216",
+        "term_fg": "#d4d8e0",
+        "sel": "#243044",
+        "sel_hover": "#2a3444",
         "shadow": "#00000088",
         "shadow_soft": "#00000044",
-        "overlay": "#0e1016cc",
+        "overlay": "#14161bcc",
         "card_shadow": "#00000033",
     },
     # Daylight — warm natural light, paper & forest
@@ -493,8 +493,12 @@ _UI_DISPLAY = (
 # Beautiful natural global theme QSS — 2026 design language
 # Bento cards, soft layers, organic radii, tactile depth
 # ----------------------------------------------------------------------
+
 _QSS = """
-/* ========== Global foundation ========== */
+/* ================= KB-Remote global theme =================
+   Clean, professional, compact. Neutral dark surfaces, 1px
+   borders, 6px radii, single accent. Consistent states. */
+
 * {{
     font-family: {ui_sans};
     outline: none;
@@ -504,52 +508,53 @@ QMainWindow, QDialog {{
 }}
 QWidget {{
     color: {fg};
-    font-size: 13.5px;
+    font-size: 13px;
 }}
 QToolTip {{
     background: {panel2};
     color: {fg};
     border: 1px solid {border_strong};
-    border-radius: 10px;
-    padding: 8px 12px;
-    font-size: 12.5px;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
 }}
 
-/* ========== Menu bar — clean & minimal ========== */
+/* ================= Menu bar ================= */
 QMenuBar {{
     background: {panel};
     border-bottom: 1px solid {border_subtle};
-    padding: 2px 8px;
-    spacing: 2px;
-    font-size: 13px;
-    min-height: 28px;
+    padding: 0px 6px;
+    spacing: 0px;
+    font-size: 12.5px;
+    min-height: 26px;
 }}
 QMenuBar::item {{
-    padding: 6px 12px;
-    border-radius: 8px;
+    padding: 4px 10px;
+    border-radius: 4px;
     color: {fg_dim};
-    margin: 2px 1px;
+    margin: 1px 0px;
 }}
 QMenuBar::item:selected {{
     background: {bg3};
     color: {fg};
 }}
 QMenuBar::item:pressed {{
-    background: {panel2};
+    background: {bg3};
+    color: {fg};
 }}
 
 QMenu {{
     background: {bg2};
     border: 1px solid {border};
-    border-radius: 14px;
-    padding: 6px;
+    border-radius: 8px;
+    padding: 5px;
 }}
 QMenu::item {{
-    padding: 9px 16px 9px 32px;
-    border-radius: 10px;
+    padding: 6px 14px 6px 30px;
+    border-radius: 5px;
     color: {fg};
-    font-size: 13px;
-    margin: 1px 2px;
+    font-size: 12.5px;
+    margin: 0px 1px;
 }}
 QMenu::item:selected {{
     background: {accent_subtle};
@@ -562,50 +567,50 @@ QMenu::item:selected:active {{
 QMenu::separator {{
     height: 1px;
     background: {border_subtle};
-    margin: 6px 12px;
+    margin: 5px 8px;
 }}
 QMenu::indicator {{
-    left: 10px;
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
+    left: 9px;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
 }}
 QMenu::indicator:checked {{
     background: {accent};
 }}
 
-/* ========== Toolbar — pill buttons, bento style ========== */
+/* ================= Toolbar — compact, icon + label ================= */
 QToolBar {{
     background: {panel};
     border: none;
     border-bottom: 1px solid {border_subtle};
-    spacing: 4px;
-    padding: 6px 10px;
-    min-height: 48px;
+    spacing: 2px;
+    padding: 3px 8px;
+    min-height: 38px;
 }}
 QToolBar#moxaToolbar {{
-    spacing: 6px;
-    padding: 6px 12px;
-    min-height: 52px;
+    spacing: 2px;
+    padding: 3px 8px;
+    min-height: 38px;
 }}
 QToolBar#moxaToolbar QToolButton {{
-    padding: 6px 12px;
-    min-width: 48px;
-    min-height: 36px;
-    font-size: 11px;
+    padding: 4px 9px;
+    min-width: 30px;
+    min-height: 26px;
+    font-size: 12px;
     font-weight: 600;
-    border-radius: 10px;
+    border-radius: 5px;
 }}
 QToolBar::separator {{
     width: 1px;
     background: {border_subtle};
-    margin: 10px 8px;
+    margin: 8px 5px;
 }}
 QToolButton {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 10px;
-    padding: 6px 12px;
+    border-radius: 5px;
+    padding: 4px 9px;
     color: {fg_dim};
     font-weight: 600;
     font-size: 12px;
@@ -616,25 +621,25 @@ QToolButton:hover {{
     border-color: {border};
 }}
 QToolButton:pressed {{
-    background: {panel2};
-    border-color: {border_strong};
+    background: {panel3};
 }}
 QToolButton:checked {{
-    background: {accent};
-    color: {accent_text};
-    border-color: {accent};
+    background: {accent_subtle};
+    color: {accent};
+    border-color: {accent}55;
 }}
 
-/* ========== Buttons — organic, pill-ish, tactile ========== */
+
+/* ================= Buttons ================= */
 QPushButton {{
     background: {bg2};
     border: 1px solid {border};
-    border-radius: 11px;
-    padding: 8px 18px;
+    border-radius: 6px;
+    padding: 5px 14px;
     color: {fg};
     font-weight: 600;
-    font-size: 13px;
-    min-height: 20px;
+    font-size: 12.5px;
+    min-height: 18px;
 }}
 QPushButton:hover {{
     background: {bg3};
@@ -643,6 +648,9 @@ QPushButton:hover {{
 QPushButton:pressed {{
     background: {panel2};
     border-color: {border_strong};
+}}
+QPushButton:focus {{
+    border-color: {accent};
 }}
 QPushButton:disabled {{
     color: {fg_muted};
@@ -653,8 +661,8 @@ QPushButton#primary {{
     background: {accent};
     color: {accent_text};
     border: 1px solid {accent};
-    font-weight: 700;
-    border-radius: 11px;
+    font-weight: 600;
+    border-radius: 6px;
 }}
 QPushButton#primary:hover {{
     background: {accent_hover};
@@ -668,7 +676,7 @@ QPushButton#ghost {{
     background: transparent;
     border: 1px solid transparent;
     color: {fg_dim};
-    border-radius: 10px;
+    border-radius: 5px;
 }}
 QPushButton#ghost:hover {{
     background: {bg3};
@@ -679,7 +687,7 @@ QPushButton#subtle {{
     background: {bg3};
     border: 1px solid {border};
     color: {fg_dim};
-    border-radius: 10px;
+    border-radius: 5px;
 }}
 QPushButton#subtle:hover {{
     background: {panel2};
@@ -687,20 +695,48 @@ QPushButton#subtle:hover {{
     border-color: {border_strong};
 }}
 
-/* ========== Inputs — soft, rounded, natural focus ========== */
+/* Quick connect — joined input + button group */
+QWidget#quickConnect {{
+    background: {bg2};
+    border: 1px solid {border};
+    border-radius: 6px;
+}}
+QWidget#quickConnect:hover {{
+    border-color: {border_strong};
+}}
+QWidget#quickConnect QLineEdit {{
+    background: transparent;
+    border: none;
+    padding: 4px 10px;
+    font-size: 12.5px;
+    color: {fg};
+    min-height: 18px;
+}}
+QWidget#quickConnect QPushButton {{
+    border: none;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    min-height: 18px;
+}}
+
+/* ================= Inputs ================= */
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
     background: {bg2};
-    border: 1.5px solid {border};
-    border-radius: 11px;
-    padding: 8px 14px;
+    border: 1px solid {border};
+    border-radius: 6px;
+    padding: 5px 10px;
     selection-background-color: {accent};
     selection-color: {accent_text};
     color: {fg};
-    min-height: 20px;
-    font-size: 13px;
+    min-height: 18px;
+    font-size: 12.5px;
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {{
-    border: 1.5px solid {accent};
+    border: 1px solid {accent};
     background: {bg2};
 }}
 QLineEdit:hover, QSpinBox:hover, QComboBox:hover {{
@@ -712,47 +748,47 @@ QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
     border-color: {border_subtle};
 }}
 QLineEdit#search {{
-    border-radius: 20px;
-    padding: 8px 16px 8px 18px;
-    background: {bg3};
-    border: 1.5px solid {border_subtle};
-    font-size: 13px;
+    border-radius: 6px;
+    padding: 5px 10px 5px 12px;
+    background: {bg2};
+    border: 1px solid {border};
+    font-size: 12.5px;
 }}
 QLineEdit#search:focus {{
     background: {bg2};
     border-color: {accent};
 }}
 QLineEdit#search:hover {{
-    border-color: {border};
+    border-color: {border_strong};
 }}
 
 QComboBox::drop-down {{
     border: none;
-    width: 32px;
-    border-top-right-radius: 11px;
-    border-bottom-right-radius: 11px;
+    width: 26px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
 }}
 QComboBox::down-arrow {{
     image: none;
     width: 0; height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid {fg_dim};
-    margin-right: 12px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {fg_dim};
+    margin-right: 10px;
     margin-top: 2px;
 }}
 QComboBox QAbstractItemView {{
     background: {bg2};
     border: 1px solid {border};
-    border-radius: 12px;
-    padding: 6px;
+    border-radius: 6px;
+    padding: 4px;
     selection-background-color: {accent_subtle};
     selection-color: {fg};
     outline: none;
     font-family: {ui_sans};
 }}
 
-/* ========== Tabs — pill indicator, bento style ========== */
+/* ================= Tabs — underline indicator ================= */
 QTabWidget::pane {{
     border: none;
     background: {bg};
@@ -767,63 +803,60 @@ QTabBar {{
 QTabBar::tab {{
     background: transparent;
     color: {fg_dim};
-    padding: 8px 18px;
+    padding: 5px 14px;
     border: none;
-    border-top: 2.5px solid transparent;
+    border-top: 2px solid transparent;
     border-radius: 0px;
-    margin-right: 2px;
+    margin-right: 1px;
     font-weight: 600;
-    font-size: 12.5px;
-    min-width: 90px;
-    min-height: 28px;
+    font-size: 12px;
+    min-height: 22px;
 }}
 QTabBar::tab:selected {{
     background: {bg};
     color: {fg};
-    border-top: 2.5px solid {accent};
-    font-weight: 700;
+    border-top: 2px solid {accent};
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
     color: {fg};
-    border-top: 2.5px solid {border};
 }}
 QTabBar::close-button {{
     image: none;
     subcontrol-position: right;
-    width: 18px; height: 18px;
-    border-radius: 9px;
-    margin-left: 8px;
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    margin-left: 6px;
     background: transparent;
 }}
 QTabBar::close-button:hover {{
-    background: {panel2};
+    background: {panel3};
 }}
 QTabBar QToolButton {{
     background: {bg3};
     border: 1px solid {border};
-    border-radius: 8px;
-    padding: 4px;
+    border-radius: 4px;
+    padding: 2px;
 }}
 QTabBar QToolButton:hover {{
     background: {panel2};
     border-color: {border_strong};
 }}
 
-/* ========== Trees & Lists — bento cards, rounded selection ========== */
+/* ================= Trees & Lists ================= */
 QTreeView, QListView, QTableView {{
     background: transparent;
-    alternate-background-color: {bg3};
+    alternate-background-color: {bg2};
     border: none;
-    border-radius: 12px;
-    padding: 4px;
+    border-radius: 6px;
+    padding: 2px;
     outline: none;
-    font-size: 13px;
+    font-size: 12.5px;
 }}
 QTreeView::item, QListView::item, QTableView::item {{
-    padding: 9px 12px;
-    border-radius: 10px;
-    margin: 2px 2px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    margin: 1px 1px;
     color: {fg};
     border: 1px solid transparent;
 }}
@@ -832,14 +865,14 @@ QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{
     border-color: {border_subtle};
 }}
 QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
-    background: {accent};
-    color: {accent_text};
-    border: 1px solid {accent};
+    background: {accent_subtle};
+    color: {fg};
+    border: 1px solid {accent}44;
     font-weight: 600;
 }}
 QTreeView::item:selected:active, QListView::item:selected:active {{
-    background: {accent};
-    color: {accent_text};
+    background: {accent_subtle};
+    color: {fg};
 }}
 QTreeView::branch {{
     background: transparent;
@@ -857,16 +890,16 @@ QTreeView::branch:open:has-children:has-siblings {{
 QHeaderView::section {{
     background: {panel};
     border: none;
-    border-bottom: 1.5px solid {border};
+    border-bottom: 1px solid {border};
     border-right: 1px solid {border_subtle};
-    padding: 10px 14px;
+    padding: 6px 10px;
     font-weight: 700;
     color: {fg_dim};
-    font-size: 11.5px;
+    font-size: 11px;
     letter-spacing: 0.3px;
 }}
 
-/* ========== Splitter — subtle, organic ========== */
+/* ================= Splitter ================= */
 QSplitter::handle {{
     background: {border_subtle};
     width: 1px;
@@ -879,39 +912,35 @@ QSplitter::handle:vertical {{
     height: 1px;
 }}
 
-/* ========== Scrollbars — thin, rounded, natural ========== */
+/* ================= Scrollbars ================= */
 QScrollBar:vertical {{
     background: transparent;
     width: 10px;
-    margin: 4px 2px 4px 0px;
+    margin: 0px;
     border-radius: 5px;
 }}
 QScrollBar::handle:vertical {{
     background: {panel3};
-    border-radius: 5px;
-    min-height: 32px;
+    border-radius: 4px;
+    min-height: 28px;
     margin: 2px;
-    border: 1px solid {border_subtle};
 }}
 QScrollBar::handle:vertical:hover {{
-    background: {accent};
-    border-color: {accent};
+    background: {border_strong};
 }}
 QScrollBar:horizontal {{
     background: transparent;
     height: 10px;
-    margin: 0px 4px 2px 4px;
+    margin: 0px;
 }}
 QScrollBar::handle:horizontal {{
     background: {panel3};
-    min-width: 32px;
+    min-width: 28px;
     margin: 2px;
-    border-radius: 5px;
-    border: 1px solid {border_subtle};
+    border-radius: 4px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background: {accent};
-    border-color: {accent};
+    background: {border_strong};
 }}
 QScrollBar::add-line, QScrollBar::sub-line {{
     width: 0; height: 0;
@@ -921,12 +950,12 @@ QScrollBar::add-page, QScrollBar::sub-page {{
     background: transparent;
 }}
 
-/* ========== Status bar — soft, minimal ========== */
+/* ================= Status bar ================= */
 QStatusBar {{
     background: {panel};
     border-top: 1px solid {border_subtle};
     color: {fg_dim};
-    padding: 3px 14px;
+    padding: 2px 10px;
     font-size: 11.5px;
     min-height: 22px;
 }}
@@ -934,55 +963,54 @@ QStatusBar::item {{
     border: none;
 }}
 
-/* ========== Groups — bento card style ========== */
+/* ================= Groups ================= */
 QGroupBox {{
-    border: 1.5px solid {border};
-    border-radius: 14px;
-    margin-top: 18px;
-    padding: 18px 16px 16px 16px;
+    border: 1px solid {border};
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 14px 12px 12px 12px;
     background: {bg2};
     font-weight: 700;
-    font-size: 13px;
+    font-size: 12.5px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
-    left: 14px;
-    top: 4px;
-    padding: 3px 12px;
+    left: 10px;
+    top: 2px;
+    padding: 0px 6px;
     background: {bg2};
     color: {fg_dim};
-    border: 1px solid {border};
-    border-radius: 20px;
-    font-size: 11.5px;
+    border: none;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
 }}
 
-/* ========== Progress — rounded, natural ========== */
+/* ================= Progress ================= */
 QProgressBar {{
     background: {bg3};
-    border: 1px solid {border_subtle};
-    border-radius: 8px;
+    border: none;
+    border-radius: 4px;
     text-align: center;
-    height: 10px;
+    height: 8px;
     color: transparent;
 }}
 QProgressBar::chunk {{
     background: {accent};
-    border-radius: 7px;
+    border-radius: 4px;
 }}
 
-/* ========== Checkboxes & Radios — rounded, tactile ========== */
+/* ================= Checkboxes & Radios ================= */
 QCheckBox, QRadioButton {{
-    spacing: 10px;
+    spacing: 8px;
     color: {fg};
-    font-size: 13px;
-    padding: 3px 0px;
+    font-size: 12.5px;
+    padding: 2px 0px;
 }}
 QCheckBox::indicator, QRadioButton::indicator {{
-    width: 18px; height: 18px;
-    border-radius: 6px;
-    border: 1.5px solid {border_strong};
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    border: 1px solid {border_strong};
     background: {bg2};
 }}
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
@@ -992,38 +1020,37 @@ QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
 }}
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
     border-color: {accent};
-    background: {bg3};
 }}
 QCheckBox::indicator:checked:hover, QRadioButton::indicator:checked:hover {{
     background: {accent_hover};
     border-color: {accent_hover};
 }}
 QRadioButton::indicator {{
-    border-radius: 9px;
+    border-radius: 8px;
 }}
 
-/* ========== Labels — hierarchy, natural ========== */
+/* ================= Labels ================= */
 QLabel#muted {{
     color: {fg_dim};
 }}
 QLabel#h1 {{
-    font-size: 20px;
-    font-weight: 800;
+    font-size: 16px;
+    font-weight: 700;
     font-family: {ui_display};
-    letter-spacing: -0.3px;
+    letter-spacing: -0.2px;
     color: {fg};
 }}
 QLabel#h2 {{
-    font-size: 12.5px;
+    font-size: 11px;
     font-weight: 700;
-    color: {fg_dim};
-    letter-spacing: 0.5px;
+    color: {fg_muted};
+    letter-spacing: 0.6px;
     text-transform: uppercase;
 }}
 QLabel#caption {{
     font-size: 11.5px;
     color: {fg_dim};
-    letter-spacing: 0.2px;
+    letter-spacing: 0.1px;
 }}
 QFrame#hairline {{
     background: {border_subtle};
@@ -1031,17 +1058,17 @@ QFrame#hairline {{
     border: none;
 }}
 
-/* ========== Dialogs — bento modal ========== */
+/* ================= Dialogs ================= */
 QDialog {{
     background: {bg};
-    border-radius: 16px;
+    border-radius: 8px;
 }}
 
-/* ========== Cards — core bento element ========== */
+/* ================= Surfaces ================= */
 QWidget#card {{
     background: {bg2};
-    border: 1.5px solid {border};
-    border-radius: 14px;
+    border: 1px solid {border};
+    border-radius: 8px;
 }}
 QWidget#card_hover:hover {{
     border-color: {border_strong};
@@ -1056,8 +1083,11 @@ QWidget#sidebar {{
     background: {panel};
     border-right: 1px solid {border_subtle};
 }}
+QWidget#workArea {{
+    background: {bg};
+}}
 
-/* ========== Command bar — soft pill input ========== */
+/* ================= Command bar ================= */
 QWidget#commandBar {{
     background: {panel};
     border-top: 1px solid {border_subtle};
@@ -1065,16 +1095,16 @@ QWidget#commandBar {{
 }}
 QLabel#commandPrompt {{
     color: {accent};
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     padding-left: 4px;
 }}
 QLineEdit#commandLine {{
     background: {bg2};
-    border: 1.5px solid {border};
-    border-radius: 20px;
-    padding: 7px 14px;
-    font-size: 13px;
+    border: 1px solid {border};
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12.5px;
     min-height: 16px;
 }}
 QLineEdit#commandLine:focus {{
@@ -1085,7 +1115,7 @@ QLineEdit#commandLine:hover {{
     border-color: {border_strong};
 }}
 
-/* ========== Monitor panel — bento metrics ========== */
+/* ================= Monitor panel ================= */
 QWidget#monitorPanel {{
     background: {bg2};
     border-top: 1px solid {border_subtle};
@@ -1094,65 +1124,65 @@ QWidget#monitorPanel {{
 QWidget#monitorHeader {{
     background: {panel};
     border-bottom: 1px solid {border_subtle};
-    min-height: 30px;
+    min-height: 28px;
 }}
 QWidget#monitorBody {{
     background: {bg2};
 }}
 QWidget#monitorSummary {{
     background: {panel};
-    border: 1.5px solid {border};
-    border-radius: 12px;
-    min-width: 160px;
+    border: 1px solid {border};
+    border-radius: 6px;
+    min-width: 150px;
 }}
 QWidget#metricCell {{
     background: {bg2};
     border: 1px solid {border_subtle};
-    border-radius: 12px;
+    border-radius: 6px;
 }}
 QLabel#metricTitle {{
-    color: {fg_dim};
-    font-size: 11px;
+    color: {fg_muted};
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
 }}
 QLabel#metricValue {{
     color: {fg};
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 700;
 }}
 QLabel#monitorStatus {{
     color: {fg_dim};
-    font-size: 11.5px;
+    font-size: 11px;
     background: {bg3};
-    border-radius: 20px;
-    padding: 2px 10px;
+    border-radius: 4px;
+    padding: 1px 8px;
     border: 1px solid {border_subtle};
 }}
 QProgressBar#metricBar {{
     background: {bg3};
     border: 1px solid {border_subtle};
-    border-radius: 6px;
-    min-height: 6px;
-    max-height: 6px;
+    border-radius: 3px;
+    min-height: 5px;
+    max-height: 5px;
 }}
 QProgressBar#metricBar::chunk {{
     background: {accent};
-    border-radius: 5px;
+    border-radius: 3px;
 }}
 
-/* ========== Status session — subtle pill ========== */
+/* ================= Status session chip ================= */
 QLabel#statusSession {{
     color: {fg_dim};
-    font-size: 11.5px;
+    font-size: 11px;
     background: {bg3};
-    border-radius: 20px;
-    padding: 2px 10px;
+    border-radius: 4px;
+    padding: 1px 8px;
     border: 1px solid {border_subtle};
 }}
 
-/* ========== Scroll area — clean ========== */
+/* ================= Scroll area ================= */
 QScrollArea {{
     background: transparent;
     border: none;
@@ -1161,18 +1191,17 @@ QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}
 
-/* ========== Tab widget corner — rounded ========== */
 QTabWidget::tab-bar {{
     alignment: left;
 }}
 
-/* ========== SpinBox buttons — rounded ========== */
+/* ================= SpinBox buttons ================= */
 QSpinBox::up-button, QSpinBox::down-button {{
     background: {bg3};
     border: 1px solid {border_subtle};
-    border-radius: 6px;
-    width: 20px;
-    margin: 2px;
+    border-radius: 4px;
+    width: 18px;
+    margin: 1px;
 }}
 QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
     background: {panel2};

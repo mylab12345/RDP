@@ -103,7 +103,7 @@ def _make_group(title: str, pal: dict[str, str]) -> tuple[QFrame, QVBoxLayout]:
     card = QWidget()
     card.setObjectName("card")
     card.setStyleSheet(
-        f"QWidget#card {{ background: {pal['bg2']}; border: 1.5px solid {pal['border']}; border-radius: 14px; }}"
+        f"QWidget#card {{ background: {pal['bg2']}; border: 1px solid {pal['border']}; border-radius: 8px; }}"
     )
     v = QVBoxLayout(card)
     v.setContentsMargins(18, 18, 18, 16)
@@ -150,13 +150,13 @@ class _ThemeCard(QFrame):
         self.setMinimumWidth(130)
         self.setSizePolicy(self.sizePolicy().horizontalPolicy(), self.sizePolicy().verticalPolicy())
 
-        border = f"2px solid {accent}" if selected else f"1.5px solid {pal_data.get('border', '#333')}"
+        border = f"2px solid {accent}" if selected else f"1px solid {pal_data.get('border', '#333')}"
         self.setStyleSheet(
             f"""
             _ThemeCard {{
                 background: {bg};
                 border: {border};
-                border-radius: 14px;
+                border-radius: 8px;
             }}
             _ThemeCard:hover {{
                 border: 2px solid {accent};
@@ -224,12 +224,9 @@ class SettingsDialog(QDialog):
         # ── header ──
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
-        dot = QLabel("◉")
-        dot.setStyleSheet(f"color: {pal['accent']}; font-size: 16px;")
-        header_row.addWidget(dot)
         title = QLabel("Settings")
         title.setObjectName("h1")
-        title.setStyleSheet("font-size: 22px; font-weight: 800; letter-spacing: -0.4px;")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; letter-spacing: -0.2px;")
         header_row.addWidget(title)
         header_row.addStretch(1)
         outer.addLayout(header_row)
@@ -245,7 +242,7 @@ class SettingsDialog(QDialog):
                 background: {pal['bg2']};
                 qproperty-drawBase: 0;
                 border: 1px solid {pal['border']};
-                border-radius: 14px;
+                border-radius: 8px;
                 padding: 6px 4px;
             }}
             QTabBar::tab {{
@@ -383,8 +380,8 @@ class SettingsDialog(QDialog):
         self._font_preview.setStyleSheet(
             f"""
             background: {pal['bg3']};
-            border: 1.5px solid {pal['border']};
-            border-radius: 12px;
+            border: 1px solid {pal['border']};
+            border-radius: 6px;
             padding: 12px 14px;
             font-size: 13px;
             """
@@ -690,13 +687,13 @@ class SettingsDialog(QDialog):
         for card in self._theme_cards:
             card._selected = (card.theme_id == theme_id)
             pal_data = PALETTE.get(card.theme_id, PALETTE["dark"])
-            border = f"2px solid {pal_data['accent']}" if card.theme_id == theme_id else f"1.5px solid {pal_data.get('border', '#333')}"
+            border = f"2px solid {pal_data['accent']}" if card.theme_id == theme_id else f"1px solid {pal_data.get('border', '#333')}"
             card.setStyleSheet(
                 f"""
                 _ThemeCard {{
                     background: {pal_data['bg']};
                     border: {border};
-                    border-radius: 14px;
+                    border-radius: 8px;
                 }}
                 _ThemeCard:hover {{
                     border: 2px solid {pal_data['accent']};

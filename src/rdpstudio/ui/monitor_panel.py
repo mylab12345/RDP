@@ -36,8 +36,8 @@ class _MetricCell(QWidget):
             f"""
             QWidget#metricCell {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border_subtle']};
-                border-radius: 12px;
+                border: 1px solid {pal['border_subtle']};
+                border-radius: 6px;
             }}
             QWidget#metricCell:hover {{
                 border-color: {pal['border']};
@@ -235,7 +235,7 @@ class MonitorPanel(QWidget):
             color: {pal['fg_dim']};
             background: {pal['bg3']};
             border: 1px dashed {pal['border']};
-            border-radius: 12px;
+            border-radius: 6px;
             padding: 16px;
             """
         )
