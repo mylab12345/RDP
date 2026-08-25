@@ -8,19 +8,19 @@ import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-# Theme ids accepted in settings.json. Beautiful natural global theme — 2026 bento design.
+# Theme ids accepted in settings.json. Restrained, professional design system.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("dark", "🌙 Midnight — slate & mint · natural dark"),
-    ("graphite", "🪨 Graphite — neutral professional · blue accent"),
-    ("nord", "❄️ Nord — arctic cold · polar night & frost"),
-    ("dracula", "🧛 Dracula — purple night · pink & cyan"),
-    ("light", "☀️ Daylight — warm paper & forest · natural light"),
-    ("forest", "🌲 Forest — deep pine & moss · vibrant leaf"),
-    ("ocean", "🌊 Ocean — Atlantic deep teal · cyan"),
-    ("sunset", "🌅 Sunset — terracotta dusk · warm coral"),
-    ("aurora", "✨ Aurora — northern lights · mint & lavender"),
-    ("meadow", "🌾 Meadow — sage & cream · airy light"),
-    ("desert", "🏜️ Desert — sand & clay · sun-baked warm"),
+    ("dark", "Dark — neutral slate · blue accent (default)"),
+    ("graphite", "Graphite — warm gray · blue accent"),
+    ("nord", "Nord — arctic · polar night & frost"),
+    ("dracula", "Dracula — violet night · pink & cyan"),
+    ("light", "Light — paper white · forest green"),
+    ("forest", "Forest — deep pine · moss & leaf"),
+    ("ocean", "Ocean — deep teal · cyan"),
+    ("sunset", "Sunset — dusk · warm coral & amber"),
+    ("aurora", "Aurora — deep teal · mint & lavender"),
+    ("meadow", "Meadow — sage & cream · airy light"),
+    ("desert", "Desert — sand & clay · warm"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
 DARK_THEMES = {"dark", "graphite", "nord", "dracula", "forest", "ocean", "sunset", "aurora"}

@@ -1,10 +1,9 @@
-"""Left sidebar: searchable tree of saved sessions — beautiful natural bento design 2026."""
+"""Left sidebar: searchable tree of saved sessions — clean, compact, professional."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,7 +25,7 @@ ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
 
 
 class SessionTree(QWidget):
-    """Saved sessions with groups, search filter, context actions — natural bento."""
+    """Saved sessions with groups, search filter, context actions."""
 
     connectRequested = Signal(str)  # session id
     editRequested = Signal(str)
@@ -43,111 +42,64 @@ class SessionTree(QWidget):
         self._filter = ""
         self.setObjectName("sidebar")
 
+        pal = palette()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 16, 14, 14)
-        layout.setSpacing(14)
+        layout.setContentsMargins(10, 10, 10, 8)
+        layout.setSpacing(8)
 
-        # Header — natural, with accent dot
+        # Header — compact title + count
         header = QWidget()
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(4, 2, 4, 2)
+        hl.setContentsMargins(2, 0, 2, 0)
         hl.setSpacing(8)
 
-        dot = QLabel("◉")
-        pal = palette()
-        dot.setStyleSheet(f"color: {pal['accent']}; font-size: 14px;")
-        hl.addWidget(dot)
-
         title = QLabel("Sessions")
-        title.setObjectName("h1")
-        title.setStyleSheet("font-size: 18px; font-weight: 800; letter-spacing: -0.3px;")
+        title.setStyleSheet("font-size: 12px; font-weight: 700; color: {fg_dim};".format(**pal))
         hl.addWidget(title)
         hl.addStretch(1)
 
-        # Count badge — pill
         self._count_label = QLabel("")
-        self._count_label.setObjectName("countBadge")
+        self._count_label.setToolTip("Number of saved sessions")
         hl.addWidget(self._count_label)
         layout.addWidget(header)
 
-        # Search — pill, soft, natural
-        search_wrap = QWidget()
-        search_wrap.setObjectName("searchWrap")
-        pal = palette()
-        search_wrap.setStyleSheet(
-            f"""
-            QWidget#searchWrap {{
-                background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 22px;
-            }}
-            QWidget#searchWrap:focus-within {{
-                border-color: {pal['accent']};
-            }}
-            """
-        )
-        sl = QHBoxLayout(search_wrap)
-        sl.setContentsMargins(6, 4, 6, 4)
-        sl.setSpacing(6)
-
-        search_icon = QLabel("⌕")
-        search_icon.setStyleSheet(f"color: {pal['fg_dim']}; font-size: 14px; padding-left: 6px;")
-        sl.addWidget(search_icon)
-
+        # Search — standard input, icon inline
         self.search = QLineEdit()
-        self.search.setObjectName("searchInner")
+        self.search.setObjectName("search")
         self.search.setPlaceholderText("Search sessions…")
         self.search.setClearButtonEnabled(True)
-        self.search.setStyleSheet(
-            f"""
-            QLineEdit#searchInner {{
-                background: transparent;
-                border: none;
-                padding: 6px 8px;
-                font-size: 13px;
-                color: {pal['fg']};
-            }}
-            """
-        )
+        search_act = self.search.addAction(icon("search"), QLineEdit.ActionPosition.LeadingPosition)
+        search_act.setToolTip("Filter sessions by name, host, tag or folder")
         self.search.textChanged.connect(self._on_search)
-        sl.addWidget(self.search, 1)
-        layout.addWidget(search_wrap)
+        self.search.setFixedHeight(30)
+        layout.addWidget(self.search)
 
-        # Toolbar — bento pill buttons
+        # Actions — consistent compact buttons
         bar_wrap = QWidget()
         bl = QHBoxLayout(bar_wrap)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(8)
+        bl.setSpacing(6)
 
-        def make_btn(text, icon_name, tip, cb, primary=False):
-            b = QPushButton(text)
+        def make_btn(label, icon_name, tip, cb, primary=False):
+            b = QPushButton(label)
             b.setIcon(icon(icon_name))
             b.setObjectName("primary" if primary else "subtle")
             b.setToolTip(tip)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(cb)
-            b.setMinimumHeight(36)
-            b.setStyleSheet(
-                """
-                QPushButton {
-                    border-radius: 11px;
-                    padding: 6px 12px;
-                    font-weight: 600;
-                    font-size: 12.5px;
-                }
-                """
-            )
+            b.setFixedHeight(28)
             return b
 
-        btn_new = make_btn(" New", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
+        btn_new = make_btn("New", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
         btn_local = make_btn(
-            " Term",
+            "Terminal",
             "console",
             "Open a local shell in a new tab (Ctrl+Shift+T)",
             self.localTerminalRequested.emit,
         )
-        btn_folder = make_btn(" Folder", "folder", "New folder", self.newFolderRequested.emit)
-        bl.addWidget(btn_new, 1)
-        bl.addWidget(btn_local, 1)
+        btn_folder = make_btn("Folder", "folder", "New folder", self.newFolderRequested.emit)
+        bl.addWidget(btn_new, 2)
+        bl.addWidget(btn_local, 2)
         bl.addWidget(btn_folder, 1)
         layout.addWidget(bar_wrap)
 
@@ -157,17 +109,17 @@ class SessionTree(QWidget):
         self._search_timer.setInterval(140)
         self._search_timer.timeout.connect(self.reload)
 
-        # Tree — bento cards
+        # Tree — compact rows, keyboard navigable
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setAlternatingRowColors(False)
-        self.tree.setAnimated(True)
-        self.tree.setIndentation(18)
+        self.tree.setAnimated(False)
+        self.tree.setIndentation(14)
         self.tree.setRootIsDecorated(True)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(self._double_clicked)
-        self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.tree.setStyleSheet(
             f"""
             QTreeView {{
@@ -176,10 +128,10 @@ class SessionTree(QWidget):
                 outline: none;
             }}
             QTreeView::item {{
-                min-height: 38px;
-                border-radius: 11px;
-                margin: 2px 4px;
-                padding: 6px 8px;
+                min-height: 28px;
+                border-radius: 5px;
+                margin: 0px 1px;
+                padding: 2px 4px;
                 border: 1px solid transparent;
             }}
             QTreeView::item:hover {{
@@ -187,9 +139,9 @@ class SessionTree(QWidget):
                 border-color: {pal['border_subtle']};
             }}
             QTreeView::item:selected {{
-                background: {pal['accent']};
-                color: {pal['accent_text']};
-                border-color: {pal['accent']};
+                background: {pal['accent_subtle']};
+                color: {pal['fg']};
+                border-color: {pal['accent']}44;
             }}
             QTreeView::branch {{
                 background: transparent;
@@ -198,27 +150,11 @@ class SessionTree(QWidget):
         )
         layout.addWidget(self.tree, 1)
 
-        # Footer hint — bento card
-        hint = QFrame()
-        hint.setObjectName("card")
-        pal = palette()
-        hint.setStyleSheet(
-            f"""
-            QFrame#card {{
-                background: {pal['bg3']};
-                border: 1px solid {pal['border_subtle']};
-                border-radius: 12px;
-            }}
-            """
-        )
-        hint_l = QHBoxLayout(hint)
-        hint_l.setContentsMargins(12, 10, 12, 10)
-        self._hint = QLabel("Double-click to connect  •  Right-click for actions")
-        self._hint.setObjectName("caption")
-        self._hint.setWordWrap(True)
-        self._hint.setStyleSheet(f"font-size: 11px; color: {pal['fg_dim']};")
-        hint_l.addWidget(self._hint)
-        layout.addWidget(hint)
+        # Footer hint — plain caption
+        self._hint = QLabel("Double-click to connect · Right-click for actions")
+        self._hint.setToolTip("Keyboard: Up/Down to move, Enter to connect, Menu key for actions")
+        self._hint.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']}; padding: 2px;")
+        layout.addWidget(self._hint)
 
         self.reload()
 
@@ -236,20 +172,20 @@ class SessionTree(QWidget):
         sessions = self.store.sessions()
         total = len(sessions)
 
-        # Update count badge with pill styling
+        # Count badge — subtle
         pal = palette()
         if total:
-            self._count_label.setText(f"{total}")
+            self._count_label.setText(str(total))
             self._count_label.setStyleSheet(
                 f"""
                 QLabel {{
-                    background: {pal['accent_subtle']};
-                    color: {pal['accent']};
-                    border: 1px solid {pal['accent']}30;
-                    border-radius: 20px;
-                    padding: 2px 10px;
+                    background: {pal['bg3']};
+                    color: {pal['fg_dim']};
+                    border: 1px solid {pal['border_subtle']};
+                    border-radius: 4px;
+                    padding: 0px 7px;
                     font-size: 11px;
-                    font-weight: 700;
+                    font-weight: 600;
                 }}
                 """
             )
@@ -275,7 +211,7 @@ class SessionTree(QWidget):
         for s in sorted(groups.get("", []), key=lambda x: x.display_name().lower()):
             self._add_session_item(self.tree.invisibleRootItem(), s, reg)
         for name in sorted(g for g in groups if g):
-            folder = QTreeWidgetItem([f"  {name}"])
+            folder = QTreeWidgetItem([name])
             folder.setData(0, ROLE_GROUP, name)
             folder.setIcon(0, icon("folder"))
             folder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
@@ -289,8 +225,7 @@ class SessionTree(QWidget):
             self.tree.expandAll()
 
     def _add_session_item(self, parent, s: Session, reg) -> None:
-        # Natural: show name with subtle protocol indicator
-        item = QTreeWidgetItem([f"  {s.display_name()}"])
+        item = QTreeWidgetItem([s.display_name()])
         item.setData(0, ROLE_ID, s.id)
         icon_name = reg.get(s.protocol).icon_name if reg.get(s.protocol) else "server"
         item.setIcon(0, icon(icon_name))
@@ -337,25 +272,6 @@ class SessionTree(QWidget):
     def _context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
         menu = QMenu(self)
-        pal = palette()
-        menu.setStyleSheet(
-            f"""
-            QMenu {{
-                background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 14px;
-                padding: 6px;
-            }}
-            QMenu::item {{
-                padding: 9px 14px;
-                border-radius: 10px;
-                margin: 1px 2px;
-            }}
-            QMenu::item:selected {{
-                background: {pal['accent_subtle']};
-            }}
-            """
-        )
         if item is not None:
             session_id = item.data(0, ROLE_ID)
             if session_id:

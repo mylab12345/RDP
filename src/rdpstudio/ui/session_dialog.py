@@ -47,8 +47,8 @@ def _display_mode_of(session: Session):
     return f"{size[0]}x{size[1]}" if size in RDP_RESOLUTIONS else "custom"
 
 
-_INVALID_STYLE = "border: 1.5px solid {bad};"
-_VALID_STYLE = "border: 1.5px solid {border};"
+_INVALID_STYLE = "border: 1px solid {bad};"
+_VALID_STYLE = "border: 1px solid {border};"
 
 
 class SessionDialog(QDialog):
@@ -220,7 +220,7 @@ class SessionDialog(QDialog):
         br = 14
         card.setStyleSheet(
             f"QWidget#card {{ background: {self._pal['bg2']}; "
-            f"border: 1.5px solid {self._pal['border']}; "
+            f"border: 1px solid {self._pal['border']}; "
             f"border-radius: {br}px; }}"
         )
         outer = QVBoxLayout(card)
@@ -280,7 +280,7 @@ class SessionDialog(QDialog):
         le.setMinimumHeight(34)
         le.setStyleSheet(
             f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1.5px solid {self._pal['border']}; border-radius: 8px; "
+            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
             f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
             f"QLineEdit:focus {{ border-color: {self._pal['accent']}; }}"
             f"QLineEdit:disabled {{ color: {self._pal['fg_muted']}; "
@@ -297,7 +297,7 @@ class SessionDialog(QDialog):
             sb.setSuffix(suffix)
         sb.setStyleSheet(
             f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1.5px solid {self._pal['border']}; border-radius: 8px; "
+            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
             f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
             f"QSpinBox:focus {{ border-color: {self._pal['accent']}; }}"
             f"QSpinBox:disabled {{ color: {self._pal['fg_muted']}; "
@@ -310,7 +310,7 @@ class SessionDialog(QDialog):
         cb.setMinimumHeight(34)
         cb.setStyleSheet(
             f"QComboBox {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1.5px solid {self._pal['border']}; border-radius: 8px; "
+            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
             f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
             f"QComboBox:focus {{ border-color: {self._pal['accent']}; }}"
             f"QComboBox::drop-down {{ border: none; width: 28px; }}"
@@ -329,7 +329,7 @@ class SessionDialog(QDialog):
         cb.setStyleSheet(
             f"QCheckBox {{ font-size: 13px; color: {self._pal['fg']}; spacing: 8px; }}"
             f"QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; "
-            f"border: 1.5px solid {self._pal['border']}; background: {self._pal['bg3']}; }}"
+            f"border: 1px solid {self._pal['border']}; background: {self._pal['bg3']}; }}"
             f"QCheckBox::indicator:checked {{ background: {self._pal['accent']}; "
             f"border-color: {self._pal['accent']}; }}"
             f"QCheckBox::indicator:hover {{ border-color: {self._pal['accent']}; }}"
@@ -347,7 +347,7 @@ class SessionDialog(QDialog):
             obj = btn.objectName()
             if obj == "primary":
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {p['panel2']}; color: {p['fg']}; border: 1.5px solid {p['border']}; "
+                    f"QPushButton {{ background: {p['panel2']}; color: {p['fg']}; border: 1px solid {p['border']}; "
                     f"border-radius: 8px; font-size: 13px; font-weight: 600; padding: 8px 18px; }}"
                     f"QPushButton:hover {{ background: {p['panel3']}; border-color: {p['border_strong']}; }}"
                     f"QPushButton:pressed {{ background: {p['border']}; }}"
@@ -361,7 +361,7 @@ class SessionDialog(QDialog):
                 )
             elif obj == "danger":
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: transparent; color: {p['bad']}; border: 1.5px solid {p['bad']}; "
+                    f"QPushButton {{ background: transparent; color: {p['bad']}; border: 1px solid {p['bad']}; "
                     f"border-radius: 8px; font-size: 13px; font-weight: 600; padding: 8px 18px; }}"
                     f"QPushButton:hover {{ background: {p['bad']}18; }}"
                     f"QPushButton:pressed {{ background: {p['bad']}30; }}"
@@ -849,7 +849,7 @@ class SessionDialog(QDialog):
             if not host_text:
                 self.host.setStyleSheet(
                     f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1.5px solid {p['bad']}; border-radius: 8px; "
+                    f"border: 1px solid {p['bad']}; border-radius: 8px; "
                     f"background: {p['bg3']}; color: {p['fg']}; }}"
                     f"QLineEdit:focus {{ border-color: {p['bad']}; }}"
                 )
@@ -857,7 +857,7 @@ class SessionDialog(QDialog):
             else:
                 self.host.setStyleSheet(
                     f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1.5px solid {p['border']}; border-radius: 8px; "
+                    f"border: 1px solid {p['border']}; border-radius: 8px; "
                     f"background: {p['bg3']}; color: {p['fg']}; }}"
                     f"QLineEdit:focus {{ border-color: {p['accent']}; }}"
                 )
@@ -866,7 +866,7 @@ class SessionDialog(QDialog):
             if port_val < 1 or port_val > 65535:
                 self.port.setStyleSheet(
                     f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1.5px solid {p['bad']}; border-radius: 8px; "
+                    f"border: 1px solid {p['bad']}; border-radius: 8px; "
                     f"background: {p['bg3']}; color: {p['fg']}; }}"
                     f"QSpinBox:focus {{ border-color: {p['bad']}; }}"
                 )
@@ -874,7 +874,7 @@ class SessionDialog(QDialog):
             else:
                 self.port.setStyleSheet(
                     f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-                    f"border: 1.5px solid {p['border']}; border-radius: 8px; "
+                    f"border: 1px solid {p['border']}; border-radius: 8px; "
                     f"background: {p['bg3']}; color: {p['fg']}; }}"
                     f"QSpinBox:focus {{ border-color: {p['accent']}; }}"
                 )
@@ -885,7 +885,7 @@ class SessionDialog(QDialog):
         wname = type(widget).__name__
         widget.setStyleSheet(
             f"{wname} {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1.5px solid {p['bad']}; border-radius: 8px; "
+            f"border: 1px solid {p['bad']}; border-radius: 8px; "
             f"background: {p['bg3']}; color: {p['fg']}; }}"
             f"{wname}:focus {{ border-color: {p['bad']}; }}"
         )
@@ -896,7 +896,7 @@ class SessionDialog(QDialog):
         wname = type(widget).__name__
         widget.setStyleSheet(
             f"{wname} {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1.5px solid {p['border']}; border-radius: 8px; "
+            f"border: 1px solid {p['border']}; border-radius: 8px; "
             f"background: {p['bg3']}; color: {p['fg']}; "
             f"font-size: 13px; }}"
             f"{wname}:focus {{ border-color: {p['accent']}; }}"

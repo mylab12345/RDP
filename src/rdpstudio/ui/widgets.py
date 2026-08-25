@@ -73,12 +73,12 @@ class StateChip(QLabel):
             QLabel {{
                 background: {bg};
                 color: {text_color};
-                border: 1.5px solid {border};
-                border-radius: 20px;
-                padding: 4px 14px 4px 12px;
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 2px 9px 2px 8px;
                 font-size: 11px;
                 font-weight: 700;
-                letter-spacing: 0.6px;
+                letter-spacing: 0.3px;
                 font-family: "Inter", "Nimbus Sans L", "DejaVu Sans", sans-serif;
             }}
             """
@@ -142,14 +142,14 @@ class Toast(QWidget):
             f"""
             QWidget#toastCard {{
                 background: {bg};
-                border: 1.5px solid {pal['border']};
-                border-radius: 14px;
+                border: 1px solid {pal['border']};
+                border-radius: 8px;
                 padding: 2px;
             }}
             QLabel#toastIcon {{
                 background: {border}18;
                 color: {border};
-                border-radius: 10px;
+                border-radius: 6px;
                 padding: 8px;
                 font-weight: 800;
                 font-size: 14px;
@@ -229,8 +229,8 @@ class ModernCard(QWidget):
             f"""
             QWidget#card {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 14px;
+                border: 1px solid {pal['border']};
+                border-radius: 8px;
             }}
             QWidget#card:hover {{
                 border-color: {pal['border_strong']};
@@ -270,8 +270,8 @@ class PillBadge(QLabel):
                 background: {bg};
                 color: {fg};
                 border: 1px solid {border};
-                border-radius: 20px;
-                padding: 2px 10px;
+                border-radius: 4px;
+                padding: 1px 8px;
                 font-size: 11px;
                 font-weight: 700;
             }}
@@ -345,7 +345,7 @@ class ModernButton(QPushButton):
                 background: {bg};
                 color: {fg};
                 border: 1px solid {border};
-                border-radius: 11px;
+                border-radius: 6px;
                 padding: {padding};
                 font-size: {font_size};
                 font-weight: {fw};
@@ -361,7 +361,7 @@ class ModernButton(QPushButton):
                 border-color: {bd_p};
             }}
             QPushButton:focus {{
-                border: 1.5px solid {pal['accent']};
+                border: 1px solid {pal['accent']};
                 outline: none;
             }}
             QPushButton:disabled {{
@@ -400,8 +400,8 @@ class ModernLineEdit(QLineEdit):
             f"""
             QLineEdit {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 11px;
+                border: 1px solid {pal['border']};
+                border-radius: 6px;
                 padding: 8px 14px 8px {left_pad};
                 color: {pal['fg']};
                 font-size: 13px;
@@ -414,7 +414,7 @@ class ModernLineEdit(QLineEdit):
                 border-color: {pal['border_strong']};
             }}
             QLineEdit:focus {{
-                border: 1.5px solid {pal['accent']};
+                border: 1px solid {pal['accent']};
             }}
             QLineEdit:disabled {{
                 background: {pal['bg']};
@@ -451,8 +451,8 @@ class ModernComboBox(QComboBox):
             f"""
             QComboBox {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 11px;
+                border: 1px solid {pal['border']};
+                border-radius: 6px;
                 padding: 8px 36px 8px 14px;
                 color: {pal['fg']};
                 font-size: 13px;
@@ -463,7 +463,7 @@ class ModernComboBox(QComboBox):
                 border-color: {pal['border_strong']};
             }}
             QComboBox:focus {{
-                border: 1.5px solid {pal['accent']};
+                border: 1px solid {pal['accent']};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -483,7 +483,7 @@ class ModernComboBox(QComboBox):
             QComboBox QAbstractItemView {{
                 background: {pal['bg2']};
                 border: 1px solid {pal['border']};
-                border-radius: 12px;
+                border-radius: 6px;
                 padding: 6px;
                 selection-background-color: {pal['accent_subtle']};
                 selection-color: {pal['fg']};
@@ -525,10 +525,10 @@ class SectionHeader(QWidget):
         title_label.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 12.5px;
+                font-size: 11px;
                 font-weight: 700;
-                color: {pal['fg_dim']};
-                letter-spacing: 0.5px;
+                color: {pal['fg_muted']};
+                letter-spacing: 0.6px;
                 font-family: {_FONT};
                 background: transparent;
             }}
@@ -565,7 +565,7 @@ class SectionHeader(QWidget):
         underline = QFrame()
         underline.setFixedHeight(1)
         underline.setStyleSheet(
-            f"background: {pal['accent']}; border: none; border-radius: 1px;"
+            f"background: {pal['border']}; border: none;"
         )
         layout.addWidget(underline)
 
@@ -826,8 +826,8 @@ class SearchInput(QWidget):
             f"""
             QLineEdit {{
                 background: {pal['bg3']};
-                border: 1.5px solid {pal['border_subtle']};
-                border-radius: 20px;
+                border: 1px solid {pal['border_subtle']};
+                border-radius: 6px;
                 padding: 8px 36px 8px 4px;
                 color: {pal['fg']};
                 font-size: 13px;
@@ -855,7 +855,7 @@ class SearchInput(QWidget):
                 background: transparent;
                 color: {pal['fg_dim']};
                 border: none;
-                border-radius: 12px;
+                border-radius: 6px;
                 font-size: 12px;
                 font-weight: 700;
             }}
@@ -911,8 +911,8 @@ class CollapsibleCard(QWidget):
             f"""
             QWidget#card {{
                 background: {pal['bg2']};
-                border: 1.5px solid {pal['border']};
-                border-radius: 14px;
+                border: 1px solid {pal['border']};
+                border-radius: 8px;
             }}
             """
         )
