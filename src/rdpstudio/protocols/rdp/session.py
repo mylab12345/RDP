@@ -155,8 +155,7 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
     host, port = defn.endpoint()
     args = ["/v:" + (f"{host}:{port}" if port != 3389 else host)]
     if defn.username:
-        domain_prefix = f"{defn.domain}\\" if defn.domain else ""
-        args.append(f"/u:{domain_prefix}{defn.username}")
+        args.append(f"/u:{defn.username}")
     if password and defn.rdp_pass_on_cmdline:
         # explicit opt-in only; default path routes the secret via args file
         args.append(f"/p:{password}")
@@ -169,9 +168,23 @@ def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
         args.append("/f")
     if defn.rdp_drives:
         args.append(f"/drive:KB-Remote,{os.path.expanduser('~')}")
-    args.append("/cert:ignore" if defn.rdp_cert_ignore else "/cert:tofu")
+    if getattr(defn, "rdp_printer", False):
+        args.append("/printer")
+    audio = getattr(defn, "rdp_audio_mode", "local")
+    if audio == "remote":
+        args.append("/sound:sys:pulse")
+        args.append("/audio-mode:0")
+    elif audio == "none":
+        args.append("-sound")
+        args.append("/audio-mode:2")
+    else:
+        args.append("/sound:sys:pulse")
+        args.append("/audio-mode:1")
+    args.append("/cert:ignore")
     args.append("+auto-reconnect")
     args.append("/network:auto")
+    if defn.domain:
+        args.append(f"/d:{defn.domain}")
     if defn.rdp_gateway_host:
         args.append(f"/g:{defn.rdp_gateway_host}:{defn.rdp_gateway_port}")
         if defn.rdp_gateway_user:

@@ -40,7 +40,7 @@ def build_rdp_text(defn: Session) -> str:
         "bitmapcachepersistenable:i:1",
         f"redirectclipboard:i:{1 if defn.rdp_clipboard else 0}",
         f"drivestoredirect:s:{'*' if defn.rdp_drives else ''}",
-        "redirectprinters:i:0",
+        f"redirectprinters:i:{1 if getattr(defn, 'rdp_printer', False) else 0}",
         "redirectcomports:i:0",
         "redirectsmartcards:i:0",
         "redirectposdevices:i:0",

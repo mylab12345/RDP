@@ -152,6 +152,8 @@ class Session:
     rdp_fit_screen: bool = True  # scale the remote desktop to fit the RDP window
     rdp_clipboard: bool = True
     rdp_drives: bool = False
+    rdp_printer: bool = False
+    rdp_audio_mode: str = "local"  # local | remote | none
     rdp_cert_ignore: bool = False
     rdp_pass_on_cmdline: bool = False  # FreeRDP only; visible in `ps`, off by default
     rdp_gateway_host: str = ""
@@ -219,6 +221,8 @@ class Session:
             "rdp_fit_screen": self.rdp_fit_screen,
             "rdp_clipboard": self.rdp_clipboard,
             "rdp_drives": self.rdp_drives,
+            "rdp_printer": self.rdp_printer,
+            "rdp_audio_mode": self.rdp_audio_mode,
             "rdp_cert_ignore": self.rdp_cert_ignore,
             "rdp_pass_on_cmdline": self.rdp_pass_on_cmdline,
             "rdp_gateway_host": self.rdp_gateway_host,
@@ -283,6 +287,9 @@ class Session:
         s.rdp_fit_screen = bool(d.get("rdp_fit_screen", True))
         s.rdp_clipboard = bool(d.get("rdp_clipboard", True))
         s.rdp_drives = bool(d.get("rdp_drives", False))
+        s.rdp_printer = bool(d.get("rdp_printer", False))
+        rdp_audio = str(d.get("rdp_audio_mode") or "local")
+        s.rdp_audio_mode = rdp_audio if rdp_audio in ("local", "remote", "none") else "local"
         s.rdp_cert_ignore = bool(d.get("rdp_cert_ignore", False))
         s.rdp_pass_on_cmdline = bool(d.get("rdp_pass_on_cmdline", False))
         s.rdp_gateway_host = str(d.get("rdp_gateway_host") or "")
