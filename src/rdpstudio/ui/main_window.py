@@ -190,7 +190,12 @@ class SessionTab(QWidget):
             b.setToolTip(tip)
             b.clicked.connect(cb)
             b.setFixedHeight(26)
-            b.setStyleSheet(b.styleSheet() + "font-size: 11.5px; padding: 2px 10px;")
+            b.setFixedWidth(70)
+            b.setStyleSheet(
+                b.styleSheet()
+                + "font-size: 11px; font-weight: 600; padding: 2px 8px; "
+                + "border-radius: 4px;"
+            )
             return b
 
         # One state-aware action button: Stop while live, Reconnect when down.
@@ -200,7 +205,12 @@ class SessionTab(QWidget):
         self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
         self.btn_reconnect.setFixedHeight(26)
-        self.btn_reconnect.setStyleSheet(self.btn_reconnect.styleSheet() + "font-size: 11.5px; padding: 2px 12px;")
+        self.btn_reconnect.setFixedWidth(80)
+        self.btn_reconnect.setStyleSheet(
+            self.btn_reconnect.styleSheet()
+            + "font-size: 11px; font-weight: 700; padding: 2px 10px; "
+            + "border-radius: 4px;"
+        )
         h.addWidget(self.btn_reconnect)
 
         caps = controller.capabilities()
@@ -208,6 +218,19 @@ class SessionTab(QWidget):
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             h.addWidget(b)
+
+        # Close button for the tab
+        close_btn = QPushButton()
+        close_btn.setIcon(icon("close"))
+        close_btn.setObjectName("ghost")
+        close_btn.setToolTip("Close this session tab")
+        close_btn.setFixedSize(24, 24)
+        close_btn.setStyleSheet(
+            "QPushButton { border-radius: 4px; padding: 2px; }"
+            "QPushButton:hover { background: " + palette()["panel3"] + "; }"
+        )
+        close_btn.clicked.connect(lambda: self.main.close_tab(self.main.tabs.indexOf(self)))
+        h.addWidget(close_btn)
 
         layout.addWidget(header)
 
@@ -470,6 +493,11 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self._close_right_current)
         m_tabs.addAction(a)
 
+        a = QAction("Close &All Tabs", self)
+        a.setShortcut(QKeySequence("Ctrl+Shift+W"))
+        a.triggered.connect(self._close_all_tabs)
+        m_tabs.addAction(a)
+
         act_dupl = QAction("&Duplicate Tab", self)
         act_dupl.setShortcut(QKeySequence("Ctrl+Shift+D"))
         act_dupl.triggered.connect(self.duplicate_current_tab)
@@ -583,6 +611,14 @@ class MainWindow(QMainWindow):
         add_tool("server", "Scan", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
 
+        bar.addSeparator()
+
+        # Close all tabs button
+        self._close_all_btn = bar.addAction(icon("close"), "Close All")
+        self._close_all_btn.setToolTip("Close all open session tabs")
+        self._close_all_btn.triggered.connect(self._close_all_tabs)
+        self._close_all_btn.setVisible(False)
+
         add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
 
         self.addToolBar(bar)
@@ -606,7 +642,7 @@ class MainWindow(QMainWindow):
         tl.setSpacing(0)
 
         self.tabs = QTabWidget()
-        self.tabs.setTabPosition(QTabWidget.TabPosition.South)
+        self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True)
@@ -620,11 +656,22 @@ class MainWindow(QMainWindow):
             lambda idx: (self.tabs.setCurrentIndex(idx), self._rename_current_tab())
         )
 
-        # Corner buttons
+        # Corner buttons — session count + quick actions
         corner = QWidget()
         cl = QHBoxLayout(corner)
         cl.setContentsMargins(4, 2, 8, 2)
         cl.setSpacing(4)
+
+        # Session count indicator
+        self._tab_count_label = QLabel("0")
+        self._tab_count_label.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {palette()['fg_dim']}; "
+            f"background: {palette()['bg3']}; border-radius: 8px; padding: 1px 6px;"
+        )
+        self._tab_count_label.setFixedHeight(18)
+        self._tab_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._tab_count_label.setToolTip("Number of open sessions")
+        cl.addWidget(self._tab_count_label)
 
         plus = QPushButton()
         plus.setIcon(icon("plus"))
@@ -633,6 +680,23 @@ class MainWindow(QMainWindow):
         plus.setFixedSize(26, 22)
         plus.clicked.connect(self.new_session)
         cl.addWidget(plus)
+
+        terminal = QPushButton()
+        terminal.setIcon(icon("console"))
+        terminal.setObjectName("ghost")
+        terminal.setToolTip("Local terminal (Ctrl+Shift+T)")
+        terminal.setFixedSize(26, 22)
+        terminal.clicked.connect(self.open_local_terminal)
+        cl.addWidget(terminal)
+
+        settings = QPushButton()
+        settings.setIcon(icon("gear"))
+        settings.setObjectName("ghost")
+        settings.setToolTip("Settings (Ctrl+,)")
+        settings.setFixedSize(26, 22)
+        settings.clicked.connect(self.open_settings)
+        cl.addWidget(settings)
+
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
         self.tabs.tabCloseRequested.connect(self.close_tab)
@@ -914,6 +978,14 @@ class MainWindow(QMainWindow):
         has_tabs = self.tabs.count() > 0
         self._empty.setVisible(not has_tabs)
         self._tabs_container.setVisible(has_tabs)
+        # Update the tab count badge in the corner widget
+        if hasattr(self, "_tab_count_label"):
+            count = self.tabs.count()
+            self._tab_count_label.setText(str(count))
+            self._tab_count_label.setVisible(count > 0)
+        # Show/hide the "Close All" toolbar button
+        if hasattr(self, "_close_all_btn"):
+            self._close_all_btn.setVisible(has_tabs)
 
     # ------------------------------------------------------------------
     # Tab actions & Context menu
@@ -956,6 +1028,24 @@ class MainWindow(QMainWindow):
         idx = self.tabs.currentIndex()
         if idx >= 0:
             self._close_tabs_right(idx)
+
+    def _close_all_tabs(self) -> None:
+        """Close all open tabs."""
+        if self.tabs.count() == 0:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(APP_NAME)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(f"Close all {self.tabs.count()} tabs?")
+        box.setInformativeText("Active sessions will be stopped.")
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.button(QMessageBox.StandardButton.Yes).setText("Close All")
+        box.button(QMessageBox.StandardButton.No).setText("Cancel")
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        # Close tabs from last to first to avoid index shifting
+        for i in range(self.tabs.count() - 1, -1, -1):
+            self.close_tab(i)
 
     def _rename_current_tab(self) -> None:
         idx = self.tabs.currentIndex()
@@ -1011,6 +1101,7 @@ class MainWindow(QMainWindow):
         menu.addAction("Close Tab\tCtrl+W", lambda: self.close_tab(index))
         menu.addAction("Close Other Tabs", lambda: self._close_other_tabs(index))
         menu.addAction("Close Tabs to the Right", lambda: self._close_tabs_right(index))
+        menu.addAction("Close All Tabs", self._close_all_tabs)
         menu.addSeparator()
         menu.addAction("Duplicate Tab\tCtrl+Shift+D", lambda: self.open_session(widget.controller.definition))
         menu.addAction("Rename Tab…", lambda: self._rename_tab(index, widget))

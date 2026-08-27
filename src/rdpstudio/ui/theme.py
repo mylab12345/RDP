@@ -447,6 +447,7 @@ GLYPH_FALLBACK = {
     "transfer": "⇩",
     "shield": "⛨",
     "plus": "＋",
+    "close": "✕",
     "connect": "↻",
     "search": "⌕",
     "edit": "✎",
@@ -926,43 +927,46 @@ QTabWidget::pane {{
 QTabBar {{
     background: {panel};
     qproperty-drawBase: 0;
-    border-top: 1px solid {border_subtle};
-    border-bottom: none;
+    border-bottom: 1px solid {border_subtle};
+    border-top: none;
 }}
 QTabBar::tab {{
     background: transparent;
     color: {fg_dim};
-    padding: 5px 14px;
+    padding: 6px 14px;
     border: none;
-    border-top: 2px solid transparent;
+    border-bottom: 2px solid transparent;
     border-radius: 0px;
     margin-right: 1px;
     font-weight: 600;
     font-size: 12px;
-    min-height: 22px;
-    /* bounded tabs + the built-in » overflow menu keep the chrome tidy
+    min-height: 24px;
+    /* bounded tabs + the built-in overflow menu keep the chrome tidy
        when many sessions are open */
     max-width: 180px;
 }}
 QTabBar::tab:selected {{
     background: {bg};
     color: {fg};
-    border-top: 2px solid {accent};
+    border-bottom: 2px solid {accent};
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
     color: {fg};
 }}
 QTabBar::close-button {{
-    image: none;
     subcontrol-position: right;
-    width: 16px; height: 16px;
+    width: 18px; height: 18px;
     border-radius: 4px;
-    margin-left: 6px;
+    margin-left: 4px;
+    margin-right: 2px;
     background: transparent;
 }}
 QTabBar::close-button:hover {{
     background: {panel3};
+}}
+QTabBar::close-button:pressed {{
+    background: {bad};
 }}
 QTabBar QToolButton {{
     background: {bg3};
