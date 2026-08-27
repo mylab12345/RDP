@@ -13,7 +13,9 @@ No bundled fonts or extra resources — only system fonts and SVG icons.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -590,6 +592,53 @@ def current_density() -> str:
     return _density
 
 
+# ----------------------------------------------------------------------
+# Theme-change notifications
+# ----------------------------------------------------------------------
+# Widgets that bake palette colours into inline styles or pre-rendered
+# icons (chips, dashboard, tab badges) register a callback here so a live
+# theme switch re-tints them instead of showing stale colours.
+_theme_changed_callbacks: list = []
+
+
+def add_theme_changed_callback(cb) -> None:
+    """Register ``cb()`` to run after every successful apply_theme()."""
+    if cb not in _theme_changed_callbacks:
+        _theme_changed_callbacks.append(cb)
+
+
+def remove_theme_changed_callback(cb) -> None:
+    try:
+        _theme_changed_callbacks.remove(cb)
+    except ValueError:
+        pass
+
+
+def _fire_theme_changed() -> None:
+    for cb in list(_theme_changed_callbacks):
+        try:
+            cb()
+        except Exception:  # noqa: BLE001 — one broken view must not kill theming
+            from ..core.log import log
+
+            log.exception("theme-change callback failed")
+
+
+# Per-protocol accent colours (palette keys) so tabs, rows and previews
+# read the protocol at a glance: SSH green, RDP blue, local = theme accent.
+PROTOCOL_TINTS: dict[str, str] = {"ssh": "good", "rdp": "info", "local": "accent"}
+
+
+def protocol_tint(protocol: str) -> str:
+    """Palette key used to colour-mark ``protocol``."""
+    return PROTOCOL_TINTS.get((protocol or "").lower(), "accent")
+
+
+def protocol_badge(protocol: str, icon_name: str, size: int = 16) -> QIcon:
+    """Rounded-tile icon in the protocol's accent colour — for tabs & rows."""
+    return badge_icon(icon_name, size, palette()[protocol_tint(protocol)])
+
+
 def palette(theme: str | None = None) -> dict[str, str]:
     """Palette for ``theme`` — defaults to the currently applied theme."""
     return PALETTE.get(theme or _current_theme, PALETTE["dark"])
@@ -616,6 +665,38 @@ _UI_DISPLAY = (
 # Bento cards, soft layers, organic radii, tactile depth
 # ----------------------------------------------------------------------
 
+_CHECK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" '
+    'fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="{color}" '
+    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
+_RADIO_DOT_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" '
+    'fill="none"><circle cx="8" cy="8" r="3.4" fill="{color}"/></svg>'
+)
+
+
+def _indicator_image_urls(pal: dict[str, str]) -> dict[str, str]:
+    """Write per-theme check/radio glyph SVGs into a cache dir.
+
+    QSS cannot tint a loaded raster, but it can point ``image:`` at a file —
+    so we regenerate the two 16×16 glyphs in the theme's on-accent colour
+    every time the palette changes.
+    """
+    cache = Path(tempfile.gettempdir()) / f"kb-remote-indicators-{os.getuid()}"
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        accent_hex = pal["accent"].lstrip("#")
+        check = cache / f"check-{accent_hex}.svg"
+        dot = cache / f"radio-{accent_hex}.svg"
+        check.write_text(_CHECK_SVG.format(color=pal["accent_text"]), encoding="utf-8")
+        dot.write_text(_RADIO_DOT_SVG.format(color=pal["accent_text"]), encoding="utf-8")
+        return {"check_url": check.as_posix(), "dot_url": dot.as_posix()}
+    except OSError:
+        return {"check_url": "", "dot_url": ""}
+
+
+
 _QSS = """
 /* ================= KB-Remote global theme =================
    Clean, professional, compact. Neutral dark surfaces, 1px
@@ -636,8 +717,8 @@ QToolTip {{
     background: {panel2};
     color: {fg};
     border: 1px solid {border_strong};
-    border-radius: 4px;
-    padding: 5px 8px;
+    border-radius: 6px;
+    padding: 6px 10px;
     font-size: 12px;
 }}
 
@@ -696,9 +777,13 @@ QMenu::indicator {{
     width: 14px;
     height: 14px;
     border-radius: 4px;
+    border: 1px solid {border_strong};
+    background: {bg2};
 }}
 QMenu::indicator:checked {{
     background: {accent};
+    border-color: {accent};
+    image: url({check_url});
 }}
 
 /* ================= Toolbar — compact, icon + label ================= */
@@ -800,6 +885,21 @@ QPushButton#primary:pressed {{
     background: {accent_active};
     border-color: {accent_active};
 }}
+QPushButton#accent {{
+    background: {accent_gradient};
+    color: {accent_text};
+    border: 1px solid {accent};
+    font-weight: 600;
+    border-radius: 6px;
+}}
+QPushButton#accent:hover {{
+    background: {accent_hover};
+    border-color: {accent_hover};
+}}
+QPushButton#accent:pressed {{
+    background: {accent_active};
+    border-color: {accent_active};
+}}
 QPushButton#ghost {{
     background: transparent;
     border: 1px solid transparent;
@@ -821,6 +921,26 @@ QPushButton#subtle:hover {{
     background: {panel2};
     color: {fg};
     border-color: {border_strong};
+}}
+QPushButton#danger {{
+    background: {bad};
+    border: 1px solid {bad};
+    color: {bad_text};
+    border-radius: 6px;
+    font-weight: 600;
+}}
+QPushButton#danger:hover {{
+    background: {bad_hover};
+    border-color: {bad_hover};
+}}
+QPushButton#danger:pressed {{
+    background: {bad_active};
+    border-color: {bad_active};
+}}
+QPushButton#danger:disabled {{
+    color: {fg_muted};
+    background: {bg};
+    border-color: {border_subtle};
 }}
 
 /* Quick connect — joined input + button group */
@@ -916,6 +1036,16 @@ QComboBox QAbstractItemView {{
     selection-color: {fg};
     outline: none;
     font-family: {ui_sans};
+}}
+QComboBox QAbstractItemView::item {{
+    padding: 5px 10px;
+    border-radius: 4px;
+    margin: 1px 2px;
+    min-height: 16px;
+}}
+QComboBox QAbstractItemView::item:hover {{
+    background: {bg3};
+    color: {fg};
 }}
 
 /* ================= Tabs — underline indicator ================= */
@@ -1135,7 +1265,8 @@ QProgressBar {{
     color: transparent;
 }}
 QProgressBar::chunk {{
-    background: {accent};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                stop:0 {accent}, stop:1 {accent_hover});
     border-radius: 4px;
 }}
 
@@ -1155,13 +1286,26 @@ QCheckBox::indicator, QRadioButton::indicator {{
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
     background: {accent};
     border-color: {accent};
-    image: none;
+    image: url({check_url});
 }}
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
     border-color: {accent};
 }}
-QCheckBox::indicator:checked:hover, QRadioButton::indicator:checked:hover {{
+QCheckBox::indicator:indeterminate {{
+    background: {accent};
+    border-color: {accent};
+}}
+QRadioButton::indicator:checked {{
+    background: {bg2};
+    border-color: {accent};
+    image: url({dot_url});
+}}
+QCheckBox::indicator:checked:hover {{
     background: {accent_hover};
+    border-color: {accent_hover};
+}}
+QRadioButton::indicator:checked:hover {{
+    background: {bg2};
     border-color: {accent_hover};
 }}
 QRadioButton::indicator {{
@@ -1190,6 +1334,135 @@ QLabel#caption {{
     font-size: 11.5px;
     color: {fg_dim};
     letter-spacing: 0.1px;
+}}
+QLabel#dashTitle {{
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: {fg};
+    font-family: {ui_display};
+}}
+QLabel#dashVersion {{
+    font-size: 11.5px;
+    color: {fg_muted};
+}}
+QLabel#quickTitle {{
+    font-size: 12px;
+    font-weight: 700;
+    color: {fg_dim};
+}}
+QLabel#cardTitle {{
+    font-size: 12.5px;
+    font-weight: 600;
+    color: {fg};
+}}
+QLabel#cardSub {{
+    font-size: 11px;
+    color: {fg_muted};
+}}
+QLabel#protoChip {{
+    font-size: 10.5px;
+    font-weight: 700;
+    color: {fg_dim};
+    background: {bg3};
+    border-radius: 4px;
+    padding: 1px 6px;
+}}
+QLabel#tabCount {{
+    font-size: 10px;
+    font-weight: 700;
+    color: {fg_dim};
+    background: {bg3};
+    border-radius: 8px;
+    padding: 1px 6px;
+}}
+QLabel#sideTitle {{
+    font-size: 12px;
+    font-weight: 700;
+    color: {fg_dim};
+}}
+QLabel#sideCount {{
+    background: {bg3};
+    color: {fg_dim};
+    border: 1px solid {border_subtle};
+    border-radius: 4px;
+    padding: 0px 7px;
+    font-size: 11px;
+    font-weight: 600;
+}}
+QTreeView#sessionTree {{
+    border: none;
+    background: transparent;
+    outline: none;
+}}
+QTreeView#sessionTree::item {{
+    min-height: 28px;
+    border-radius: 5px;
+    margin: 0px 1px;
+    padding: 2px 4px;
+    border: 1px solid transparent;
+}}
+QTreeView#sessionTree::item:hover {{
+    background: {bg3};
+    border-color: {border_subtle};
+}}
+QTreeView#sessionTree::item:selected {{
+    background: {accent_subtle};
+    color: {fg};
+    border-color: {accent}44;
+}}
+QTreeView#sessionTree::branch {{
+    background: transparent;
+}}
+QLabel#pvTitle {{
+    font-size: 13px;
+    font-weight: 700;
+    color: {fg};
+}}
+QFrame#palettePreview {{
+    background: {bg};
+    border: 1px solid {border_subtle};
+    border-radius: 8px;
+}}
+QSplitter#paletteSplit::handle {{
+    background: transparent;
+    width: 8px;
+}}
+QLabel#pvSub {{
+    font-size: 11.5px;
+    color: {fg_dim};
+}}
+QLabel#pvChip {{
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: {fg_dim};
+    background: {bg3};
+    border-radius: 4px;
+    padding: 2px 7px;
+}}
+QLabel#pvKbd, QLabel#kbd {{
+    font-size: 11px;
+    font-weight: 600;
+    color: {fg_dim};
+    background: {bg3};
+    border: 1px solid {border};
+    border-bottom: 2px solid {border_strong};
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: {ui_mono};
+}}
+QPushButton#tabClose {{
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 2px;
+}}
+QPushButton#tabClose:hover {{
+    background: {panel3};
+}}
+QPushButton#tabClose:pressed {{
+    background: {bad};
 }}
 QFrame#hairline {{
     background: {border_subtle};
@@ -1323,10 +1596,21 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
 }}
 QTabBar::tab {{ padding: 3px 12px; min-height: 18px; }}
 QTreeView::item, QListView::item, QTableView::item {{ padding: 2px 8px; }}
+QTreeView#sessionTree::item {{ min-height: 22px; padding: 1px 4px; }}
 QStatusBar {{ min-height: 18px; font-size: 11px; }}
 QGroupBox {{ margin-top: 10px; padding: 10px 10px 8px 10px; }}
 QCheckBox, QRadioButton {{ font-size: 12px; }}
 """
+
+
+def _shade(hex_color: str, factor: float) -> str:
+    """Darken (<1) or lighten (>1) a #rrggbb colour, clamped to 0-255."""
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return hex_color
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (min(255, max(0, int(round(c * factor))) ) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def apply_theme(
@@ -1340,19 +1624,21 @@ def apply_theme(
     _density = density if density in ("comfortable", "compact") else "comfortable"
     MOTIONS_ENABLED = bool(animations)
     pal = palette(theme)
-    qss = _QSS.format(
+    extra = _indicator_image_urls(pal)
+    # Danger-button shades derived from the palette's `bad` colour.
+    fmt = {
         **pal,
-        ui_sans=_UI_SANS,
-        ui_mono=_UI_MONO,
-        ui_display=_UI_DISPLAY,
-    )
+        **extra,
+        "bad_hover": _shade(pal["bad"], 1.18),
+        "bad_active": _shade(pal["bad"], 0.82),
+        "bad_text": "#ffffff",
+        "ui_sans": _UI_SANS,
+        "ui_mono": _UI_MONO,
+        "ui_display": _UI_DISPLAY,
+    }
+    qss = _QSS.format(**fmt)
     if _density == "compact":
-        qss += _QSS_COMPACT.format(
-            **pal,
-            ui_sans=_UI_SANS,
-            ui_mono=_UI_MONO,
-            ui_display=_UI_DISPLAY,
-        )
+        qss += _QSS_COMPACT.format(**fmt)
     app.setStyleSheet(qss)
     # Icon colours follow the theme — drop the cache so widgets built after
     # the switch pick up the new tint.
@@ -1374,3 +1660,6 @@ def apply_theme(
     qpal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(pal["fg_muted"]))
     qpal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(pal["fg_muted"]))
     app.setPalette(qpal)
+    # Let live views (dashboard, chips, tab badges…) re-tint themselves now
+    # that the new stylesheet, palette and icon cache are in place.
+    _fire_theme_changed()
