@@ -18,10 +18,12 @@ from PySide6.QtWidgets import (
 from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
-from .theme import icon, palette
+from .theme import icon, palette, protocol_badge
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
+
+_PROTO_ICONS = {"rdp": "windows", "ssh": "terminal", "local": "console"}
 
 
 class SessionTree(QWidget):
@@ -41,8 +43,9 @@ class SessionTree(QWidget):
         self.store = store
         self._filter = ""
         self.setObjectName("sidebar")
+        # Buttons whose icons are re-tinted on a live theme switch
+        self._themed_buttons: list[tuple[QPushButton, str]] = []
 
-        pal = palette()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 8)
         layout.setSpacing(8)
@@ -54,11 +57,12 @@ class SessionTree(QWidget):
         hl.setSpacing(8)
 
         title = QLabel("Sessions")
-        title.setStyleSheet("font-size: 12px; font-weight: 700; color: {fg_dim};".format(**pal))
+        title.setObjectName("sideTitle")
         hl.addWidget(title)
         hl.addStretch(1)
 
         self._count_label = QLabel("")
+        self._count_label.setObjectName("sideCount")
         self._count_label.setToolTip("Number of saved sessions")
         hl.addWidget(self._count_label)
         layout.addWidget(header)
@@ -68,8 +72,10 @@ class SessionTree(QWidget):
         self.search.setObjectName("search")
         self.search.setPlaceholderText("Search sessions…")
         self.search.setClearButtonEnabled(True)
-        search_act = self.search.addAction(icon("search"), QLineEdit.ActionPosition.LeadingPosition)
-        search_act.setToolTip("Filter sessions by name, host, tag or folder")
+        self._search_action = self.search.addAction(
+            icon("search"), QLineEdit.ActionPosition.LeadingPosition
+        )
+        self._search_action.setToolTip("Filter sessions by name, host, tag or folder")
         self.search.textChanged.connect(self._on_search)
         self.search.setFixedHeight(30)
         layout.addWidget(self.search)
@@ -83,6 +89,7 @@ class SessionTree(QWidget):
         def make_btn(label, icon_name, tip, cb, primary=False):
             b = QPushButton(label)
             b.setIcon(icon(icon_name))
+            self._themed_buttons.append((b, icon_name))
             b.setObjectName("primary" if primary else "subtle")
             b.setToolTip(tip)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -90,14 +97,14 @@ class SessionTree(QWidget):
             b.setFixedHeight(28)
             return b
 
-        btn_new = make_btn("New", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
+        btn_new = make_btn("plus", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
         btn_local = make_btn(
-            "Terminal",
-            "console",
+            "terminal",
+            "terminal",
             "Open a local shell in a new tab (Ctrl+Shift+T)",
             self.localTerminalRequested.emit,
         )
-        btn_folder = make_btn("Folder", "folder", "New folder", self.newFolderRequested.emit)
+        btn_folder = make_btn("folder", "folder", "New folder", self.newFolderRequested.emit)
         bl.addWidget(btn_new, 2)
         bl.addWidget(btn_local, 2)
         bl.addWidget(btn_folder, 1)
@@ -109,8 +116,9 @@ class SessionTree(QWidget):
         self._search_timer.setInterval(140)
         self._search_timer.timeout.connect(self.reload)
 
-        # Tree — compact rows, keyboard navigable
+        # Tree — compact rows, keyboard navigable (styled via #sessionTree QSS)
         self.tree = QTreeWidget()
+        self.tree.setObjectName("sessionTree")
         self.tree.setHeaderHidden(True)
         self.tree.setAlternatingRowColors(False)
         self.tree.setAnimated(False)
@@ -120,40 +128,12 @@ class SessionTree(QWidget):
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(self._double_clicked)
         self.tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.tree.setStyleSheet(
-            f"""
-            QTreeView {{
-                border: none;
-                background: transparent;
-                outline: none;
-            }}
-            QTreeView::item {{
-                min-height: 28px;
-                border-radius: 5px;
-                margin: 0px 1px;
-                padding: 2px 4px;
-                border: 1px solid transparent;
-            }}
-            QTreeView::item:hover {{
-                background: {pal['bg3']};
-                border-color: {pal['border_subtle']};
-            }}
-            QTreeView::item:selected {{
-                background: {pal['accent_subtle']};
-                color: {pal['fg']};
-                border-color: {pal['accent']}44;
-            }}
-            QTreeView::branch {{
-                background: transparent;
-            }}
-            """
-        )
         layout.addWidget(self.tree, 1)
 
         # Footer hint — plain caption
         self._hint = QLabel("Double-click to connect · Right-click for actions")
+        self._hint.setObjectName("caption")
         self._hint.setToolTip("Keyboard: Up/Down to move, Enter to connect, Menu key for actions")
-        self._hint.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']}; padding: 2px;")
         layout.addWidget(self._hint)
 
         self.reload()
@@ -172,26 +152,8 @@ class SessionTree(QWidget):
         sessions = self.store.sessions()
         total = len(sessions)
 
-        # Count badge — subtle
-        pal = palette()
-        if total:
-            self._count_label.setText(str(total))
-            self._count_label.setStyleSheet(
-                f"""
-                QLabel {{
-                    background: {pal['bg3']};
-                    color: {pal['fg_dim']};
-                    border: 1px solid {pal['border_subtle']};
-                    border-radius: 4px;
-                    padding: 0px 7px;
-                    font-size: 11px;
-                    font-weight: 600;
-                }}
-                """
-            )
-        else:
-            self._count_label.setText("")
-            self._count_label.setStyleSheet("")
+        # Count badge — styled by the global QSS (#sideCount)
+        self._count_label.setText(str(total) if total else "")
 
         if self._filter:
             needle = self._filter.lower()
@@ -232,8 +194,10 @@ class SessionTree(QWidget):
         label = f"★ {s.display_name()}" if pinned else s.display_name()
         item = QTreeWidgetItem([label])
         item.setData(0, ROLE_ID, s.id)
-        icon_name = reg.get(s.protocol).icon_name if reg.get(s.protocol) else "server"
-        item.setIcon(0, icon(icon_name))
+        plugin = reg.get(s.protocol)
+        icon_name = plugin.icon_name if plugin else "server"
+        # Protocol mini-badge: colour-coded (SSH/RDP/local) rounded tile
+        item.setIcon(0, protocol_badge(s.protocol, _PROTO_ICONS.get(s.protocol, icon_name)))
         tooltip = f"{s.protocol.upper()} · {s.target()}"
         if s.description:
             tooltip += f"\n{s.description}"
@@ -249,6 +213,15 @@ class SessionTree(QWidget):
     def _on_search(self, text: str) -> None:
         self._filter = text.strip()
         self._search_timer.start()
+
+    def refresh_theme(self) -> None:
+        """Re-tint icons and protocol badges after a live theme switch."""
+        # Rebuilding the tree re-renders the protocol badges and icons in
+        # the new palette's colours.
+        self.reload()
+        self._search_action.setIcon(icon("search"))
+        for btn, icon_name in self._themed_buttons:
+            btn.setIcon(icon(icon_name))
 
     # -- events -----------------------------------------------------------
     def _double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
@@ -308,7 +281,7 @@ class SessionTree(QWidget):
                 menu.addAction(
                     icon("trash"),
                     "Delete folder",
-                    lambda: self.store.delete_group(str(group)) or self.reload(),
+                    lambda: (self.store.delete_group(str(group)), self.reload()),
                 )
             menu.exec(self.tree.viewport().mapToGlobal(pos))
             return

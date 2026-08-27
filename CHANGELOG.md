@@ -3,6 +3,45 @@
 ## Unreleased
 
 ### Added
+- **Live theme switching.** `theme.add_theme_changed_callback()` notifies views
+  after every `apply_theme()`; the main window, session-tab headers, sidebar,
+  dashboard, state chips and badge icons re-tint in place — switching a theme
+  no longer leaves stale, wrongly-coloured icons and chips behind until a
+  restart.
+- **Protocol mini-badges.** Tabs, sidebar rows and dashboard "Recent
+  Connections" rows use `theme.protocol_badge()` — the protocol glyph on a
+  rounded, colour-coded tile (SSH green, RDP blue, local = accent) for
+  one-glance protocol reading.
+- **Command palette two-pane preview.** A right-hand preview pane shows the
+  selected command's icon, subtitle, category chip and shortcut while you
+  navigate results.
+- **Danger buttons.** A `#danger` button style (red fill, hover/pressed
+  shades) for destructive actions: session Delete, vault entry Delete, tunnel
+  Remove, port-forward Remove. The missing `#accent` button style referenced
+  by the session editor's Connect button was also added.
+- **Real checkbox/menu checkmarks.** Checkboxes, radio buttons and menu
+  indicators now draw a proper check/dot glyph (per-theme SVG generated into
+  the system temp cache) instead of a filled square.
+- **Dashboard polish.** Action cards gained caption lines ("Instant shell",
+  "Everything, one keystroke"), the shortcut hint row became real keycap
+  chips, and all dashboard labels moved to theme-aware QSS classes.
+
+### Changed
+- **Theme-aware chrome via QSS.** Sidebar title/count/hint, tab-count badge,
+  session-recents rows and the session close button are styled by the global
+  stylesheet (new `#sideTitle`, `#sideCount`, `#sessionTree`, `#tabCount`,
+  `#tabClose`, `#dashTitle`, `#cardTitle`, `#cardSub`, `#protoChip`, `#kbd`
+  selectors), so they follow themes and density instead of baked colours.
+- **Tooltips & combo popups.** Roomier tooltip padding/radius; combo dropdown
+  rows got padding, hover and rounded selection.
+- **Progress bars** use an accent gradient chunk.
+- **Session delete confirmation** names the consequences and marks the
+  confirm button as destructive.
+- Sidebar "Terminal" and "New" buttons carry their correct glyphs (terminal /
+  plus) instead of console / plus; folder delete uses the trash icon.
+
+### Previous
+
 - **Theme-aware icon tinting.** `theme.icon(name, tint=…)` re-renders any SVG
   icon in an arbitrary colour (strokes recoloured before rasterising), so
   icons now follow the active palette, dim/disable states and the accent —

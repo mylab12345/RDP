@@ -99,6 +99,7 @@ class VaultDialog(QDialog):
         new_btn = QPushButton(icon("plus"), "New")
         save_btn = QPushButton("Save")
         del_btn = QPushButton(icon("trash"), "Delete")
+        del_btn.setObjectName("danger")
         for b in (new_btn, save_btn, del_btn):
             buttons.addWidget(b)
         buttons.addStretch(1)

@@ -42,7 +42,7 @@ from ..core.plugin import (
 from . import theme
 from .command_palette import CommandPaletteDialog
 from .sidebar import SessionTree
-from .theme import icon, palette
+from .theme import icon, palette, protocol_badge
 from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
 
 log = get_logger("ui.main")
@@ -182,10 +182,13 @@ class SessionTab(QWidget):
         h.addWidget(self.info, 1)
 
         # Session action buttons — compact icon-style
+        self._themed_buttons: list[tuple[QPushButton, str, str | None]] = []
+
         def make_action_btn(text, icon_name, tip, cb):
             b = QPushButton(text)
             if icon_name:
                 b.setIcon(icon(icon_name))
+                self._themed_buttons.append((b, icon_name, None))
             b.setObjectName("subtle")
             b.setToolTip(tip)
             b.clicked.connect(cb)
@@ -222,13 +225,10 @@ class SessionTab(QWidget):
         # Close button for the tab
         close_btn = QPushButton()
         close_btn.setIcon(icon("close"))
-        close_btn.setObjectName("ghost")
+        self._themed_buttons.append((close_btn, "close", None))
+        close_btn.setObjectName("tabClose")
         close_btn.setToolTip("Close this session tab")
         close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(
-            "QPushButton { border-radius: 4px; padding: 2px; }"
-            "QPushButton:hover { background: " + palette()["panel3"] + "; }"
-        )
         close_btn.clicked.connect(lambda: self.main.close_tab(self.main.tabs.indexOf(self)))
         h.addWidget(close_btn)
 
@@ -280,6 +280,17 @@ class SessionTab(QWidget):
             self.controller.stop("stopped by user")
         else:
             self.controller.request_reconnect()
+
+    def _refresh_theme(self) -> None:
+        """Re-tint header icons/chips after a live theme switch."""
+        pal = palette()
+        self.chip.refresh_theme()
+        self.rec_chip.refresh_theme()
+        for btn, icon_name, tint_key in self._themed_buttons:
+            tint = pal.get(tint_key) if tint_key else None
+            btn.setIcon(icon(icon_name, tint))
+        # Re-runs chip colour, button icon and visibility — idempotent.
+        self._on_state(self.controller.state())
 
     def _on_state(self, state: str) -> None:
         pal = palette()
@@ -353,6 +364,8 @@ class MainWindow(QMainWindow):
         self._build_body()
         self._bind_shortcuts()
         self._setup_tray()
+        # Live theme switches re-tint icons and palette-baked chrome.
+        theme.add_theme_changed_callback(self._refresh_theme)
 
         status = QStatusBar()
         status.setSizeGripEnabled(False)
@@ -557,22 +570,28 @@ class MainWindow(QMainWindow):
         bar.setIconSize(QSize(16, 16))
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toolbar = bar
+        self._themed_actions: list[tuple[QAction, str]] = []
 
-        act_sidebar = bar.addAction(icon("panel"), "Sidebar")
+        def themed_action(icon_name: str, text: str) -> QAction:
+            act = bar.addAction(icon(icon_name), text)
+            self._themed_actions.append((act, icon_name))
+            return act
+
+        act_sidebar = themed_action("panel", "Sidebar")
         act_sidebar.setToolTip("Toggle the session sidebar (Ctrl+B)")
         act_sidebar.setCheckable(True)
         act_sidebar.toggled.connect(self._toggle_sidebar)
         self._act_sidebar_toolbar = act_sidebar
 
-        a = bar.addAction(icon("plus"), "New")
+        a = themed_action("plus", "New")
         a.setToolTip("Create a new saved session (Ctrl+N)")
         a.triggered.connect(self.new_session)
 
-        a = bar.addAction(icon("console"), "Terminal")
+        a = themed_action("console", "Terminal")
         a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
         a.triggered.connect(self.open_local_terminal)
 
-        a = bar.addAction(icon("search"), "Commands")
+        a = themed_action("search", "Commands")
         a.setToolTip("Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)")
         a.triggered.connect(self.open_command_palette)
 
@@ -603,7 +622,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         def add_tool(icon_name, text, tip, cb):
-            act = bar.addAction(icon(icon_name), text)
+            act = themed_action(icon_name, text)
             act.setToolTip(tip)
             act.triggered.connect(cb)
             return act
@@ -614,7 +633,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # Close all tabs button
-        self._close_all_btn = bar.addAction(icon("close"), "Close All")
+        self._close_all_btn = themed_action("close", "Close All")
         self._close_all_btn.setToolTip("Close all open session tabs")
         self._close_all_btn.triggered.connect(self._close_all_tabs)
         self._close_all_btn.setVisible(False)
@@ -624,10 +643,182 @@ class MainWindow(QMainWindow):
         self.addToolBar(bar)
         self._apply_ui_prefs()
 
-    def _build_body(self) -> None:
-        from .theme import palette as theme_palette
+    def _build_dashboard(self) -> QWidget:
+        """Welcome screen shown when no tabs are open.
 
-        pal = theme_palette()
+        Styling lives in the global QSS (object-name selectors), so a live
+        theme switch re-tints everything without rebuilding the widget tree.
+        """
+        w = QWidget()
+        el = QVBoxLayout(w)
+        el.setAlignment(Qt.AlignmentFlag.AlignTop)
+        el.setSpacing(14)
+        el.setContentsMargins(32, 28, 32, 24)
+
+        # Compact header: small logo mark + name + version
+        header_row = QHBoxLayout()
+        header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        header_row.setSpacing(10)
+        logo = QLabel()
+        logo.setPixmap(icon("logo").pixmap(20, 20))
+        header_row.addWidget(logo)
+        title = QLabel(APP_NAME)
+        title.setObjectName("dashTitle")
+        self._dash_header_label = title  # density-dependent font size
+        header_row.addWidget(title)
+        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP")
+        version.setObjectName("dashVersion")
+        header_row.addWidget(version)
+        header_row.addStretch(1)
+        el.addLayout(header_row)
+
+        # Quick connect — prominent, one line, explicit Connect button
+        qc_card = QWidget()
+        qc_card.setObjectName("card")
+        qc_lay = QHBoxLayout(qc_card)
+        qc_lay.setContentsMargins(12, 10, 12, 10)
+        qc_lay.setSpacing(8)
+        qc_title = QLabel("Quick Connect")
+        qc_title.setObjectName("quickTitle")
+        qc_lay.addWidget(qc_title)
+        self._dash_quick = QLineEdit()
+        self._dash_quick.setPlaceholderText("user@host[:port]  ·  port 3389 = RDP")
+        self._dash_quick.setObjectName("search")
+        self._dash_quick.setFixedHeight(30)
+        self._dash_quick.returnPressed.connect(self._dash_quick_connect)
+        qc_lay.addWidget(self._dash_quick, 1)
+        qc_btn = QPushButton("Connect")
+        qc_btn.setObjectName("primary")
+        qc_btn.setFixedHeight(30)
+        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        qc_btn.clicked.connect(self._dash_quick_connect)
+        qc_lay.addWidget(qc_btn)
+        qc_card.setFixedWidth(560)
+        el.addWidget(qc_card, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        # Action cards — icon tile + label + caption (2026 bento pattern)
+        actions_row = QHBoxLayout()
+        actions_row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        actions_row.setSpacing(10)
+        self._dash_action_icons: list[tuple[QLabel, str]] = []
+
+        def _action_card(icon_name: str, label: str, caption: str, tooltip: str, callback) -> QWidget:
+            card = QFrame()
+            card.setObjectName("card_hover")
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            card.setToolTip(tooltip)
+            card.setFixedHeight(64)
+            lay = QHBoxLayout(card)
+            lay.setContentsMargins(14, 10, 14, 10)
+            lay.setSpacing(12)
+            ic = QLabel()
+            ic.setPixmap(icon(icon_name).pixmap(QSize(20, 20)))
+            ic.setFixedSize(20, 20)
+            self._dash_action_icons.append((ic, icon_name))
+            lay.addWidget(ic, 0, Qt.AlignmentFlag.AlignVCenter)
+            text_col = QVBoxLayout()
+            text_col.setContentsMargins(0, 0, 0, 0)
+            text_col.setSpacing(1)
+            lbl = QLabel(label)
+            lbl.setObjectName("cardTitle")
+            text_col.addWidget(lbl)
+            sub = QLabel(caption)
+            sub.setObjectName("cardSub")
+            text_col.addWidget(sub)
+            lay.addLayout(text_col, 1)
+            card.mousePressEvent = lambda _, c=callback: c()
+            return card
+
+        actions_row.addWidget(_action_card("plus", "New Session", "Save a connection", "Create a new connection (Ctrl+N)", self.new_session))
+        actions_row.addWidget(_action_card("console", "Local Terminal", "Instant shell", "Open a local terminal (Ctrl+Shift+T)", self.open_local_terminal))
+        actions_row.addWidget(_action_card("search", "Command Palette", "Everything, one keystroke", "Search commands & sessions (Ctrl+K)", self.open_command_palette))
+        actions_row.addWidget(_action_card("gear", "Settings", "Themes, fonts, keys", "Configure KB-Remote (Ctrl+,)", self.open_settings))
+        el.addLayout(actions_row)
+
+        # Recent connections — protocol badges, pinned first
+        self._build_recent_card(el)
+
+        # Keyboard shortcut chips — real keycap styling
+        chips = QHBoxLayout()
+        chips.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        chips.setSpacing(14)
+        for combo, what in (
+            ("Ctrl+N", "new"),
+            ("Ctrl+Shift+T", "terminal"),
+            ("Ctrl+K", "commands"),
+            ("Ctrl+,", "settings"),
+        ):
+            pair = QHBoxLayout()
+            pair.setSpacing(5)
+            key = QLabel(combo)
+            key.setObjectName("kbd")
+            pair.addWidget(key)
+            cap = QLabel(what)
+            cap.setObjectName("caption")
+            pair.addWidget(cap)
+            wrap = QWidget()
+            wrap.setLayout(pair)
+            chips.addWidget(wrap)
+        el.addLayout(chips)
+        return w
+
+    def _build_recent_card(self, el: QVBoxLayout) -> None:
+        """Fill the 'Recent Connections' card into dashboard layout ``el``."""
+        sessions = sorted(
+            self.ctx.store.sessions(),
+            key=lambda s: (not s.options.get("pinned", False), s.name),
+        )[:6]
+        if not sessions:
+            return
+        recent_card = QWidget()
+        recent_card.setObjectName("card")
+        recent_card.setFixedWidth(560)
+        rc_lay = QVBoxLayout(recent_card)
+        rc_lay.setContentsMargins(12, 10, 12, 10)
+        rc_lay.setSpacing(4)
+        rc_header = QLabel("Recent Connections")
+        rc_header.setObjectName("h2")
+        rc_lay.addWidget(rc_header)
+
+        self._dash_recent_rows: list[tuple[QLabel, str, object]] = []
+        for sess in sessions[:5]:
+            item = QFrame()
+            item.setCursor(Qt.CursorShape.PointingHandCursor)
+            item.setObjectName("card_hover")
+            item.mousePressEvent = lambda _, s=sess: self.connect_session(s.id)
+            il = QHBoxLayout(item)
+            il.setContentsMargins(8, 5, 8, 5)
+            il.setSpacing(8)
+            pi = QLabel()
+            pi.setPixmap(protocol_badge(sess.protocol, self._proto_icon(sess.protocol)).pixmap(QSize(18, 18)))
+            pi.setFixedSize(18, 18)
+            self._dash_recent_rows.append((pi, "proto", sess.protocol))
+            il.addWidget(pi)
+            if sess.options.get("pinned", False):
+                star = QLabel()
+                star.setPixmap(icon("star", palette()["warn"]).pixmap(QSize(13, 13)))
+                star.setFixedSize(13, 13)
+                star.setToolTip("Pinned session")
+                self._dash_recent_rows.append((star, "icon", ("star", "warn")))
+                il.addWidget(star)
+            name_lbl = QLabel(sess.display_name())
+            name_lbl.setObjectName("cardTitle")
+            il.addWidget(name_lbl)
+            il.addStretch(1)
+            target = QLabel(sess.target())
+            target.setObjectName("cardSub")
+            il.addWidget(target)
+            proto = QLabel(sess.protocol.upper())
+            proto.setObjectName("protoChip")
+            il.addWidget(proto)
+            rc_lay.addWidget(item)
+        el.addWidget(recent_card, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    @staticmethod
+    def _proto_icon(protocol: str) -> str:
+        return {"rdp": "windows", "ssh": "terminal"}.get((protocol or "").lower(), "console")
+
+    def _build_body(self) -> None:
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.main_splitter.setHandleWidth(1)
 
@@ -647,6 +838,8 @@ class MainWindow(QMainWindow):
         self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True)
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        # Protocol badges render on a 18px rounded tile
+        self.tabs.setIconSize(QSize(18, 18))
 
         # Tab bar context menu
         self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -664,38 +857,27 @@ class MainWindow(QMainWindow):
 
         # Session count indicator
         self._tab_count_label = QLabel("0")
-        self._tab_count_label.setStyleSheet(
-            f"font-size: 10px; font-weight: 700; color: {palette()['fg_dim']}; "
-            f"background: {palette()['bg3']}; border-radius: 8px; padding: 1px 6px;"
-        )
+        self._tab_count_label.setObjectName("tabCount")
         self._tab_count_label.setFixedHeight(18)
         self._tab_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._tab_count_label.setToolTip("Number of open sessions")
         cl.addWidget(self._tab_count_label)
 
-        plus = QPushButton()
-        plus.setIcon(icon("plus"))
-        plus.setObjectName("ghost")
-        plus.setToolTip("New session (Ctrl+N)")
-        plus.setFixedSize(26, 22)
-        plus.clicked.connect(self.new_session)
-        cl.addWidget(plus)
+        self._themed_corner_buttons: list[tuple[QPushButton, str]] = []
 
-        terminal = QPushButton()
-        terminal.setIcon(icon("console"))
-        terminal.setObjectName("ghost")
-        terminal.setToolTip("Local terminal (Ctrl+Shift+T)")
-        terminal.setFixedSize(26, 22)
-        terminal.clicked.connect(self.open_local_terminal)
-        cl.addWidget(terminal)
+        def corner_button(icon_name: str, tip: str, cb) -> QPushButton:
+            b = QPushButton()
+            b.setIcon(icon(icon_name))
+            self._themed_corner_buttons.append((b, icon_name))
+            b.setObjectName("ghost")
+            b.setToolTip(tip)
+            b.setFixedSize(26, 24)
+            b.clicked.connect(cb)
+            return b
 
-        settings = QPushButton()
-        settings.setIcon(icon("gear"))
-        settings.setObjectName("ghost")
-        settings.setToolTip("Settings (Ctrl+,)")
-        settings.setFixedSize(26, 22)
-        settings.clicked.connect(self.open_settings)
-        cl.addWidget(settings)
+        cl.addWidget(corner_button("plus", "New session (Ctrl+N)", self.new_session))
+        cl.addWidget(corner_button("console", "Local terminal (Ctrl+Shift+T)", self.open_local_terminal))
+        cl.addWidget(corner_button("gear", "Settings (Ctrl+,)", self.open_settings))
 
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
@@ -703,142 +885,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._tab_changed)
 
         # Dashboard — compact welcome: quick connect, actions, recents
-        self._empty = QWidget()
-        el = QVBoxLayout(self._empty)
-        el.setAlignment(Qt.AlignmentFlag.AlignTop)
-        el.setSpacing(14)
-        el.setContentsMargins(32, 28, 32, 24)
-
-        # Compact header: small logo mark + name + version
-        header_row = QHBoxLayout()
-        header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        header_row.setSpacing(10)
-        logo = QLabel()
-        logo.setPixmap(icon("logo").pixmap(20, 20))
-        header_row.addWidget(logo)
-        title = QLabel(APP_NAME)
-        title.setStyleSheet(
-            f"font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: {pal['fg']};"
-        )
-        self._dash_header_label = title  # density-dependent font size
-        header_row.addWidget(title)
-        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP")
-        version.setStyleSheet(f"font-size: 11.5px; color: {pal['fg_muted']};")
-        header_row.addWidget(version)
-        header_row.addStretch(1)
-        el.addLayout(header_row)
-
-        # Quick connect — prominent, one line, explicit Connect button
-        qc_card = QWidget()
-        qc_card.setObjectName("card")
-        qc_lay = QHBoxLayout(qc_card)
-        qc_lay.setContentsMargins(12, 10, 12, 10)
-        qc_lay.setSpacing(8)
-        qc_title = QLabel("Quick Connect")
-        qc_title.setStyleSheet(f"font-size: 12px; color: {pal['fg_dim']}; font-weight: 700;")
-        qc_lay.addWidget(qc_title)
-        self._dash_quick = QLineEdit()
-        self._dash_quick.setPlaceholderText("user@host[:port]  ·  port 3389 = RDP")
-        self._dash_quick.setObjectName("search")
-        self._dash_quick.setFixedHeight(30)
-        self._dash_quick.returnPressed.connect(self._dash_quick_connect)
-        qc_lay.addWidget(self._dash_quick, 1)
-        qc_btn = QPushButton("Connect")
-        qc_btn.setObjectName("primary")
-        qc_btn.setFixedHeight(30)
-        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        qc_btn.clicked.connect(self._dash_quick_connect)
-        qc_lay.addWidget(qc_btn)
-        qc_card.setFixedWidth(560)
-        el.addWidget(qc_card, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        # Action cards — compact, icon + label + description
-        actions_row = QHBoxLayout()
-        actions_row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        actions_row.setSpacing(10)
-
-        def _action_card(icon_name: str, label: str, tooltip: str, callback) -> QWidget:
-            card = QFrame()
-            card.setObjectName("card_hover")
-            card.setCursor(Qt.CursorShape.PointingHandCursor)
-            card.setToolTip(tooltip)
-            card.setFixedHeight(64)
-            lay = QHBoxLayout(card)
-            lay.setContentsMargins(14, 10, 14, 10)
-            lay.setSpacing(10)
-            ic = QLabel()
-            ic.setPixmap(icon(icon_name).pixmap(QSize(20, 20)))
-            ic.setFixedSize(20, 20)
-            lay.addWidget(ic, 0, Qt.AlignmentFlag.AlignVCenter)
-            lbl = QLabel(label)
-            lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {pal['fg']};")
-            lay.addWidget(lbl, 1)
-            card.mousePressEvent = lambda _, c=callback: c()
-            return card
-
-        actions_row.addWidget(_action_card("plus", "New Session", "Create a new connection (Ctrl+N)", self.new_session))
-        actions_row.addWidget(_action_card("console", "Local Terminal", "Open a local terminal (Ctrl+Shift+T)", self.open_local_terminal))
-        actions_row.addWidget(_action_card("search", "Command Palette", "Search commands & sessions (Ctrl+K)", self.open_command_palette))
-        actions_row.addWidget(_action_card("gear", "Settings", "Configure KB-Remote (Ctrl+,)", self.open_settings))
-        el.addLayout(actions_row)
-
-        # Recent connections — compact rows (pinned first, then name)
-        sessions = sorted(
-            self.ctx.store.sessions(),
-            key=lambda s: (not s.options.get("pinned", False), s.name),
-        )[:6]
-        if sessions:
-            recent_card = QWidget()
-            recent_card.setObjectName("card")
-            recent_card.setFixedWidth(560)
-            rc_lay = QVBoxLayout(recent_card)
-            rc_lay.setContentsMargins(12, 10, 12, 10)
-            rc_lay.setSpacing(4)
-            rc_header = QLabel("Recent Connections")
-            rc_header.setObjectName("h2")
-            rc_lay.addWidget(rc_header)
-
-            for sess in sessions[:5]:
-                item = QFrame()
-                item.setCursor(Qt.CursorShape.PointingHandCursor)
-                item.setObjectName("card_hover")
-                item.mousePressEvent = lambda _, s=sess: self.connect_session(s.id)
-                il = QHBoxLayout(item)
-                il.setContentsMargins(8, 5, 8, 5)
-                il.setSpacing(8)
-                proto_icon = icon("windows") if sess.protocol == "rdp" else icon("terminal") if sess.protocol == "ssh" else icon("console")
-                pi = QLabel()
-                pi.setPixmap(proto_icon.pixmap(QSize(16, 16)))
-                pi.setFixedSize(16, 16)
-                il.addWidget(pi)
-                if sess.options.get("pinned", False):
-                    star = QLabel()
-                    star.setPixmap(icon("star", pal["warn"]).pixmap(QSize(13, 13)))
-                    star.setFixedSize(13, 13)
-                    star.setToolTip("Pinned session")
-                    il.addWidget(star)
-                name_lbl = QLabel(sess.display_name())
-                name_lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {pal['fg']};")
-                il.addWidget(name_lbl)
-                il.addStretch(1)
-                target = QLabel(sess.target())
-                target.setStyleSheet(f"font-size: 11.5px; color: {pal['fg_muted']};")
-                il.addWidget(target)
-                proto = QLabel(sess.protocol.upper())
-                proto.setStyleSheet(
-                    f"font-size: 10.5px; font-weight: 700; color: {pal['fg_dim']}; "
-                    f"background: {pal['bg3']}; border-radius: 4px; padding: 1px 6px;"
-                )
-                il.addWidget(proto)
-                rc_lay.addWidget(item)
-            el.addWidget(recent_card, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        # Keyboard shortcuts hint
-        shortcuts = QLabel("Ctrl+N new · Ctrl+Shift+T terminal · Ctrl+K commands · Ctrl+, settings")
-        shortcuts.setObjectName("caption")
-        shortcuts.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        shortcuts.setStyleSheet(f"font-size: 11px; color: {pal['fg_muted']};")
-        el.addWidget(shortcuts)
+        self._empty = self._build_dashboard()
 
         self._tabs_container = QWidget()
         tcl = QVBoxLayout(self._tabs_container)
@@ -851,6 +898,7 @@ class MainWindow(QMainWindow):
         csl.setSpacing(0)
         csl.addWidget(self._empty, 1)
         csl.addWidget(self._tabs_container, 1)
+        self._center_layout = csl
         self._empty.setVisible(True)
         self._tabs_container.setVisible(False)
 
@@ -951,11 +999,39 @@ class MainWindow(QMainWindow):
                 self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                 self._toolbar.setIconSize(QSize(18, 18))
         if hasattr(self, "_dash_header_label"):
-            # Compact density trims the dashboard header; comfortable stays roomy.
-            self._dash_header_label.setStyleSheet(
-                f"font-size: {15 if s.density == 'compact' else 17}px; font-weight: 700; "
-                f"letter-spacing: -0.2px; color: {palette()['fg']};"
-            )
+            # Compact density trims the dashboard header; comfortable uses the
+            # QSS #dashTitle size (theme-aware) with no inline override.
+            if s.density == "compact":
+                self._dash_header_label.setStyleSheet(
+                    "font-size: 15px; font-weight: 700; letter-spacing: -0.2px;"
+                )
+            else:
+                self._dash_header_label.setStyleSheet("")
+
+    def _refresh_theme(self) -> None:
+        """Re-tint every palette-baked icon after a live theme switch.
+
+        Called by ``theme.apply_theme`` via the change-callback registry.
+        """
+        for act, icon_name in getattr(self, "_themed_actions", []):
+            act.setIcon(icon(icon_name))
+        sidebar = getattr(self, "sidebar", None)
+        if sidebar is not None:
+            sidebar.refresh_theme()
+        for btn, icon_name in getattr(self, "_themed_corner_buttons", []):
+            btn.setIcon(icon(icon_name))
+        for lbl, icon_name in getattr(self, "_dash_action_icons", []):
+            lbl.setPixmap(icon(icon_name).pixmap(QSize(20, 20)))
+        for lbl, mode, arg in getattr(self, "_dash_recent_rows", []):
+            if mode == "proto":
+                lbl.setPixmap(protocol_badge(str(arg), self._proto_icon(str(arg))).pixmap(QSize(18, 18)))
+            else:
+                name, tint_key = arg
+                lbl.setPixmap(icon(name, palette()[tint_key]).pixmap(QSize(13, 13)))
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, SessionTab):
+                w._refresh_theme()
 
     def _bind_shortcuts(self) -> None:
         # Tab navigation shortcuts (Ctrl+Tab / Ctrl+Shift+Backtab live on the
@@ -1207,7 +1283,8 @@ class MainWindow(QMainWindow):
         tab = SessionTab(controller, self)
         self.tabs.addTab(tab, defn.display_name())
         self.tabs.setCurrentWidget(tab)
-        self.tabs.setTabIcon(self.tabs.indexOf(tab), icon(plugin.icon_name))
+        # Protocol mini-badge — colour-coded (SSH/RDP/local) tab identity
+        self.tabs.setTabIcon(self.tabs.indexOf(tab), protocol_badge(defn.protocol, plugin.icon_name))
 
         def _set_title(t, _tab=tab):
             if _tab._custom_title:
@@ -1330,13 +1407,16 @@ class MainWindow(QMainWindow):
         defn = self.ctx.store.get(session_id)
         if defn is None:
             return
-        btn = QMessageBox.question(
-            self,
-            "Delete session",
-            f"Delete “{defn.display_name()}”?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if btn == QMessageBox.StandardButton.Yes:
+        box = QMessageBox(self)
+        box.setWindowTitle("Delete session")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(f"Delete “{defn.display_name()}”?")
+        box.setInformativeText("The saved session and its settings will be removed. Open tabs are not affected.")
+        yes = box.addButton("Delete", QMessageBox.ButtonRole.YesRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is yes:
             self.ctx.store.delete(session_id)
             self.sidebar.reload()
 

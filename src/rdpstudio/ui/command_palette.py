@@ -6,16 +6,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -61,6 +63,64 @@ def fuzzy_score(needle: str, text: str) -> int:
         prev = found
         ti = found + 1
     return score
+
+
+class _PalettePreview(QFrame):
+    """Right-hand preview pane — shows what the selected command will do."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("palettePreview")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
+
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(28, 28)
+        lay.addWidget(self.icon_label)
+
+        self.title = QLabel("")
+        self.title.setObjectName("pvTitle")
+        self.title.setWordWrap(True)
+        lay.addWidget(self.title)
+
+        self.subtitle = QLabel("")
+        self.subtitle.setObjectName("pvSub")
+        self.subtitle.setWordWrap(True)
+        lay.addWidget(self.subtitle)
+
+        lay.addStretch(1)
+
+        meta = QHBoxLayout()
+        meta.setSpacing(8)
+        self.chip = QLabel("")
+        self.chip.setObjectName("pvChip")
+        meta.addWidget(self.chip)
+        self.kbd = QLabel("")
+        self.kbd.setObjectName("pvKbd")
+        self.kbd.setVisible(False)
+        meta.addWidget(self.kbd)
+        meta.addStretch(1)
+        lay.addLayout(meta)
+
+    def show_item(self, item: PaletteItem | None) -> None:
+        pal = palette()
+        if item is None:
+            self.icon_label.setPixmap(QPixmap())
+            self.title.setText("")
+            self.subtitle.setText("Select a command to preview it here.")
+            self.chip.setText("")
+            self.kbd.setVisible(False)
+            return
+        self.icon_label.setPixmap(icon(item.icon_name, pal["accent"]).pixmap(QSize(28, 28)))
+        self.title.setText(item.title)
+        self.subtitle.setText(item.subtitle or "—")
+        self.chip.setText(item.category.upper() if item.category else "")
+        if item.shortcut:
+            self.kbd.setText(item.shortcut)
+            self.kbd.setVisible(True)
+        else:
+            self.kbd.setVisible(False)
 
 
 class CommandPaletteDialog(QDialog):
@@ -189,7 +249,19 @@ class CommandPaletteDialog(QDialog):
         )
         self.list.itemActivated.connect(self._on_item_activated)
         self.list.itemClicked.connect(self._on_item_activated)
-        card_layout.addWidget(self.list, 1)
+        # Two-pane layout: results on the left, live preview on the right
+        self.preview = _PalettePreview()
+        split = QSplitter(Qt.Orientation.Horizontal, self.card)
+        split.setObjectName("paletteSplit")
+        split.setHandleWidth(8)
+        split.setChildrenCollapsible(False)
+        split.addWidget(self.list)
+        split.addWidget(self.preview)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([400, 240])
+        self.list.itemSelectionChanged.connect(self._update_preview)
+        card_layout.addWidget(split, 1)
 
         # Footer hints — pill badges
         footer = QHBoxLayout()
@@ -225,6 +297,7 @@ class CommandPaletteDialog(QDialog):
         self._items: list[PaletteItem] = []
         self._build_items()
         self._populate_list("")
+        self._update_preview()
 
     def _build_items(self) -> None:
         self._items.clear()
@@ -431,6 +504,11 @@ class CommandPaletteDialog(QDialog):
 
     def _on_search(self, text: str) -> None:
         self._populate_list(text)
+
+    def _update_preview(self) -> None:
+        item = self.list.currentItem()
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        self.preview.show_item(data if isinstance(data, PaletteItem) else None)
 
     def _on_item_activated(self, item: QListWidgetItem) -> None:
         p_item: PaletteItem | None = item.data(Qt.ItemDataRole.UserRole)

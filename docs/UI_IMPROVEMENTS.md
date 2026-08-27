@@ -17,7 +17,7 @@ RDP behaviour stay byte-for-byte identical.
 |---|---|---|
 | §1 | Theme-aware icon tinting (`theme.icon(name, tint=…)` + `badge_icon`) | ✅ done |
 | §1 | Icon-only toolbar mode (`Settings → UI → Toolbar labels`) | ✅ done |
-| §1 | Protocol tab icons as mini-badges | ⏸ deferred (badge helper exists; tabs keep single-tone icons) |
+| §1 | Protocol tab icons as mini-badges | ✅ done (round 3: `theme.protocol_badge` on tabs, sidebar rows, dashboard recents) |
 | §1 | State icons on buttons (Stop ↔ Reconnect dual button) | ✅ done |
 | §2 | Unified radius scale (4/6/8/14) | ✅ done |
 | §2 | Accent gradient on `#primary` | ✅ done |
@@ -39,7 +39,7 @@ RDP behaviour stay byte-for-byte identical.
 | §7 | All menu actions in the palette | ✅ done |
 | §7 | Recents (last 8, persisted) | ✅ done |
 | §7 | Fuzzy subsequence ranker (`fuzzy_score`, unit-tested) | ✅ done |
-| §7 | Two-pane preview | ⏸ deferred |
+| §7 | Two-pane preview | ✅ done (round 3: icon + subtitle + category chip + shortcut pane) |
 | §8 | Searchable settings (group filtering) | ✅ done |
 | §8 | Settings UI group (density/toolbar/animation) | ✅ done |
 | §8 | Confirm before closing a tab with active logging | ✅ done |
@@ -50,6 +50,24 @@ Covered by `tests/test_ui_polish.py` (fuzzy ranker, tint pixels, badge,
 settings coercion, contrast palette, density QSS, motion gating) plus the
 existing suite (185 passed / 1 skipped) and regenerated
 `docs/screenshots/`.
+
+## Round 3 — implemented 2026-08 (this round, UI files only)
+
+| Change | Where | Why |
+|---|---|---|
+| **Live theme switching** | `ui/theme.py` (`add_theme_changed_callback`), `ui/main_window.py`, `ui/sidebar.py`, `ui/widgets.py` | Switching themes used to leave palette-baked icons, chips and dashboard labels in the *old* colours until restart. `apply_theme()` now fires change callbacks; the main window re-tints toolbar/corner/dashboard icons, session tabs re-style their headers, the sidebar rebuilds its badges, and `StateChip`/`PillBadge`/`StatusIndicator` refresh themselves on `StyleChange`. |
+| **Protocol mini-badges** | `ui/theme.py` (`protocol_badge` + `PROTOCOL_TINTS`), tabs/sidebar/dashboard | The deferred §1 item: tabs, sidebar rows and dashboard recents show the protocol glyph on a colour-coded rounded tile (SSH green, RDP blue, local = accent) — protocol readable at a glance. |
+| **Command palette preview pane** | `ui/command_palette.py` | The deferred §7 item: a right-hand pane (QSplitter, 3:2) previews the selected command — icon, subtitle, category chip, shortcut keycap. |
+| **Real checkmarks** | `ui/theme.py` (`_indicator_image_urls`) | Checkboxes/radios/menu indicators drew a filled square; they now show a check/radio-dot SVG generated per theme (accent fill, `accent_text` glyph) into a temp cache referenced by the QSS. |
+| **Danger + accent buttons** | QSS `#danger`/`#accent`, `ui/vault_dialog.py`, `ui/tunnels_dialog.py`, `ui/forward_editor.py`, `ui/main_window.py` | Destructive actions (Delete/Remove) are visually red with hover/pressed shades. Bonus fixes: the session editor's Connect button already used object name `#accent` that no QSS rule defined (rendered as a plain gray button), and session delete now shows a proper warning dialog naming consequences. |
+| **Dashboard polish** | `ui/main_window.py` (`_build_dashboard`) | Action cards gained caption lines ("Save a connection", "Instant shell", …), the shortcuts footer became real keycap chips (`#kbd`), and every dashboard label moved to theme-aware QSS classes instead of baked hex colours. |
+| **Theme-aware chrome via QSS** | `ui/theme.py`, `ui/sidebar.py`, `ui/main_window.py` | New selectors: `#sideTitle`, `#sideCount`, `#sessionTree` (incl. compact density), `#tabCount`, `#tabClose`, `#dashTitle`, `#dashVersion`, `#quickTitle`, `#cardTitle`, `#cardSub`, `#protoChip`, `#kbd`, `#palettePreview`. Removes ~10 inline-stylesheet colour bakes. |
+| **Micro-polish** | `ui/theme.py` | Roomier tooltips; padded/hoverable combo popup rows; gradient progress chunks; corner/tab-header buttons nudged to ≥24 px hit targets. |
+| **Glyph fixes** | `ui/sidebar.py` | Sidebar "New"/"Terminal" buttons carried wrong glyphs (plus/plus, console) — now plus/terminal; folder delete uses the trash icon, not "edit". |
+
+Everything lives in `src/rdpstudio/ui/*`; no core, protocol, settings-model or
+test changes. Full suite green (185 passed / 1 skipped) and
+`docs/screenshots/` regenerated.
 
 ---
 

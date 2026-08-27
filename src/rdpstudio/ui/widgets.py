@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -25,7 +25,12 @@ _FONT = '"Inter", "Nimbus Sans L", "DejaVu Sans", sans-serif'
 
 
 class StateChip(QLabel):
-    """Modern pill with dot — bento style, soft glow, natural."""
+    """Modern pill with dot — bento style, soft glow, natural.
+
+    The palette is baked into an inline stylesheet, so the chip re-styles
+    itself on :meth:`event` ``StyleChange`` — a live theme switch re-tints
+    every chip without touching session state.
+    """
 
     def __init__(self, text: str = "", color: str = "fg_dim", parent=None) -> None:
         super().__init__(parent)
@@ -34,8 +39,7 @@ class StateChip(QLabel):
         self.set_color(color)
         self.setText(text)
 
-    def set_color(self, color: str) -> None:
-        self._color_key = color
+    def _chip_stylesheet(self, color: str) -> str:
         pal = palette()
         hexcolor = pal.get(color, color)
 
@@ -69,8 +73,7 @@ class StateChip(QLabel):
             "accent": pal["accent"],
         }.get(color, hexcolor if color != "fg_dim" else pal["fg_dim"])
 
-        self.setStyleSheet(
-            f"""
+        return f"""
             QLabel {{
                 background: {bg};
                 color: {text_color};
@@ -83,7 +86,23 @@ class StateChip(QLabel):
                 font-family: "Inter", "Nimbus Sans L", "DejaVu Sans", sans-serif;
             }}
             """
-        )
+
+    def set_color(self, color: str) -> None:
+        self._color_key = color
+        desired = self._chip_stylesheet(color)
+        if desired != self.styleSheet():
+            self.setStyleSheet(desired)
+
+    def refresh_theme(self) -> None:
+        """Re-resolve the palette (called after a live theme switch)."""
+        self.set_color(self._color_key)
+
+    def event(self, ev) -> bool:  # noqa: N802
+        if ev.type() == QEvent.Type.StyleChange:
+            # Guarded (only re-set when the sheet actually differs) so this
+            # never loops.
+            self.refresh_theme()
+        return super().event(ev)
 
     def setText(self, text: str) -> None:  # noqa: N802
         if text and self._color_key in (
@@ -290,10 +309,17 @@ class ModernCard(QWidget):
 
 
 class PillBadge(QLabel):
-    """Small pill badge for counts, tags, etc."""
+    """Small pill badge for counts, tags, etc.
+
+    Re-styles itself on StyleChange so live theme switches stay in sync.
+    """
 
     def __init__(self, text: str = "", kind: str = "default", parent=None):
         super().__init__(text, parent)
+        self._kind = kind
+        self._apply_kind(kind)
+
+    def _apply_kind(self, kind: str) -> None:
         pal = palette()
         bg = {
             "default": pal["bg3"],
@@ -314,8 +340,7 @@ class PillBadge(QLabel):
             "warn": f"{pal['warn']}30",
         }.get(kind, pal["border"])
 
-        self.setStyleSheet(
-            f"""
+        desired = f"""
             QLabel {{
                 background: {bg};
                 color: {fg};
@@ -326,7 +351,20 @@ class PillBadge(QLabel):
                 font-weight: 700;
             }}
             """
-        )
+        if desired != self.styleSheet():
+            self.setStyleSheet(desired)
+
+    def set_kind(self, kind: str) -> None:
+        self._kind = kind
+        self._apply_kind(kind)
+
+    def refresh_theme(self) -> None:
+        self._apply_kind(self._kind)
+
+    def event(self, ev) -> bool:  # noqa: N802
+        if ev.type() == QEvent.Type.StyleChange:
+            self.refresh_theme()
+        return super().event(ev)
 
 
 # ───────────────────────────────────────────────────────────────
@@ -678,7 +716,11 @@ class StatusIndicator(QWidget):
 
     def set_status(self, status: str) -> None:
         self._status = status
+        self._restyle()
+
+    def _restyle(self) -> None:
         pal = palette()
+        status = self._status
         color_key = self._COLORS.get(status, "fg_muted")
         color = pal.get(color_key, pal["fg_muted"])
 
@@ -711,6 +753,15 @@ class StatusIndicator(QWidget):
         else:
             self._pulse_anim.stop()
             self._opacity_effect.setOpacity(1.0)
+
+    def refresh_theme(self) -> None:
+        """Re-resolve palette colours after a live theme switch."""
+        self._restyle()
+
+    def event(self, ev) -> bool:  # noqa: N802
+        if ev.type() == QEvent.Type.StyleChange:
+            self.refresh_theme()
+        return super().event(ev)
 
 
 class EmptyState(QWidget):

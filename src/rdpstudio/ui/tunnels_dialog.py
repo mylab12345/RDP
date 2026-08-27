@@ -49,6 +49,7 @@ class TunnelsDialog(QDialog):
         stop = QPushButton("Stop")
         start = QPushButton("Start")
         remove = QPushButton("Remove")
+        remove.setObjectName("danger")
         buttons.addWidget(add)
         buttons.addWidget(start)
         buttons.addWidget(stop)

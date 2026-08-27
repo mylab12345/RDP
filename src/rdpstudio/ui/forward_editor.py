@@ -142,7 +142,7 @@ class ForwardListEditor(QWidget):
         edit = QPushButton("Edit…")
         edit.setObjectName("subtle")
         remove = QPushButton("Remove")
-        remove.setObjectName("ghost")
+        remove.setObjectName("danger")
         toggle = QPushButton("Toggle")
         toggle.setObjectName("ghost")
         for b in (add, edit, remove, toggle):
