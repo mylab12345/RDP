@@ -1,0 +1,77 @@
+id: io.github.mylab12345.KBRemote
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: kb-remote
+
+finish-args:
+  # GUI + X11 + Wayland + shared memory for the embedded FreeRDP surface
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --device=dri
+  # Network for SSH/SFTP/RDP/tunnels
+  - --share=network
+  # File dialogs for SFTP transfers and key import/export
+  - --filesystem=home
+  # Desktop notifications (optional)
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  # Qt6 (PySide6) from the freedesktop SDK
+  - name: python3-PySide6
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --jobs 1 --prefix=/app
+        PySide6-Essentials==6.6.3.1 PySide6-Addons==6.6.3.1 PySide6==6.6.3.1 shiboken6==6.6.3.1
+    sources:
+      - type: pip
+        packages:
+          - PySide6-Essentials==6.6.3.1
+          - PySide6==6.6.3.1
+          - shiboken6==6.6.3.1
+
+  - name: python3-paramiko
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --prefix=/app paramiko cryptography bcrypt pynacl
+    sources:
+      - type: pip
+        packages:
+          - paramiko
+          - cryptography
+          - bcrypt
+          - pynacl
+
+  - name: python3-pyte
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --prefix=/app pyte
+    sources:
+      - type: pip
+        packages:
+          - pyte
+
+  # FreeRDP -> RDP client for embedded + external sessions
+  - name: freerdp
+    buildsystem: meson
+    config-opts:
+      - -DCMAKE_INSTALL_PREFIX=/app
+      - -DWITH_SERVER=OFF
+      - -DWITH_PULSE=ON
+      - -DWITH_FFMPEG=OFF
+      - -DWITH_CUPS=ON
+      - -DWITH_SSE2=ON
+    sources:
+      - type: git
+        url: https://github.com/FreeRDP/FreeRDP.git
+        tag: 3.5.1
+
+  # The app itself (installed into /app as a Python package + launcher)
+  - name: kb-remote
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --prefix=/app .
+    sources:
+      - type: dir
+        path: ..

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mylab12345.KBRemote</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>KB-Remote</name>
+  <summary>Cross-platform SSH/SFTP/RDP remote-access workbench</summary>
+  <developer id="io.github.mylab12345">
+    <name>KB-Remote Developers</name>
+  </developer>
+  <description>
+    <p>KB-Remote is a tabbed remote-access workbench inspired by MobaXterm. It brings SSH/OpenSSH shells, SFTP file transfer and RDP remote desktops together in a single, keyboard-driven, NASA-style flight-ops interface.</p>
+    <ul>
+      <li>Tabbed SSH shells to Linux, Windows, BSD and macOS hosts with a real terminal emulator, agent/key/password auth, ProxyJump chaining and native terminal colors.</li>
+      <li>Embedded RDP sessions (FreeRDP) rendered inside the app, including on Wayland desktops.</li>
+      <li>Dual-pane SFTP browser with in-app text editing and secure upload.</li>
+      <li>Command palette, per-tab command line, in-terminal search, multi-host cluster runner, port scanner and SSH key utility.</li>
+      <li>Encrypted credential vault and TOFU host-key verification.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.mylab12345.KBRemote.desktop</launchable>
+  <url type="homepage">https://github.com/mylab12345/RDP</url>
+  <url type="bugtracker">https://github.com/mylab12345/RDP/issues</url>
+  <url type="vcs-browser">https://github.com/mylab12345/RDP</url>
+  <screenshots>
+    <screenshot type="default">
+      <image type="source">https://raw.githubusercontent.com/mylab12345/RDP/main/docs/screenshots/main-window.png</image>
+      <caption>Main workbench window</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/mylab12345/RDP/main/docs/screenshots/ssh-session.png</image>
+      <caption>Live SSH session tab</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/mylab12345/RDP/main/docs/screenshots/session-editor.png</image>
+      <caption>Session editor</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.9.0" date="2026-09-03"/>
+  </releases>
+  <provides>
+    <binary>kb-remote</binary>
+  </provides>
+</component>

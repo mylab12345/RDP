@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=KB-Remote
+GenericName=Remote Access Workbench
+Comment=SSH and RDP sessions with tunnels, vault and file transfer
+Exec=kb-remote
+Icon=io.github.mylab12345.KBRemote
+Terminal=false
+Categories=Network;RemoteAccess;System;Utility;
+Keywords=ssh;sftp;rdp;remote;terminal;tunnel;
+StartupWMClass=kb-remote
+X-AppImage-Version=0.9.0

@@ -1,0 +1,64 @@
+name: kb-remote
+base: core22
+version: '0.9.0'
+summary: Cross-platform SSH/SFTP/RDP remote-access workbench
+description: |
+  KB-Remote is a tabbed remote-access workbench inspired by MobaXterm. It
+  brings SSH/OpenSSH shells, SFTP file transfer and RDP remote desktops
+  together in a single keyboard-driven interface. Features include tabbed
+  terminals, embedded/clipboard RDP via FreeRDP, an encrypted credential
+  vault, port tunnels, a multi-host cluster runner and a port scanner.
+grade: stable
+confinement: strict
+architectures:
+  - build-on: [amd64, arm64]
+    run-on: [amd64, arm64]
+
+apps:
+  kb-remote:
+    command: bin/kb-remote
+    desktop: usr/share/applications/io.github.mylab12345.KBRemote.desktop
+    plugs:
+      - network
+      - network-bind
+      - home
+      - x11
+      - wayland
+      - desktop
+      - desktop-legacy
+      - opengl
+      - mount-observe
+    environment:
+      QT_PLUGIN_PATH: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/qt6/plugins:$SNAP/lib/python3.10/site-packages/PySide6/Qt/plugins
+      QML2_IMPORT_PATH: $SNAP/lib/python3.10/site-packages/PySide6/Qt/qml
+      KB_REMOTE_HOME: $SNAP_USER_DATA
+
+parts:
+  kb-remote:
+    plugin: python
+    source: .
+    build-packages:
+      - build-essential
+      - python3-dev
+    python-packages:
+      - PySide6-Essentials
+      - PySide6-Addons
+      - paramiko
+      - cryptography
+      - pyte
+    stage-packages:
+      - libxkbcommon0
+      - libegl1
+      - libgl1
+      - libasound2
+      - libgstreamer1.0-0
+      - freerdp3-x11
+
+  metadata:
+    plugin: dump
+    source: .
+    organize:
+      packaging/linux/io.github.mylab12345.KBRemote.desktop: usr/share/applications/io.github.mylab12345.KBRemote.desktop
+      packaging/linux/io.github.mylab12345.KBRemote.metainfo.xml: usr/share/metainfo/io.github.mylab12345.KBRemote.metainfo.xml
+      src/rdpstudio/resources/icons/logo.svg: usr/share/icons/hicolor/scalable/apps/io.github.mylab12345.KBRemote.svg
+      src/rdpstudio/resources/icons/logo.png: usr/share/icons/hicolor/512x512/apps/io.github.mylab12345.KBRemote.png
