@@ -331,11 +331,20 @@ class ClusterDialog(QDialog):
             sessions,
             command=cmd,
             timeout=self.timeout_spin.value(),
+            parent=self,
         )
         self._thread.hostResultReady.connect(self._on_host_result)
         self._thread.progressReady.connect(self._on_progress)
         self._thread.finishedExecution.connect(self._on_finished)
         self._thread.start()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        # Never destroy the dialog (and its host table) while worker threads
+        # are still emitting into it — cancel and wait like the other tools.
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.cancel()
+            self._thread.wait(3000)
+        super().closeEvent(event)
 
     def _on_host_result(self, res: ClusterHostResult) -> None:
         self._results.append(res)

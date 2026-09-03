@@ -290,7 +290,12 @@ class NativeTerminalView(QWidget):
                 "scrollbar",
                 lambda: native.setScrollBarPosition(getattr(native, "ScrollBarRight", 2)),
             ),  # right
-            ("confirm paste", lambda: native.setConfirmMultilinePaste(bool(self.settings.confirm_multiline_paste))),
+            # The native widget must never show its own multiline-paste
+            # confirmation: Ctrl+V, Ctrl+Shift+V and middle-click in this
+            # widget all route through paste_clipboard(confirm=False) and the
+            # context menu offers its own optional confirm. A native prompt
+            # here would be a second, surprising permission dialog.
+            ("confirm paste", lambda: native.setConfirmMultilinePaste(False)),
             ("word characters", lambda: native.setWordCharacters("@-./_~")),
             (
                 "context menu",
@@ -363,6 +368,24 @@ class NativeTerminalView(QWidget):
             return super().eventFilter(obj, event)
         etype = event.type()
         if etype == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+
+            # Clipboard: Ctrl+V / Ctrl+Shift+V paste into the terminal
+            # immediately (no confirmation); Ctrl+Shift+C copies; Ctrl+C
+            # copies only when there is a selection and otherwise stays the
+            # shell interrupt.
+            if ctrl and not alt:
+                if key == Qt.Key.Key_V:
+                    self.paste_clipboard(confirm=False)
+                    return True
+                if key == Qt.Key.Key_C and (shift or bool(self.selection())):
+                    self.copy_selection()
+                    return True
+
             data = encode_key_event(
                 event, type("_ModeStub", (), {"mode": {1 << 5} if self._app_cursor else set()})()
             )
@@ -391,6 +414,17 @@ class NativeTerminalView(QWidget):
             if commit:
                 self.write_user(commit.encode("utf-8"))
                 return True
+            return False
+        if etype == QEvent.Type.MouseButtonPress:
+            # Middle-click pastes the clipboard directly, no confirmation.
+            # Consume the event so the underlying QTermWidget can't double
+            # handle (or ignore) it — this binding's native middle-click is
+            # unreliable.
+            if event.button() == Qt.MouseButton.MiddleButton:
+                if bool(getattr(self.settings, "paste_on_middle_click", True)):
+                    self.paste_clipboard(confirm=False)
+                return True
+            return False
         return False
 
     def _on_native_send_data(self, *args) -> None:

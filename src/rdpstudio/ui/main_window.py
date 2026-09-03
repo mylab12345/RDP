@@ -358,6 +358,9 @@ class MainWindow(QMainWindow):
         self.controllers: dict[int, SessionTab] = {}
         # Last "connected" info per controller, for the status-bar summary.
         self._last_connected_info: dict[int, dict] = {}
+        # Open (non-modal) tool dialogs keyed by controller id — reuse instead
+        # of stacking a new window on every click.
+        self._tool_dialogs: dict[int, QWidget] = {}
 
         self._build_menu()
         self._build_toolbar()
@@ -1367,7 +1370,7 @@ class MainWindow(QMainWindow):
         if caps.sftp:
             feats.append("SFTP")
         if feats:
-            parts.append("·  " + "  ".join(feats))
+            parts.append(" · " + "  ".join(feats))
         self.session_info_label.setText("   ".join(parts))
 
     def _on_controller_status(self, info: dict, controller: SessionController) -> None:
@@ -1438,11 +1441,9 @@ class MainWindow(QMainWindow):
                 self.open_session(defn)
                 source.clear()
                 return
-        QMessageBox.information(
-            self,
-            "Quick connect",
-            "Could not parse that. Use user@host[:port] (port 3389 ⇒ RDP).",
-        )
+        toast(self, "Could not parse that. Use user@host[:port] (port 3389 ⇒ RDP).", "warn")
+        source.selectAll()
+        source.setFocus()
 
     def _connect_and_sftp(self, session_id: str) -> None:
         tab = self.connect_session(session_id)
@@ -1468,15 +1469,38 @@ class MainWindow(QMainWindow):
             return
         self.open_tunnels_for_controller(controller)
 
+    def _reuse_tool_dialog(self, controller):
+        """Bring an already-open non-modal tool dialog back to front; else None."""
+        cid = id(controller)
+        dlg = self._tool_dialogs.get(cid)
+        if dlg is None:
+            return None
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        return dlg
+
     def open_tunnels_for_controller(self, controller) -> None:
         from .tunnels_dialog import TunnelsDialog
 
-        TunnelsDialog(self.ctx, controller, self).show()
+        if self._reuse_tool_dialog(controller):
+            return
+        dlg = TunnelsDialog(self.ctx, controller, self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dlg.finished.connect(lambda _r, c=controller: self._tool_dialogs.pop(id(c), None))
+        self._tool_dialogs[id(controller)] = dlg
+        dlg.show()
 
     def open_sftp_for_controller(self, controller) -> None:
         from .sftp_dialog import SftpDialog
 
-        SftpDialog(self.ctx, controller, self).show()
+        if self._reuse_tool_dialog(controller):
+            return
+        dlg = SftpDialog(self.ctx, controller, self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dlg.finished.connect(lambda _r, c=controller: self._tool_dialogs.pop(id(c), None))
+        self._tool_dialogs[id(controller)] = dlg
+        dlg.show()
 
     def open_rdp_server_manager(self) -> None:
         from .rdp_server_dialog import RdpServerDialog

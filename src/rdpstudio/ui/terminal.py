@@ -1254,9 +1254,28 @@ class TerminalView(QWidget):
     def keyPressEvent(self, event) -> None:  # noqa: N802
         key = event.key()
         mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+
+        # Terminal copy/paste: Ctrl+V / Ctrl+Shift+V paste the clipboard
+        # immediately (no confirmation prompt); Ctrl+Shift+C always copies a
+        # selection; Ctrl+C copies only when text is selected and otherwise
+        # stays the shell interrupt.
+        if ctrl and not alt:
+            if key == Qt.Key.Key_V:
+                self.paste_clipboard(confirm=False)
+                event.accept()
+                return
+            if key == Qt.Key.Key_C:
+                if shift or self.has_selection():
+                    self.copy_selection()
+                    event.accept()
+                    return
+                # no selection + no shift -> fall through to the shell (SIGINT)
 
         # In-terminal search shortcut (Ctrl+F)
-        if (mods & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_F:
+        if ctrl and key == Qt.Key.Key_F:
             self.open_search()
             event.accept()
             return
