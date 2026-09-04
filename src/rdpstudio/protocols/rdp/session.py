@@ -496,6 +496,62 @@ class RdpSessionController(SessionController):
     # ------------------------------------------------------------------
     def start(self) -> None:
         self._stopping = False
+
+        # ------------------------------------------------------------------
+        # Credential guard — require username AND password before launching
+        # the RDP client.  A bare IP / hostname with no saved credentials
+        # must not silently pass through to FreeRDP / mstsc: it would either
+        # pop the Windows logon screen (mstsc) or fail with an NLA error
+        # (FreeRDP), giving the false impression that any machine is
+        # reachable without authentication.
+        #
+        # The GUI-level guard in open_session (main_window.py) handles the
+        # very first connect; this guard catches every subsequent start()
+        # call (reconnect, refit, restart) so credentials can never be
+        # stripped away between the dialog and the launch.
+        # ------------------------------------------------------------------
+        if not self.definition.username or not (
+            self.definition.password or self.definition.credential_id
+        ):
+            # Prompt via the session-context prompter so the call is
+            # thread-safe and testable (HeadlessPromptProvider in tests).
+            if not self.definition.username:
+                user = self.ctx.prompter.ask_secret(
+                    "Credentials required",
+                    f"Username for {self.definition.host}:",
+                    secret=False,
+                    preset=self.definition.username,
+                )
+                if not user:
+                    self.set_state(SessionState.FAILED)
+                    self._status.setText(
+                        "Connection cancelled — username is required to connect."
+                    )
+                    if self._mode == "embedded":
+                        self._set_emb_hint(
+                            "Connection cancelled — username is required to connect."
+                        )
+                    return
+                self.definition.username = user
+
+            if not self.definition.password and not self.definition.credential_id:
+                pw = self.ctx.prompter.ask_secret(
+                    "Credentials required",
+                    f"Password for {self.definition.username}@{self.definition.host}:",
+                    secret=True,
+                )
+                if pw is None:
+                    self.set_state(SessionState.FAILED)
+                    self._status.setText(
+                        "Connection cancelled — password is required to connect."
+                    )
+                    if self._mode == "embedded":
+                        self._set_emb_hint(
+                            "Connection cancelled — password is required to connect."
+                        )
+                    return
+                self.definition.password = pw
+
         new_mode = self.resolve_mode()
         if new_mode != self._mode:
             self._mode = new_mode
