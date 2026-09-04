@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 pytestmark = pytest.mark.usefixtures("home")
+
+# The stand-in FreeRDP client used below is a POSIX shell script, so the tests
+# that actually spawn it are POSIX-only (the same convention as
+# tests/test_rdp_xwayland.py).
+posix_shell_client = pytest.mark.skipif(
+    sys.platform == "win32", reason="the stand-in FreeRDP client is a POSIX shell script"
+)
 
 
 def _ctx(tmp_path):
@@ -356,6 +365,7 @@ def _pump(qtapp, seconds: float) -> None:
         time.sleep(0.005)
 
 
+@posix_shell_client
 def test_sidebar_toggle_keeps_embedded_session_alive(tmp_path, qtapp, monkeypatch):
     """Regression: hiding/showing the sidebar killed the RDP session.
 
@@ -389,6 +399,7 @@ def test_sidebar_toggle_keeps_embedded_session_alive(tmp_path, qtapp, monkeypatc
         _pump(qtapp, 0.3)
 
 
+@posix_shell_client
 def test_rapid_sidebar_toggles_do_not_relaunch_or_stack_tweens(
     tmp_path, qtapp, monkeypatch
 ):
@@ -409,6 +420,7 @@ def test_rapid_sidebar_toggles_do_not_relaunch_or_stack_tweens(
         _pump(qtapp, 0.3)
 
 
+@posix_shell_client
 def test_sidebar_tween_replaces_a_running_animation(tmp_path, qtapp, monkeypatch):
     """One tween at a time: a mid-flight reversal must not leave both running.
 
@@ -510,6 +522,7 @@ def test_ui_layout_busy_suppresses_refit(tmp_path, qtapp):
     assert not ctrl._ui_layout_busy, "resize handling resumes after the settle window"
 
 
+@posix_shell_client
 def test_settled_user_resize_refits_once_and_relaunches(tmp_path, qtapp, monkeypatch):
     """A real resize of the display area re-fits: one kill, one relaunch."""
     import time
@@ -555,6 +568,7 @@ def test_settled_user_resize_refits_once_and_relaunches(tmp_path, qtapp, monkeyp
     _pump(qtapp, 0.5)
 
 
+@posix_shell_client
 def test_stop_is_a_clean_close_not_a_crash(tmp_path, qtapp, monkeypatch):
     """The kill we ask for must not surface as "client crashed"/FAILED."""
     from rdpstudio.core.models import Session
