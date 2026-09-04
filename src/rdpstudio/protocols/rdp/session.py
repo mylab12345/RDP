@@ -66,6 +66,14 @@ _MAX_RDP_W, _MAX_RDP_H = 7680, 4320
 # to the session's saved resolution instead of launching a tiny desktop.
 _MIN_MAPPED_W, _MIN_MAPPED_H = 320, 200
 _STARTUP_GRACE_MS = 15000
+# A resize only counts once the size has been stable for this long.  A layout
+# change (sidebar collapse tween, window drag, density switch) produces dozens
+# of resize events; acting on each one used to restart the RDP client over and
+# over — and to leave the session dead (see ``_on_surface_resized``).
+_REFIT_SETTLE_MS = 250
+# Extra quiet period after the window chrome finishes re-laying out, so the
+# last layout pass of a sidebar toggle is absorbed too.
+_UI_SETTLE_MS = 350
 
 
 def find_rdp_client() -> tuple[str, str] | None:
@@ -263,7 +271,7 @@ def _redact_args(args: list[str]) -> str:
 class _EmbeddedSurface(QWidget):
     """Native X11 window that hosts the embedded FreeRDP child window."""
 
-    resized = Signal()  # emitted when the tab was resized while connected
+    resized = Signal()  # emitted once the tab settled on a new size
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -271,9 +279,16 @@ class _EmbeddedSurface(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet("background: #101418;")
         self._launch_size: tuple[int, int] | None = None
+        # Coalesces the resize storm a layout change produces (sidebar tween,
+        # window drag) into a single notification once the size settles.
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(_REFIT_SETTLE_MS)
+        self._settle.timeout.connect(self._notify_settled)
 
     def set_launch_size(self, size: tuple[int, int]) -> None:
         self._launch_size = size
+        self._settle.stop()  # this size is now the reference; nothing pending
 
     def size_changed(self) -> bool:
         """True if the widget moved >=32 px away from the launch size."""
@@ -283,10 +298,16 @@ class _EmbeddedSurface(QWidget):
         dh = abs(self.height() - self._launch_size[1])
         return dw >= 32 or dh >= 32
 
+    def _notify_settled(self) -> None:
+        if self._launch_size is not None and self.size_changed():
+            self.resized.emit()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         if self._launch_size is not None and self.size_changed():
-            self.resized.emit()
+            # (Re)arm the settle timer instead of signalling every frame: a
+            # single sidebar toggle otherwise fires this ~10 times in 140 ms.
+            self._settle.start()
         if getattr(self, "_hint", None) is not None:
             # keep the hint centred over the desktop
             self._hint.setGeometry(
@@ -308,6 +329,16 @@ class RdpSessionController(SessionController):
         super().__init__(definition, ctx, parent)
         self._proc: QProcess | None = None
         self._resized_restart = False
+        # A refit kill is in flight: the client is relaunched from
+        # _on_proc_finished, never concurrently (two FreeRDP clients on one
+        # parent window fight over the X surface).
+        self._refit_requested = False
+        # Desktop resolution the client was launched with — a resize that
+        # would not change it must not disturb the session.
+        self._launched_size: tuple[int, int] | None = None
+        # True while the window chrome is re-laying out (sidebar tween).
+        self._ui_layout_busy = False
+        self._stopping = False
         self._probe_thread: threading.Thread | None = None
         self._args_file: Path | None = None  # /args-from:file: (holds the secret)
         self._embed_retry: bool = False
@@ -320,6 +351,11 @@ class RdpSessionController(SessionController):
         self._startup_timer = QTimer(self)
         self._startup_timer.setSingleShot(True)
         self._startup_timer.timeout.connect(self._mark_connected)
+        # Keeps resize handling suspended briefly after the chrome settles.
+        self._ui_settle_timer = QTimer(self)
+        self._ui_settle_timer.setSingleShot(True)
+        self._ui_settle_timer.setInterval(_UI_SETTLE_MS)
+        self._ui_settle_timer.timeout.connect(self._clear_ui_layout_busy)
         self._policy = ReconnectPolicy.from_settings(ctx.settings)
         self._sigProbeResult.connect(self._on_probe_result)
         self._build_ui()
@@ -459,6 +495,7 @@ class RdpSessionController(SessionController):
     # lifecycle
     # ------------------------------------------------------------------
     def start(self) -> None:
+        self._stopping = False
         new_mode = self.resolve_mode()
         if new_mode != self._mode:
             self._mode = new_mode
@@ -549,6 +586,7 @@ class RdpSessionController(SessionController):
             # Fit the remote desktop to the detected display area of the tab
             # so the entire screen is visible inside the app.
             size = self._detected_size()
+            self._launched_size = size  # a resize to the same size is a no-op
             args = build_embedded_args(self.definition, self._resolve_secret(), xid, size=size)
             log.info(
                 "launching embedded freerdp (Remmina-style X11 reparent): %s %s (xid=%s, size=%dx%d)",
@@ -575,6 +613,7 @@ class RdpSessionController(SessionController):
         import time as _time
 
         self._cleanup_args_file()
+        self._retire_proc()
         self._proc = QProcess(self)
         self._proc_stderr = ""
         self._proc_stdout = ""
@@ -624,20 +663,92 @@ class RdpSessionController(SessionController):
             except OSError:
                 pass
 
-    def _on_surface_resized(self) -> None:
-        """Restart the embedded client so the desktop follows the tab size."""
-        if self._mode != "embedded" or self._proc is None:
+    # ------------------------------------------------------------------
+    # UI layout changes (sidebar toggle, density switch, …)
+    # ------------------------------------------------------------------
+    def set_ui_layout_busy(self, busy: bool) -> None:
+        """Chrome is re-laying out — the session must not be disturbed.
+
+        Collapsing/expanding the sidebar resizes every tab, and the embedded
+        desktop can only change resolution by relaunching FreeRDP.  Acting on
+        that resize killed a healthy session (reported to the user as
+        "client crashed") and left it disconnected, so chrome-driven layout
+        changes are ignored entirely: the remote desktop keeps running and the
+        session state is untouched.
+        """
+        self._ui_settle_timer.stop()
+        if busy:
+            self._ui_layout_busy = True
+        elif self._ui_layout_busy:
+            # Keep ignoring resizes for a short settle window so the final
+            # layout pass after the chrome came to rest is absorbed too.
+            self._ui_settle_timer.start()
+
+    def _clear_ui_layout_busy(self) -> None:
+        self._ui_layout_busy = False
+
+    def _retire_proc(self) -> None:
+        """Detach the current client process object.
+
+        A superseded client's late signals must not be mistaken for the live
+        session's (that is how a deliberate refit kill used to be reported as
+        "client crashed" *after* the new client had already started), and the
+        QProcess object is released once the OS process is gone.
+        """
+        proc = self._proc
+        if proc is None:
             return
-        if self._proc.state() != QProcess.ProcessState.Running:
+        self._proc = None
+        for sig in (
+            proc.started,
+            proc.finished,
+            proc.errorOccurred,
+            proc.readyReadStandardError,
+            proc.readyReadStandardOutput,
+        ):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):  # already disconnected / deleted
+                pass
+        try:
+            if proc.state() == QProcess.ProcessState.NotRunning:
+                proc.deleteLater()
+        except RuntimeError:  # C++ object already deleted
+            pass
+
+    def _on_surface_resized(self) -> None:
+        """Refit the remote desktop after a *settled user* resize of the tab.
+
+        Deliberately conservative: relaunching the client drops the session,
+        so this only runs for a real resize of the display area — never for a
+        chrome relayout (sidebar toggle), never while a refit is already in
+        flight, and never when the resulting desktop resolution would be the
+        same anyway.
+        """
+        if self._mode != "embedded":
+            return
+        if self._ui_layout_busy or self._stopping:
+            log.debug("ignoring resize: %s", "chrome relayout" if self._ui_layout_busy else "stopping")
+            return
+        if self._refit_requested or self._resized_restart:
+            return  # a refit is already in flight
+        if self._proc is None or self._proc.state() != QProcess.ProcessState.Running:
             return
         # Layout changes during the initial handshake are expected while the
         # tab becomes visible; restarting then can kill the only connection
         # attempt and leave a blank embedded surface.
         if self._state != SessionState.CONNECTED:
             return
-        log.info("RDP tab resized — restarting embedded client to refit")
+        size = self._detected_size()
+        if size == self._launched_size:
+            return  # nothing would change — no reason to disturb the session
+        log.info("RDP tab resized — refitting the embedded desktop to %dx%d", size[0], size[1])
         self._surface.set_launch_size((self._surface.width(), self._surface.height()))
         self._resized_restart = True
+        self._refit_requested = True
+        self._set_emb_hint("Refitting the desktop…")
+        # Deliberate kill: _on_proc_finished relaunches at the new size once
+        # this client has released the parent window.
         self._proc.kill()
 
     def _set_emb_hint(self, text: str) -> None:
@@ -741,6 +852,8 @@ class RdpSessionController(SessionController):
         self._on_proc_stdout()
         self._cleanup_args_file()
         self._startup_timer.stop()
+        refit = self._refit_requested
+        self._refit_requested = False
         startup_failure = not self._startup_complete and not self._resized_restart
         code = self._proc.exitCode() if self._proc else 0
         status = self._proc.exitStatus() if self._proc else QProcess.ExitStatus.NormalExit
@@ -752,6 +865,16 @@ class RdpSessionController(SessionController):
         self._resized_restart = False
         self._btn_connect.setEnabled(True)
         self._btn_stop.setEnabled(False)
+        if refit and not self._stopping:
+            # Deliberate refit after a settled user resize: the session is not
+            # over, so no state churn and no error for the tab. Relaunch only
+            # now that the old client has released the parent window — two
+            # FreeRDP clients on one X window fight over the same surface.
+            log.info("refit: relaunching the embedded client at the new size")
+            self._retire_proc()
+            self._start_embedded()
+            return
+        self._retire_proc()
         # build diagnostic tail (first error line or last 500 chars)
         diag = (self._proc_stderr or self._proc_stdout).strip()
         # pick most relevant line
@@ -820,7 +943,11 @@ class RdpSessionController(SessionController):
             and not security_failure
             and not (code != 0 and elapsed < 1.5)  # don't loop on instant config errors
         )
-        if startup_failure and self.definition.auto_reconnect and not security_failure:
+        if self._stopping:
+            # The user closed the session; the kill below is ours and must
+            # never be turned into an auto-reconnect.
+            should_reconnect = False
+        elif startup_failure and self.definition.auto_reconnect and not security_failure:
             # Early exits are commonly transient NLA/network startup failures.
             should_reconnect = self._policy.should_retry(self._attempt + 1)
         if should_reconnect:
@@ -838,7 +965,9 @@ class RdpSessionController(SessionController):
             delay = int(delay_seconds * 1000)
             QTimer.singleShot(delay, lambda: self.start() if self._state == SessionState.RECONNECTING else None)
         else:
-            if code != 0 and not resized:
+            if code != 0 and not resized and not self._stopping:
+                # A kill we asked for (user stop) exits non-zero by design —
+                # that is a clean close, not a failure.
                 self.set_state(SessionState.FAILED)
                 self.statusInfo.emit({"error": reason})
             if self._mode == "embedded":
@@ -857,9 +986,13 @@ class RdpSessionController(SessionController):
             QProcess.ProcessError.ReadError: "read error",
             QProcess.ProcessError.UnknownError: "unknown error",
         }
-        if error == QProcess.ProcessError.Crashed and not self._startup_complete:
-            # QProcess emits Crashed before finished; let finished classify it
-            # as a retryable startup failure instead of ending the session.
+        if error == QProcess.ProcessError.Crashed and (
+            self._refit_requested or self._stopping or not self._startup_complete
+        ):
+            # QProcess reports our own kill() (refit / user stop) as Crashed
+            # before finished; treat it as expected instead of tearing a
+            # healthy session down with "client crashed". Startup failures are
+            # left to finished as well, so they stay retryable.
             return
         self._on_error_text(names.get(error, "error"))
 
@@ -875,6 +1008,13 @@ class RdpSessionController(SessionController):
 
     def stop(self, reason: str = "closed by user") -> None:
         self._cleanup_args_file()
+        # The kill below is ours: neither a refit relaunch nor a "client
+        # crashed" report may follow it.
+        self._stopping = True
+        self._refit_requested = False
+        self._resized_restart = False
+        self._ui_settle_timer.stop()
+        self._surface._settle.stop()
         if self._proc is not None:
             self._proc.kill()
         self._btn_connect.setEnabled(True)
