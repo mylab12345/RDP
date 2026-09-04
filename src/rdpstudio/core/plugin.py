@@ -159,6 +159,17 @@ class SessionController(QObject):
     def resize(self, cols: int, rows: int) -> None:  # pragma: no cover - optional
         """Terminal resize (only for shell-capable controllers)."""
 
+    # -- UI notifications ---------------------------------------------------
+    def set_ui_layout_busy(self, busy: bool) -> None:  # pragma: no cover - optional
+        """The window chrome is re-laying out (e.g. the sidebar collapse tween).
+
+        A chrome animation resizes every open tab dozens of times in a few
+        hundred milliseconds.  Controllers that host a native/embedded surface
+        (RDP) use this to tell that resize storm apart from the user resizing
+        the tab, so a purely cosmetic window change never tears the session
+        down.  Default: nothing to do.
+        """
+
     # -- helpers -----------------------------------------------------------
     def open_sftp(self) -> None:  # pragma: no cover - optional
         """Open an SFTP/transfer window for this session."""

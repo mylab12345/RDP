@@ -39,6 +39,29 @@
   confirm button as destructive.
 - Sidebar "Terminal" and "New" buttons carry their correct glyphs (terminal /
   plus) instead of console / plus; folder delete uses the trash icon.
+- **RDP resize re-fit now coalesces and relaunches cleanly.** The embedded
+  desktop re-fits at most once per settled resize (resize notifications are
+  debounced ~250 ms), never while another re-fit is in flight, and the client
+  is relaunched only after the old one has released the parent X window — so
+  two FreeRDP clients can no longer fight over the same surface. A resize that
+  would not change the remote resolution is ignored entirely.
+- **A deliberate client kill is no longer reported as a crash.** Stopping a
+  session (or re-fitting it) ends in `closed`, not `FAILED` /
+  "RDP client crashed", and a stopped session is never auto-reconnected.
+  Retired client processes are detached and released instead of staying wired
+  to the session's signal handlers.
+
+### Fixed
+- **Hiding/showing the sidebar no longer kills the RDP session.** Collapsing
+  or expanding the sidebar resizes every open tab; the embedded RDP surface
+  read that as the user resizing the tab, killed FreeRDP (reported to the user
+  as "client crashed") and left the session `closed` — a manual reconnect was
+  the only way back. The window chrome now tells sessions while it is
+  re-laying out (`SessionController.set_ui_layout_busy`), the RDP controller
+  ignores resizes during that window plus a short settle period, and the
+  sidebar tween no longer stacks (a new toggle stops the animation still
+  running) or issues redundant splitter updates. Toggling the sidebar — even
+  repeatedly — keeps the remote desktop connected and its state unchanged.
 
 ### Previous
 

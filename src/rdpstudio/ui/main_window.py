@@ -944,8 +944,10 @@ class MainWindow(QMainWindow):
     def _set_sidebar_width(self, width: int) -> None:
         sizes = self.main_splitter.sizes()
         total = sum(sizes)
-        self.main_splitter.setSizes([width, max(320, total - width)])
         self._sidebar_collapsed = width <= 0
+        if sizes and sizes[0] == width:
+            return  # nothing to do — skip the layout pass entirely
+        self.main_splitter.setSizes([width, max(320, total - width)])
 
     def _toggle_sidebar(self, checked: bool = None) -> None:
         """checked=True shows the sidebar, checked=False collapses it.
@@ -957,14 +959,31 @@ class MainWindow(QMainWindow):
         if checked is None:
             checked = self._sidebar_collapsed  # invert the current state
         self._sync_sidebar_actions(checked)
+        # The tween resizes every open tab ~10 times in 140 ms. Sessions with
+        # an embedded native surface (RDP) must not read that as the user
+        # resizing the tab — that tore down a healthy remote desktop and left
+        # it disconnected. Mark the chrome busy for the duration.
+        self._set_ui_layout_busy(True)
         target = max(220, self._last_sidebar_width) if checked else 0
         self._animate_splitter(self._sidebar_width(), target)
 
     def _animate_splitter(self, start: int, end: int) -> None:
         from PySide6.QtCore import QVariantAnimation
 
+        # One tween at a time: overlapping animations fight over the splitter
+        # sizes and multiply the layout churn (rapid Ctrl+B presses).
+        prev = getattr(self, "_sidebar_anim", None)
+        if prev is not None:
+            try:
+                prev.stop()
+                prev.deleteLater()
+            except RuntimeError:  # C++ object already deleted
+                pass
+            self._sidebar_anim = None
+
         if not theme.MOTIONS_ENABLED or start == end:
             self._set_sidebar_width(end)
+            self._set_ui_layout_busy(False)
             return
         anim = QVariantAnimation(self)
         anim.setDuration(140)
@@ -973,8 +992,30 @@ class MainWindow(QMainWindow):
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         anim.valueChanged.connect(lambda v: self._set_sidebar_width(int(v)))
         self._sidebar_anim = anim  # keep alive across the event loop
+        anim.finished.connect(lambda: self._set_ui_layout_busy(False))
         anim.finished.connect(anim.deleteLater)
         anim.start()
+
+    def _set_ui_layout_busy(self, busy: bool) -> None:
+        """Tell every open session that the window chrome is re-laying out.
+
+        Protocol-agnostic: controllers that care (RDP's embedded desktop)
+        implement the optional hook and keep their session untouched, the rest
+        ignore it.
+        """
+        if not hasattr(self, "tabs"):
+            return
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if not isinstance(tab, SessionTab):
+                continue
+            hook = getattr(tab.controller, "set_ui_layout_busy", None)
+            if hook is None:
+                continue
+            try:
+                hook(busy)
+            except Exception:  # never let a session break the chrome
+                log.exception("set_ui_layout_busy failed")
 
     def _sync_sidebar_actions(self, visible: bool = None) -> None:
         if visible is None:
