@@ -10,6 +10,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -1322,6 +1323,21 @@ class MainWindow(QMainWindow):
         except KeyError as exc:
             QMessageBox.warning(self, "Unknown protocol", str(exc))
             return None
+
+        # ------------------------------------------------------------------
+        # Credential guard — prompt for username / password whenever the
+        # session has no saved credentials and is not a local shell.
+        # This stops a bare IP (quick-connect or saved session with no auth)
+        # from connecting silently without credentials.
+        # ------------------------------------------------------------------
+        from .credential_dialog import CredentialDialog, needs_credential_prompt
+        if needs_credential_prompt(defn):
+            dlg = CredentialDialog(defn, self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                # User cancelled — abort the connection entirely
+                return None
+            # defn.username / defn.password are now filled in by the dialog
+
         controller = plugin.create_session(defn, self.ctx)
         controller.setParent(self)
         tab = SessionTab(controller, self)
