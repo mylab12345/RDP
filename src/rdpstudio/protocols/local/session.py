@@ -51,16 +51,58 @@ except ImportError:  # pragma: no cover - Windows
     POSIX = False
 
 
+def _powershell7_path() -> str | None:
+    """Absolute path of PowerShell 7 (pwsh) without relying on PATH.
+
+    ``shutil.which`` misses it when the install dir was never added to PATH
+    (the default MSI offers that as an opt-in checkbox), so probe the
+    well-known install locations too.
+    """
+    candidates = []
+    for base in (
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("LOCALAPPDATA"),
+    ):
+        if base:
+            candidates.append(os.path.join(base, "PowerShell", "7", "pwsh.exe"))
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _windows_powershell_path() -> str | None:
+    """Absolute path of inbox Windows PowerShell 5.1 without relying on PATH."""
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    candidates = [
+        os.path.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    ]
+    if struct.calcsize("P") * 8 == 32:
+        # 32-bit process on 64-bit Windows: Sysnative bypasses the WOW64
+        # System32 -> SysWOW64 redirection.
+        candidates.insert(
+            0,
+            os.path.join(root, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        )
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def _default_shell() -> list[str]:
     if POSIX:
         for candidate in (os.environ.get("SHELL"), "/bin/bash", "/bin/sh"):
             if candidate and shutil.which(candidate):
                 return [candidate, "-i"]
         return ["/bin/sh"]
-    if shutil.which("pwsh"):
-        return ["pwsh", "-NoLogo"]
-    if shutil.which("powershell"):
-        return ["powershell", "-NoLogo"]
+    pwsh = shutil.which("pwsh") or _powershell7_path()
+    if pwsh:
+        return [pwsh, "-NoLogo"]
+    powershell = shutil.which("powershell") or _windows_powershell_path()
+    if powershell:
+        return [powershell, "-NoLogo"]
     return ["cmd.exe", "/Q"]
 
 
