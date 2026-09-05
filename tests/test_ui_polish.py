@@ -192,3 +192,56 @@ def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
     assert label2.graphicsEffect() is not None  # fade actually attached
     while label2.graphicsEffect() is not None:
         qtapp.processEvents()
+
+
+# ----------------------------------------------------------------------
+# MobaXterm look — default theme, coloured toolbar glyphs, sidebar rail
+# ----------------------------------------------------------------------
+def test_mobaxterm_is_default_theme() -> None:
+    from rdpstudio.core.settings import THEME_IDS, Settings
+    from rdpstudio.ui import theme
+
+    assert "mobaxterm" in THEME_IDS
+    assert Settings().theme == "mobaxterm"
+    assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm"
+    pal = theme.PALETTE["mobaxterm"]
+    # MobaXterm signature colours: light gray chrome, Windows blue accent
+    assert pal["bg"].lower() == "#f0f0f0"
+    assert pal["accent"].lower() == "#0078d7"
+
+
+def test_toolbar_icons_are_tinted_per_action(qtapp) -> None:  # noqa: ARG001
+    from PySide6.QtCore import QSize
+
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    green = _average_opaque_color(theme.toolbar_icon("plus").pixmap(QSize(24, 24)))
+    red = _average_opaque_color(theme.toolbar_icon("close").pixmap(QSize(24, 24)))
+    assert green[1] > green[0] and green[1] > green[2]  # "Session" is green
+    assert red[0] > red[1] and red[0] > red[2]  # "Close all" is red
+
+
+def test_mobaxterm_qss_has_flat_geometry(qtapp) -> None:  # noqa: ARG001
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    qss = qtapp.styleSheet()
+    assert "QToolBar#moxaToolbar" in qss
+    assert "QTabBar#sideRail" in qss
+    # No large "bento" radii survive in the global sheet
+    assert "border-radius: 14px" not in qss and "border-radius: 8px" not in qss
+
+
+def test_sidebar_has_rail_and_pages(home, qtapp) -> None:
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.sidebar import SessionTree
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    sb = SessionTree(SessionStore(home / "sessions.json"))
+    assert sb.rail.count() == 2 and sb.pages.count() == 2
+    assert sb.rail.tabText(0) == "Sessions"
+    sb.rail.setCurrentIndex(1)
+    assert sb.pages.currentIndex() == 1
+    sb.close()

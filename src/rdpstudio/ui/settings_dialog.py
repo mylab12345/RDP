@@ -104,16 +104,16 @@ def _make_group(title: str, pal: dict[str, str]) -> tuple[QFrame, QVBoxLayout]:
     card = QWidget()
     card.setObjectName("card")
     card.setStyleSheet(
-        f"QWidget#card {{ background: {pal['bg2']}; border: 1px solid {pal['border']}; border-radius: 8px; }}"
+        f"QWidget#card {{ background: {pal['bg']}; border: 1px solid {pal['border_strong']}; border-radius: 3px; }}"
     )
     v = QVBoxLayout(card)
-    v.setContentsMargins(18, 18, 18, 16)
-    v.setSpacing(10)
+    v.setContentsMargins(12, 10, 12, 10)
+    v.setSpacing(8)
 
+    # Group caption in Windows-blue, like a classic group-box title
     title_lbl = QLabel(title)
     title_lbl.setStyleSheet(
-        f"color: {pal['fg_dim']}; font-size: 11.5px; font-weight: 700; "
-        f"letter-spacing: 0.4px; padding-bottom: 4px;"
+        f"color: {pal['accent']}; font-size: 12px; font-weight: 400; padding-bottom: 2px;"
     )
     v.addWidget(title_lbl)
     return card, v
@@ -121,7 +121,7 @@ def _make_group(title: str, pal: dict[str, str]) -> tuple[QFrame, QVBoxLayout]:
 
 def _make_row_label(text: str, pal: dict[str, str]) -> QLabel:
     lbl = QLabel(text)
-    lbl.setStyleSheet(f"color: {pal['fg']}; font-size: 13px; font-weight: 500;")
+    lbl.setStyleSheet(f"color: {pal['fg']}; font-size: 12px; font-weight: 400;")
     return lbl
 
 
@@ -141,23 +141,23 @@ class _ThemeCard(QFrame):
         super().__init__(parent)
         self.theme_id = tid
         self._selected = selected
-        pal_data = PALETTE.get(tid, PALETTE["dark"])
+        pal_data = PALETTE.get(tid, PALETTE["mobaxterm"])
         accent = pal_data["accent"]
         bg = pal_data["bg"]
         fg = pal_data["fg"]
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(80)
+        self.setFixedHeight(64)
         self.setMinimumWidth(130)
         self.setSizePolicy(self.sizePolicy().horizontalPolicy(), self.sizePolicy().verticalPolicy())
 
-        border = f"2px solid {accent}" if selected else f"1px solid {pal_data.get('border', '#333')}"
+        border = f"2px solid {accent}" if selected else f"1px solid {pal_data.get('border_strong', '#adadad')}"
         self.setStyleSheet(
             f"""
             _ThemeCard {{
                 background: {bg};
                 border: {border};
-                border-radius: 8px;
+                border-radius: 2px;
             }}
             _ThemeCard:hover {{
                 border: 2px solid {accent};
@@ -166,8 +166,8 @@ class _ThemeCard(QFrame):
         )
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(6)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
 
         top = QHBoxLayout()
         top.setSpacing(8)
@@ -219,15 +219,15 @@ class SettingsDialog(QDialog):
         pal = palette()
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 24, 24, 18)
-        outer.setSpacing(16)
+        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setSpacing(8)
 
         # ── header (title + live search across every settings group) ──
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
         title = QLabel("Settings")
         title.setObjectName("h1")
-        title.setStyleSheet("font-size: 16px; font-weight: 700; letter-spacing: -0.2px;")
+        title.setStyleSheet("font-size: 15px; font-weight: 400;")
         header_row.addWidget(title)
         header_row.addStretch(1)
 
@@ -235,7 +235,7 @@ class SettingsDialog(QDialog):
         self._settings_search.setPlaceholderText("Search settings…")
         self._settings_search.setClearButtonEnabled(True)
         self._settings_search.setFixedWidth(220)
-        self._settings_search.setMinimumHeight(32)
+        self._settings_search.setMinimumHeight(24)
         search_act = self._settings_search.addAction(
             icon("search"), QLineEdit.ActionPosition.LeadingPosition
         )
@@ -244,44 +244,11 @@ class SettingsDialog(QDialog):
         outer.addLayout(header_row)
 
         # ── tab widget (left-side tab bar) ──
+        # MobaXterm "Configuration" dialog: a classic horizontal tab strip
+        # across the top, framed pane below (global QSS styles it).
         tabs = QTabWidget()
-        tabs.setTabPosition(QTabWidget.TabPosition.West)
-        tabs.setDocumentMode(True)
-        tabs.setStyleSheet(
-            f"""
-            QTabWidget::pane {{ border: none; background: transparent; }}
-            QTabBar {{
-                background: {pal['bg2']};
-                qproperty-drawBase: 0;
-                border: 1px solid {pal['border']};
-                border-radius: 8px;
-                padding: 6px 4px;
-            }}
-            QTabBar::tab {{
-                background: transparent;
-                color: {pal['fg_dim']};
-                padding: 10px 16px;
-                border: none;
-                border-left: 3px solid transparent;
-                border-radius: 0px;
-                margin: 2px 0px;
-                font-weight: 600;
-                font-size: 12.5px;
-                min-width: 100px;
-                text-align: left;
-            }}
-            QTabBar::tab:selected {{
-                background: {pal['accent_subtle']};
-                color: {pal['accent']};
-                border-left: 3px solid {pal['accent']};
-                font-weight: 700;
-            }}
-            QTabBar::tab:hover:!selected {{
-                background: {pal['bg3']};
-                color: {pal['fg']};
-            }}
-            """
-        )
+        tabs.setTabPosition(QTabWidget.TabPosition.North)
+        tabs.setDocumentMode(False)
         outer.addWidget(tabs, 1)
 
         # ── build all pages ──
@@ -391,7 +358,7 @@ class SettingsDialog(QDialog):
         r1.addWidget(_make_row_label("Font family", pal))
         self.font_family = QComboBox()
         self.font_family.setEditable(True)
-        self.font_family.setMinimumHeight(38)
+        self.font_family.setMinimumHeight(24)
         fonts = collect_terminal_fonts()
         self.font_family.addItems(fonts)
         if settings.font_family:
@@ -408,7 +375,7 @@ class SettingsDialog(QDialog):
         self.font_size = QSpinBox()
         self.font_size.setRange(7, 24)
         self.font_size.setValue(settings.font_size)
-        self.font_size.setMinimumHeight(38)
+        self.font_size.setMinimumHeight(24)
         self.font_size.setFixedWidth(80)
         r1.addWidget(self.font_size)
         grp2_lay.addLayout(r1)
@@ -420,11 +387,12 @@ class SettingsDialog(QDialog):
         self._font_preview.setMinimumHeight(52)
         self._font_preview.setStyleSheet(
             f"""
-            background: {pal['bg3']};
-            border: 1px solid {pal['border']};
-            border-radius: 6px;
-            padding: 12px 14px;
-            font-size: 13px;
+            background: {pal['term_bg']};
+            color: {pal['term_fg']};
+            border: 1px solid {pal['border_strong']};
+            border-radius: 2px;
+            padding: 8px 10px;
+            font-size: 12px;
             """
         )
         grp2_lay.addWidget(self._font_preview)
@@ -439,7 +407,7 @@ class SettingsDialog(QDialog):
         # -- cursor --
         grp3, grp3_lay = _make_group("Cursor", pal)
         self.cursor = QComboBox()
-        self.cursor.setMinimumHeight(38)
+        self.cursor.setMinimumHeight(24)
         self.cursor.addItem("Block", "block")
         self.cursor.addItem("Underline", "underline")
         self.cursor.addItem("Bar", "bar")
@@ -459,7 +427,7 @@ class SettingsDialog(QDialog):
         r_d.setSpacing(12)
         r_d.addWidget(_make_row_label("Density", pal))
         self.density = QComboBox()
-        self.density.setMinimumHeight(38)
+        self.density.setMinimumHeight(24)
         self.density.addItem("Comfortable — roomier spacing", "comfortable")
         self.density.addItem("Compact — denser menus, inputs & lists", "compact")
         di = self.density.findData(settings.density)
@@ -495,7 +463,7 @@ class SettingsDialog(QDialog):
         self.scrollback.setRange(200, 100_000)
         self.scrollback.setSingleStep(500)
         self.scrollback.setValue(settings.scrollback_lines)
-        self.scrollback.setMinimumHeight(38)
+        self.scrollback.setMinimumHeight(24)
         row = QHBoxLayout()
         row.setSpacing(12)
         row.addWidget(_make_row_label("Scrollback lines", pal))
@@ -506,7 +474,7 @@ class SettingsDialog(QDialog):
         grp_lay.addWidget(_make_separator(pal))
 
         self.terminal_backend = QComboBox()
-        self.terminal_backend.setMinimumHeight(38)
+        self.terminal_backend.setMinimumHeight(24)
         self.terminal_backend.addItem("Automatic — native on Linux when available", "auto")
         self.terminal_backend.addItem("Native — QTermWidget/Konsole-style renderer", "native")
         self.terminal_backend.addItem("Python fallback — pyte renderer", "pyte")
@@ -527,7 +495,7 @@ class SettingsDialog(QDialog):
         # -- cursor (also here for accessibility) --
         grp_c, grp_c_lay = _make_group("Cursor", pal)
         self.cursor_tab = QComboBox()
-        self.cursor_tab.setMinimumHeight(38)
+        self.cursor_tab.setMinimumHeight(24)
         self.cursor_tab.addItem("Block", "block")
         self.cursor_tab.addItem("Underline", "underline")
         self.cursor_tab.addItem("Bar", "bar")
@@ -579,7 +547,7 @@ class SettingsDialog(QDialog):
         self.keepalive = QSpinBox()
         self.keepalive.setRange(5, 300)
         self.keepalive.setValue(settings.default_keepalive)
-        self.keepalive.setMinimumHeight(38)
+        self.keepalive.setMinimumHeight(24)
         row = QHBoxLayout()
         row.setSpacing(12)
         row.addWidget(_make_row_label("Interval (seconds)", pal))
@@ -601,7 +569,7 @@ class SettingsDialog(QDialog):
         self.max_attempts = QSpinBox()
         self.max_attempts.setRange(1, 100)
         self.max_attempts.setValue(settings.reconnect_max_attempts)
-        self.max_attempts.setMinimumHeight(38)
+        self.max_attempts.setMinimumHeight(24)
         row2 = QHBoxLayout()
         row2.setSpacing(12)
         row2.addWidget(_make_row_label("Max attempts", pal))
@@ -613,7 +581,7 @@ class SettingsDialog(QDialog):
         self.reconnect_base_delay.setSingleStep(0.5)
         self.reconnect_base_delay.setDecimals(1)
         self.reconnect_base_delay.setValue(getattr(settings, "reconnect_base_delay", 1.5))
-        self.reconnect_base_delay.setMinimumHeight(38)
+        self.reconnect_base_delay.setMinimumHeight(24)
         row3 = QHBoxLayout()
         row3.setSpacing(12)
         row3.addWidget(_make_row_label("Base delay (seconds)", pal))
@@ -625,7 +593,7 @@ class SettingsDialog(QDialog):
         self.reconnect_max_delay.setSingleStep(5.0)
         self.reconnect_max_delay.setDecimals(1)
         self.reconnect_max_delay.setValue(getattr(settings, "reconnect_max_delay", 60.0))
-        self.reconnect_max_delay.setMinimumHeight(38)
+        self.reconnect_max_delay.setMinimumHeight(24)
         row4 = QHBoxLayout()
         row4.setSpacing(12)
         row4.addWidget(_make_row_label("Max delay (seconds)", pal))
@@ -641,7 +609,7 @@ class SettingsDialog(QDialog):
         # -- host key --
         grp3, grp3_lay = _make_group("Host Key Verification", pal)
         self.host_key_policy = QComboBox()
-        self.host_key_policy.setMinimumHeight(38)
+        self.host_key_policy.setMinimumHeight(24)
         self.host_key_policy.addItem("TOFU — trust on first use", "accept-new")
         self.host_key_policy.addItem("Strict — always prompt on change", "strict")
         hi = self.host_key_policy.findData(settings.host_key_policy)
@@ -671,7 +639,7 @@ class SettingsDialog(QDialog):
         self.vault_autolock.setRange(0, 120)
         self.vault_autolock.setSuffix(" min")
         self.vault_autolock.setValue(getattr(settings, "vault_autolock_minutes", 15))
-        self.vault_autolock.setMinimumHeight(38)
+        self.vault_autolock.setMinimumHeight(24)
         row = QHBoxLayout()
         row.setSpacing(12)
         row.addWidget(_make_row_label("Lock after inactivity", pal))
@@ -690,7 +658,7 @@ class SettingsDialog(QDialog):
         self.kdf_iterations.setRange(100_000, 2_000_000)
         self.kdf_iterations.setSingleStep(10_000)
         self.kdf_iterations.setValue(getattr(settings, "kdf_iterations", 310_000))
-        self.kdf_iterations.setMinimumHeight(38)
+        self.kdf_iterations.setMinimumHeight(24)
         row2 = QHBoxLayout()
         row2.setSpacing(12)
         row2.addWidget(_make_row_label("PBKDF2 iterations", pal))
@@ -715,7 +683,7 @@ class SettingsDialog(QDialog):
         grp, grp_lay = _make_group("RDP Client Mode", pal)
 
         self.rdp_client = QComboBox()
-        self.rdp_client.setMinimumHeight(38)
+        self.rdp_client.setMinimumHeight(24)
         self.rdp_client.addItem("Automatic — built-in when possible", "auto")
         self.rdp_client.addItem("Embedded — render inside the app", "embedded")
         self.rdp_client.addItem("External — open in a separate window", "external")
@@ -734,7 +702,7 @@ class SettingsDialog(QDialog):
 
         self.btn_xwayland = QPushButton("Restart via XWayland now")
         self.btn_xwayland.setObjectName("subtle")
-        self.btn_xwayland.setMinimumHeight(38)
+        self.btn_xwayland.setMinimumHeight(24)
         self.btn_xwayland.clicked.connect(self._restart_via_xwayland)
         self._refresh_rdp_status()
         if self._xwayland_useful:
@@ -756,14 +724,14 @@ class SettingsDialog(QDialog):
         self._selected_theme = theme_id
         for card in self._theme_cards:
             card._selected = (card.theme_id == theme_id)
-            pal_data = PALETTE.get(card.theme_id, PALETTE["dark"])
+            pal_data = PALETTE.get(card.theme_id, PALETTE["mobaxterm"])
             border = f"2px solid {pal_data['accent']}" if card.theme_id == theme_id else f"1px solid {pal_data.get('border', '#333')}"
             card.setStyleSheet(
                 f"""
                 _ThemeCard {{
                     background: {pal_data['bg']};
                     border: {border};
-                    border-radius: 8px;
+                    border-radius: 3px;
                 }}
                 _ThemeCard:hover {{
                     border: 2px solid {pal_data['accent']};
