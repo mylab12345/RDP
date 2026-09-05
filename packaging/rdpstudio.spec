@@ -28,11 +28,34 @@ try:
 except Exception:
     pass
 
+# Windows only: bundle the Visual C++ runtime DLLs beside the executable so
+# the frozen app starts on machines without the system-wide VC++
+# Redistributable (typical on Windows Server, but also seen on fresh
+# clients). The loader resolves the application directory first, so these
+# take precedence without touching the target system — no admin rights,
+# no reboot, no separate download.
+msvc_binaries: list[tuple[str, str]] = []
+if IS_WIN:
+    import os as _os
+
+    _sys32 = _os.path.join(_os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    for _dll in (
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "concrt140.dll",
+    ):
+        _path = _os.path.join(_sys32, _dll)
+        if _os.path.isfile(_path):
+            msvc_binaries.append((_path, "."))
+
 
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
-    binaries=native_binaries,
+    binaries=native_binaries + msvc_binaries,
     datas=[
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons"), "rdpstudio/resources/icons"),
         *native_datas,
