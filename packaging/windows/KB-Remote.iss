@@ -45,8 +45,8 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 LicenseFile=..\..\LICENSE
 SetupIconFile=..\..\src\rdpstudio\resources\icons\logo.ico
-WizardImageFile=compiler:WizModernImage-IS.bmp
-WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
+; Default Inno wizard artwork (the Chocolatey Inno package does not ship
+; the compiler: bitmaps, so no custom WizardImageFile here).
 OutputDir=..\..\dist
 OutputBaseFilename=KB-Remote-Setup-{#MyAppVersion}-x64
 Compression=lzma2/max
