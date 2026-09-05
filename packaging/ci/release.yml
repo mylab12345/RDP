@@ -27,29 +27,6 @@ jobs:
           name: kb-remote-linux
           path: dist/*.tar.gz
 
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install . pyinstaller
-      - run: pyinstaller packaging/rdpstudio.spec
-      - name: zip portable
-        run: Compress-Archive -Path dist/KB-Remote -DestinationPath dist/KB-Remote-${{ github.ref_name }}-windows-x64.zip
-      - name: build installer (Inno Setup)
-        uses: Minionguyjpro/Inno-Setup-Action-CN@v1.2.5
-        with:
-          path: packaging/windows/KB-Remote.iss
-          options: /O dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kb-remote-windows
-          path: |
-            dist/*.zip
-            dist/*.exe
-
   build-appimage:
     name: AppImage (linux-${{ matrix.arch }})
     runs-on: ubuntu-latest
@@ -113,7 +90,7 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
 
   release:
-    needs: [build-linux, build-windows, build-appimage, build-flatpak, build-snap]
+    needs: [build-linux, build-appimage, build-flatpak, build-snap]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
