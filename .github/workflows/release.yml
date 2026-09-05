@@ -41,12 +41,12 @@ jobs:
         # The frozen app must start on machines without the system-wide
         # VC++ Redistributable (Windows Server). Fail here, not on users.
         run: |
-          Get-Location
-          $items = @(Get-ChildItem dist/KB-Remote/ -Force)
-          Write-Host "bundle entries: $($items.Count)"
-          $items | Select-Object -First 8 Name
-          Get-ChildItem dist/KB-Remote/*.dll -Force | Select-Object Name
-          $missing = @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll') | Where-Object { -not (Test-Path "dist/KB-Remote/$_") }
+          # PyInstaller 6 onedir layout keeps every dependency (including the
+          # exe-adjacent runtime DLLs) under _internal/.
+          $bindir = "dist/KB-Remote/_internal"
+          if (-not (Test-Path $bindir)) { $bindir = "dist/KB-Remote" }
+          Write-Host "checking $bindir"
+          $missing = @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll') | Where-Object { -not (Test-Path "$bindir/$_") }
           if ($missing) { Write-Error "Missing bundled runtime DLLs: $($missing -join ', ')"; exit 1 }
       - name: Smoke test (frozen exe)
         run: dist/KB-Remote/kb-remote.exe --version
