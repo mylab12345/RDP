@@ -78,10 +78,15 @@ if IS_WIN:
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
-    binaries=native_binaries + msvc_binaries,
+    binaries=native_binaries,
     datas=[
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons"), "rdpstudio/resources/icons"),
         *native_datas,
+        # NOTE: shipped as datas, not binaries — the binary dependency
+        # scanner silently drops DLLs sourced from system directories,
+        # while datas are copied verbatim. The loader still resolves them
+        # from the application directory first.
+        *msvc_binaries,
     ],
     hiddenimports=[
         "paramiko",
