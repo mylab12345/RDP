@@ -727,10 +727,11 @@ class RdpSessionController(SessionController):
 
         Collapsing/expanding the sidebar resizes every tab, and the embedded
         desktop can only change resolution by relaunching FreeRDP.  Acting on
-        that resize killed a healthy session (reported to the user as
-        "client crashed") and left it disconnected, so chrome-driven layout
-        changes are ignored entirely: the remote desktop keeps running and the
-        session state is untouched.
+        every intermediate resize killed healthy sessions, so resizes *during*
+        the relayout are ignored — but once the chrome has settled,
+        :meth:`_clear_ui_layout_busy` takes one final look and refits if the
+        tab ended up a different size (otherwise the desktop would sit small
+        with black borders until the next manual resize).
         """
         self._ui_settle_timer.stop()
         if busy:
@@ -742,6 +743,13 @@ class RdpSessionController(SessionController):
 
     def _clear_ui_layout_busy(self) -> None:
         self._ui_layout_busy = False
+        if self._mode == "embedded":
+            # Chrome is at rest: refit if the tab settled at a different size
+            # than the desktop was launched with (e.g. sidebar hidden/shown).
+            # All safety guards (connected state, live client, no refit in
+            # flight, real size delta) live in _on_surface_resized, so this is
+            # a no-op unless a refit is genuinely due.
+            self._on_surface_resized()
 
     def _retire_proc(self) -> None:
         """Detach the current client process object.

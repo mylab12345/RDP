@@ -149,6 +149,8 @@ class FileEditorDialog(QDialog):
         self.editor.setLineWrapMode(mode)
 
     def _update_cursor_info(self) -> None:
+        if not self.editor.isVisible():
+            return
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.columnNumber() + 1

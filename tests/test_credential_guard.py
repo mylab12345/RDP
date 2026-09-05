@@ -8,12 +8,9 @@ headless environment (no Qt / libGL required).
 
 from __future__ import annotations
 
-import pytest
-
 from rdpstudio.core.models import (
     AUTH_AGENT,
     AUTH_KEY,
-    AUTH_NONE,
     AUTH_PASSWORD,
     PROTOCOL_LOCAL,
     PROTOCOL_RDP,
@@ -21,14 +18,14 @@ from rdpstudio.core.models import (
     Session,
 )
 
-
 # ---------------------------------------------------------------------------
 # needs_credential_prompt — imported lazily to avoid PySide6 at module level
 # ---------------------------------------------------------------------------
 
 def _needs(defn: Session) -> bool:
     # Import the pure-logic function without pulling in any Qt widget code.
-    import importlib, sys
+    import importlib
+    import sys
 
     # Stub the PySide6 sub-packages so the import succeeds headlessly.
     for mod in list(sys.modules):

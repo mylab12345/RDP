@@ -722,9 +722,10 @@ class MainWindow(QMainWindow):
         qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         qc_btn.clicked.connect(self._dash_quick_connect)
         qc_lay.addWidget(qc_btn)
+        # Minimum keeps the row usable in narrow windows; no maximum so the
+        # card extends into freed space (e.g. when the Sessions panel hides).
         qc_card.setMinimumWidth(640)
-        qc_card.setMaximumWidth(640)
-        el.addWidget(qc_card, 0, Qt.AlignmentFlag.AlignLeft)
+        el.addWidget(qc_card)
 
         # Action tiles — MobaXterm's big flat launcher buttons
         actions_row = QHBoxLayout()
@@ -807,7 +808,6 @@ class MainWindow(QMainWindow):
         recent_card = QWidget()
         recent_card.setObjectName("card")
         recent_card.setMinimumWidth(640)
-        recent_card.setMaximumWidth(640)
         rc_lay = QVBoxLayout(recent_card)
         rc_lay.setContentsMargins(10, 8, 10, 8)
         rc_lay.setSpacing(2)
@@ -847,7 +847,7 @@ class MainWindow(QMainWindow):
             proto.setObjectName("protoChip")
             il.addWidget(proto)
             rc_lay.addWidget(item)
-        el.addWidget(recent_card, 0, Qt.AlignmentFlag.AlignLeft)
+        el.addWidget(recent_card)
 
     @staticmethod
     def _proto_icon(protocol: str) -> str:

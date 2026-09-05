@@ -13,13 +13,11 @@ them without requiring a vault entry or a permanent save.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QVBoxLayout,
@@ -32,7 +30,6 @@ from ..core.models import (
     AUTH_NONE,
     PROTOCOL_LOCAL,
     PROTOCOL_RDP,
-    PROTOCOL_SSH,
     Session,
 )
 
