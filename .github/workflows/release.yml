@@ -46,7 +46,8 @@ jobs:
       - name: build installer (Inno Setup)
         shell: pwsh
         run: |
-          $ver = (python -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', (Get-Content src/rdpstudio/__init__.py -Raw)).Groups[1].Value)")
+          $m = (Get-Content src/rdpstudio/__init__.py -Raw | Select-String '__version__ = "([^"]+)"').Matches
+          $ver = $m.Groups[1].Value
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" packaging\windows\KB-Remote.iss /Odist
           Get-ChildItem dist/*.exe
       - uses: actions/upload-artifact@v4

@@ -43,9 +43,10 @@ a = Analysis(
         "rdpstudio.protocols.ssh",
         "rdpstudio.protocols.rdp",
         "rdpstudio.protocols.local",
-        # Windows-only ConPTY backend for local shells (optional extra;
-        # the app falls back to cmd via QProcess when it is absent).
-        *([] if not IS_WIN else ["winpty", "pywinpty"]),
+        # Windows-only ConPTY backend for local shells (the pywinpty
+        # package provides the `winpty` module; the app falls back to
+        # cmd via QProcess when it is absent).
+        *([] if not IS_WIN else ["winpty"]),
         *native_hiddenimports,
     ],
     hookspath=[],
