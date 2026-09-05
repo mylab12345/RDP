@@ -458,13 +458,13 @@ class TerminalSearchBar(QWidget):
 
         self.btn_prev = QToolButton()
         self.btn_prev.setText("▲")
-        self.btn_prev.setToolTip("Previous match (Shift+Enter / Shift+F3)")
+        self.btn_prev.setToolTip("Previous match (Shift+Enter)")
         self.btn_prev.clicked.connect(self._on_prev)
         layout.addWidget(self.btn_prev)
 
         self.btn_next = QToolButton()
         self.btn_next.setText("▼")
-        self.btn_next.setToolTip("Next match (Enter / F3)")
+        self.btn_next.setToolTip("Next match (Enter)")
         self.btn_next.clicked.connect(self._on_next)
         layout.addWidget(self.btn_next)
 
@@ -513,13 +513,6 @@ class TerminalSearchBar(QWidget):
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Escape:
             self.close_bar()
-            event.accept()
-            return
-        if event.key() == Qt.Key.Key_F3:
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                self._on_prev()
-            else:
-                self._on_next()
             event.accept()
             return
         super().keyPressEvent(event)
@@ -1240,6 +1233,14 @@ class TerminalView(QWidget):
 
     # -- keyboard --------------------------------------------------------------
     def event(self, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.ShortcutOverride:
+            # Give shell input precedence over window-level shortcuts.  Qt
+            # delivers ShortcutOverride before it activates a QShortcut or a
+            # QAction, so accepting it keeps readline/bash shortcuts such as
+            # Ctrl+B, Ctrl+K, Ctrl+P and Ctrl+W in the SSH session.
+            if encode_key_event(event, self.core.screen) is not None:
+                event.accept()
+                return True
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
             mods = event.modifiers()
@@ -1258,36 +1259,22 @@ class TerminalView(QWidget):
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         alt = bool(mods & Qt.KeyboardModifier.AltModifier)
 
-        # Terminal copy/paste: Ctrl+V / Ctrl+Shift+V paste the clipboard
-        # immediately (no confirmation prompt); Ctrl+Shift+C always copies a
-        # selection; Ctrl+C copies only when text is selected and otherwise
-        # stays the shell interrupt.
-        if ctrl and not alt:
+        # Follow native terminal conventions: Ctrl+Shift+C/V are clipboard
+        # actions, while bare Ctrl+C and Ctrl+V remain SIGINT and readline's
+        # quoted-insert command for the remote shell.
+        if ctrl and shift and not alt:
             if key == Qt.Key.Key_V:
                 self.paste_clipboard(confirm=False)
                 event.accept()
                 return
             if key == Qt.Key.Key_C:
-                if shift or self.has_selection():
-                    self.copy_selection()
-                    event.accept()
-                    return
-                # no selection + no shift -> fall through to the shell (SIGINT)
-
-        # In-terminal search shortcut (Ctrl+F)
-        if ctrl and key == Qt.Key.Key_F:
-            self.open_search()
-            event.accept()
-            return
-
-        # F3 for next / Shift+F3 for prev search match
-        if key == Qt.Key.Key_F3:
-            if mods & Qt.KeyboardModifier.ShiftModifier:
-                self._on_find_prev(self._search_query, self._search_case)
-            else:
-                self._on_find_next(self._search_query, self._search_case)
-            event.accept()
-            return
+                self.copy_selection()
+                event.accept()
+                return
+            if key == Qt.Key.Key_F:
+                self.open_search()
+                event.accept()
+                return
 
         data = encode_key_event(event, self.core.screen)
         if data:
@@ -1334,7 +1321,7 @@ class TerminalView(QWidget):
         # binding it directly would disable the multi-line paste confirmation.
         paste_action.triggered.connect(lambda _checked=False: self.paste_clipboard(confirm=True))
         menu.addSeparator()
-        find_action = menu.addAction("Find in terminal…\tCtrl+F")
+        find_action = menu.addAction("Find in terminal…\tCtrl+Shift+F")
         find_action.triggered.connect(self.open_search)
         select_all = menu.addAction("Select all")
         select_all.triggered.connect(self.select_all)
@@ -1399,18 +1386,25 @@ def encode_key_event(event, screen) -> bytes | None:
     if ctrl and not alt:
         if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
             return bytes([(key - Qt.Key.Key_A) + 1])
-        if key == Qt.Key.Key_Space:
+        # These punctuation/digit variants are the control-byte equivalents
+        # sent by xterm-compatible native terminals.  They matter for shells,
+        # REPLs and TUIs that bind Ctrl+2 through Ctrl+8 explicitly.
+        if key in (Qt.Key.Key_Space, Qt.Key.Key_At, Qt.Key.Key_QuoteLeft, Qt.Key.Key_2):
             return b"\x00"
+        if key == Qt.Key.Key_3:
+            return b"\x1b"
+        if key == Qt.Key.Key_4 or key == Qt.Key.Key_Backslash:
+            return b"\x1c"
+        if key == Qt.Key.Key_5 or key == Qt.Key.Key_BracketRight:
+            return b"\x1d"
+        if key == Qt.Key.Key_6 or key == Qt.Key.Key_AsciiCircum:
+            return b"\x1e"
+        if key in (Qt.Key.Key_7, Qt.Key.Key_Underscore, Qt.Key.Key_Slash, Qt.Key.Key_Minus):
+            return b"\x1f"
+        if key == Qt.Key.Key_8:
+            return b"\x7f"
         if key == Qt.Key.Key_BracketLeft:
             return b"\x1b"
-        if key == Qt.Key.Key_Backslash:
-            return b"\x1c"
-        if key == Qt.Key.Key_BracketRight:
-            return b"\x1d"
-        if key == Qt.Key.Key_AsciiCircum:
-            return b"\x1e"
-        if key == Qt.Key.Key_Underscore or key == Qt.Key.Key_Slash:
-            return b"\x1f"
     if ctrl and alt:
         if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
             return b"\x1b" + bytes([(key - Qt.Key.Key_A) + 1])
@@ -1428,7 +1422,10 @@ def encode_key_event(event, screen) -> bytes | None:
         return b"\x1b" + out if alt else out
 
     if key == Qt.Key.Key_Backtab:
-        return b"\x1b[Z"
+        m = _modifier_code(mods)
+        # Shift+Tab has its long-standing CSI Z sequence.  Preserve extra
+        # modifiers with xterm's modify-cursor-keys form.
+        return b"\x1b[Z" if m == 2 else f"\x1b[1;{m}Z".encode()
 
     arrows = {
         Qt.Key.Key_Up: "A",
@@ -1448,8 +1445,12 @@ def encode_key_event(event, screen) -> bytes | None:
     if key in home_end:
         suffix = home_end[key]
         m = _modifier_code(mods)
-        if app_cursor and m == 1:
-            return f"\x1bO{suffix}".encode()
+        if m == 1:
+            # $TERM=xterm* and QTermWidget use CSI H/F in normal cursor mode;
+            # readline binds these sequences to beginning/end-of-line.  The
+            # former CSI 1;1 H/F encoding is a *modified* key sequence and is
+            # not recognized by many SSH hosts.
+            return f"\x1bO{suffix}".encode() if app_cursor else f"\x1b[{suffix}".encode()
         return f"\x1b[1;{m}{suffix}".encode()
 
     tilde = {
@@ -1476,6 +1477,29 @@ def encode_key_event(event, screen) -> bytes | None:
         Qt.Key.Key_F10: 21,
         Qt.Key.Key_F11: 23,
         Qt.Key.Key_F12: 24,
+        Qt.Key.Key_F13: 25,
+        Qt.Key.Key_F14: 26,
+        Qt.Key.Key_F15: 28,
+        Qt.Key.Key_F16: 29,
+        Qt.Key.Key_F17: 31,
+        Qt.Key.Key_F18: 32,
+        Qt.Key.Key_F19: 33,
+        Qt.Key.Key_F20: 34,
+        Qt.Key.Key_F21: 42,
+        Qt.Key.Key_F22: 43,
+        Qt.Key.Key_F23: 44,
+        Qt.Key.Key_F24: 45,
+        Qt.Key.Key_F25: 46,
+        Qt.Key.Key_F26: 47,
+        Qt.Key.Key_F27: 48,
+        Qt.Key.Key_F28: 49,
+        Qt.Key.Key_F29: 50,
+        Qt.Key.Key_F30: 51,
+        Qt.Key.Key_F31: 52,
+        Qt.Key.Key_F32: 53,
+        Qt.Key.Key_F33: 54,
+        Qt.Key.Key_F34: 55,
+        Qt.Key.Key_F35: 56,
     }
     if key in fn:
         val = fn[key]

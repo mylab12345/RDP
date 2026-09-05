@@ -21,12 +21,20 @@ _GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     (
         "Tabs",
         [
-            ("Close current tab", "Ctrl + W"),
             ("Duplicate current tab", "Ctrl + Shift + D"),
             ("Next tab", "Ctrl + Tab"),
             ("Previous tab", "Ctrl + Shift + Tab"),
             ("Switch to tab 1–9", "Ctrl + 1 … 9"),
             ("Rename a tab", "double-click its tab"),
+        ],
+    ),
+    (
+        "Terminal",
+        [
+            ("Copy selection", "Ctrl + Shift + C"),
+            ("Paste clipboard", "Ctrl + Shift + V"),
+            ("Find in terminal", "Ctrl + Shift + F"),
+            ("Shell editing", "Ctrl + A / E / W, Home / End"),
         ],
     ),
     (
@@ -108,4 +116,4 @@ class ShortcutsDialog(QDialog):
 
         bl.addStretch(1)
         root.addWidget(body, 1)
-        self.resize(460, 560)
+        self.resize(460, 640)

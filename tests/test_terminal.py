@@ -203,3 +203,58 @@ def test_view_answers_osc11_with_its_palette(qtapp):
     assert sent == [b"\x1b]11;rgb:0000/0000/0000\x1b\\"]
     assert term.core.take_terminal_queries() == []  # answered, not pending
     term.deleteLater()
+
+
+def test_terminal_keys_match_xterm_and_readline():
+    """Physical navigation/control keys use the same bytes as a native xterm."""
+    from PySide6.QtCore import Qt
+
+    screen = _FakeScreen()
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_Home), screen) == b"\x1b[H"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_End), screen) == b"\x1b[F"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_Home), _FakeScreen(app_cursor=True)) == b"\x1bOH"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_End), _FakeScreen(app_cursor=True)) == b"\x1bOF"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_W, ctrl=True), screen) == b"\x17"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_V, ctrl=True), screen) == b"\x16"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_F3), screen) == b"\x1bOR"
+    assert encode_key_event(_FakeEvent(Qt.Key.Key_F24), screen) == b"\x1b[45~"
+
+
+def test_terminal_input_claims_window_shortcuts(qtapp):
+    """Readline controls must beat actions registered by the enclosing window."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeySequence, QShortcut
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QMainWindow
+
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.terminal import TerminalView
+
+    win = QMainWindow()
+    term = TerminalView(Settings())
+    win.setCentralWidget(term)
+    triggered: list[str] = []
+    shortcuts = [
+        QShortcut(QKeySequence("Ctrl+B"), win, lambda: triggered.append("sidebar")),
+        QShortcut(QKeySequence("Ctrl+K"), win, lambda: triggered.append("palette")),
+        QShortcut(QKeySequence("Ctrl+P"), win, lambda: triggered.append("history")),
+        QShortcut(QKeySequence("Ctrl+W"), win, lambda: triggered.append("close")),
+    ]
+    emitted: list[bytes] = []
+    term.dataWritten.connect(emitted.append)
+
+    win.show()
+    term.setFocus()
+    qtapp.processEvents()
+    QTest.keyClick(term, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(term, Qt.Key.Key_K, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(term, Qt.Key.Key_P, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(term, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(term, Qt.Key.Key_Home)
+    qtapp.processEvents()
+
+    # Keep QShortcuts alive until after Qt processes the key events.
+    assert len(shortcuts) == 4
+    assert triggered == []
+    assert emitted == [b"\x02", b"\x0b", b"\x10", b"\x17", b"\x1b[H"]
+    win.close()

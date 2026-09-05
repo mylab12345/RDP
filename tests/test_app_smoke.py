@@ -89,3 +89,21 @@ def test_open_local_session_tab(ctx, qtapp, monkeypatch):
     qtapp.processEvents()
     assert win.tabs.count() == 0
     win.close()
+
+
+def test_close_tabs_have_no_ctrl_w_shortcut(ctx, qtapp):
+    """Ctrl+W is reserved for the terminal's readline backward-word command."""
+    from PySide6.QtGui import QAction, QKeySequence
+
+    from rdpstudio.ui.main_window import MainWindow
+
+    win = MainWindow(ctx)
+    sequences = {
+        action.shortcut().toString(QKeySequence.SequenceFormat.PortableText)
+        for action in win.findChildren(QAction)
+        if not action.shortcut().isEmpty()
+    }
+    assert "Ctrl+W" not in sequences
+    assert "Ctrl+Shift+W" not in sequences
+    win.close()
+    qtapp.processEvents()

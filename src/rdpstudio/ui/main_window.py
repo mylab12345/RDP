@@ -498,7 +498,6 @@ class MainWindow(QMainWindow):
         m_tabs = self.menuBar().addMenu("&Tabs")
 
         act_close = QAction("Close &Tab", self)
-        act_close.setShortcut(QKeySequence("Ctrl+W"))
         act_close.triggered.connect(self.close_current_tab)
         m_tabs.addAction(act_close)
 
@@ -511,7 +510,6 @@ class MainWindow(QMainWindow):
         m_tabs.addAction(a)
 
         a = QAction("Close &All Tabs", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+W"))
         a.triggered.connect(self._close_all_tabs)
         m_tabs.addAction(a)
 
@@ -1083,8 +1081,8 @@ class MainWindow(QMainWindow):
         # Tabs-menu actions — duplicating them here would fire twice).
         QShortcut(QKeySequence("Ctrl+K"), self, self.open_command_palette)
         QShortcut(QKeySequence("Ctrl+Shift+K"), self, self._focus_quick_connect)
-        # Note: Ctrl+W lives on the Tabs-menu action — a second QShortcut
-        # here would fire twice and close two tabs per keypress.
+        # Ctrl+W and Ctrl+Shift+W are terminal editing keys (backward-word
+        # delete).  They deliberately have no tab-closing binding.
 
         for i in range(1, 10):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self, lambda idx=i-1: self.switch_to_tab(idx))
@@ -1219,7 +1217,7 @@ class MainWindow(QMainWindow):
             return
 
         menu = QMenu(self)
-        menu.addAction("Close Tab\tCtrl+W", lambda: self.close_tab(index))
+        menu.addAction("Close Tab", lambda: self.close_tab(index))
         menu.addAction("Close Other Tabs", lambda: self._close_other_tabs(index))
         menu.addAction("Close Tabs to the Right", lambda: self._close_tabs_right(index))
         menu.addAction("Close All Tabs", self._close_all_tabs)
