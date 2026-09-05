@@ -41,11 +41,14 @@ jobs:
         run: dist/KB-Remote/kb-remote.exe --version
       - name: zip portable
         run: Compress-Archive -Path dist/KB-Remote -DestinationPath dist/KB-Remote-${{ github.ref_name }}-windows-x64.zip
+      - name: install Inno Setup 6
+        run: choco install innosetup --no-progress -y
       - name: build installer (Inno Setup)
-        uses: Minionguyjpro/Inno-Setup-Action-CN@v1.2.5
-        with:
-          path: packaging/windows/KB-Remote.iss
-          options: /O dist
+        shell: pwsh
+        run: |
+          $ver = (python -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', (Get-Content src/rdpstudio/__init__.py -Raw)).Groups[1].Value)")
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" packaging\windows\KB-Remote.iss /Odist
+          Get-ChildItem dist/*.exe
       - uses: actions/upload-artifact@v4
         with:
           name: kb-remote-windows
