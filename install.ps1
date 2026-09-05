@@ -41,7 +41,6 @@ if ($LASTEXITCODE -ne 0) { Say "(pywinpty skipped - local shells use cmd fallbac
 Say "Creating Start Menu shortcut"
 New-Item -ItemType Directory -Force -Path $LinkDir | Out-Null
 $WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateCertificate = $null
 $Shortcut = $WshShell.CreateShortcut("$LinkDir\KB-Remote.lnk")
 $Shortcut.TargetPath = "$VenvDir\Scripts\kb-remote.exe"
 $Shortcut.WorkingDirectory = "$env:USERPROFILE"

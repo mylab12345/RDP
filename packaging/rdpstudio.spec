@@ -1,11 +1,19 @@
 # PyInstaller spec for KB-Remote (Windows + Linux).
+# Release build — normally driven by packaging/windows/build-windows.ps1:
 #   pyinstaller packaging/rdpstudio.spec
-# Output: dist/KB-Remote/ (onedir, faster startup + updatable)
+# Output: dist/KB-Remote/ (onedir; the single distributable Windows
+# installer is then compiled from this folder by Inno Setup).
 
+import platform
 from pathlib import Path
 
 block_cipher = None
 ROOT = Path(SPECPATH).parent  # noqa: F821
+IS_WIN = platform.system() == "Windows"
+ICON = ROOT / "src" / "rdpstudio" / "resources" / "icons" / (
+    "logo.ico" if IS_WIN else "logo.png"
+)
+VERSION_FILE = ROOT / "packaging" / "windows" / "version_info.txt"
 
 # The native terminal is an optional runtime extra.  Include it in standalone
 # builds when the builder environment has it, but keep the ordinary Windows /
@@ -26,8 +34,7 @@ a = Analysis(
     pathex=[str(ROOT / "src")],
     binaries=native_binaries,
     datas=[
-        (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.svg"), "rdpstudio/resources/icons"),
-        (str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "*.png"), "rdpstudio/resources/icons"),
+        (str(ROOT / "src" / "rdpstudio" / "resources" / "icons"), "rdpstudio/resources/icons"),
         *native_datas,
     ],
     hiddenimports=[
@@ -36,6 +43,9 @@ a = Analysis(
         "rdpstudio.protocols.ssh",
         "rdpstudio.protocols.rdp",
         "rdpstudio.protocols.local",
+        # Windows-only ConPTY backend for local shells (optional extra;
+        # the app falls back to cmd via QProcess when it is absent).
+        *([] if not IS_WIN else ["winpty", "pywinpty"]),
         *native_hiddenimports,
     ],
     hookspath=[],
@@ -57,7 +67,8 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # GUI app; logs go to KB_REMOTE_HOME/logs
-    icon=str(ROOT / "src" / "rdpstudio" / "resources" / "icons" / "logo.png"),
+    icon=str(ICON),
+    version=str(VERSION_FILE) if IS_WIN and VERSION_FILE.exists() else None,
 )
 
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="KB-Remote")

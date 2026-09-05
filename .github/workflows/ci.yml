@@ -42,8 +42,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install . pyinstaller
-      - run: pyinstaller packaging/rdpstudio.spec
+      - run: pip install ".[win]" pyinstaller
+      - run: pyinstaller --noconfirm --clean packaging/rdpstudio.spec
+      - name: Smoke test (frozen exe, Windows)
+        if: runner.os == 'Windows'
+        run: dist/KB-Remote/kb-remote.exe --version
       - uses: actions/upload-artifact@v4
         with:
           name: KB-Remote-${{ runner.os }}
