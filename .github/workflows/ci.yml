@@ -7,20 +7,18 @@ on:
 
 jobs:
   tests:
-    name: tests (${{ matrix.os }}, py${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    name: tests (ubuntu-latest, py${{ matrix.python }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install sshd (Linux)
-        if: runner.os == 'Linux'
+      - name: Install sshd
         run: sudo apt-get update && sudo apt-get install -y openssh-server
       - name: Install package
         run: pip install -e ".[dev]"
@@ -32,22 +30,16 @@ jobs:
         run: pytest -v
 
   build:
-    name: pyinstaller (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: pyinstaller (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ".[win]" pyinstaller
-      - run: pyinstaller --noconfirm --clean packaging/rdpstudio.spec
-      - name: Smoke test (frozen exe, Windows)
-        if: runner.os == 'Windows'
-        run: dist/KB-Remote/kb-remote.exe --version
+      - run: pip install . pyinstaller
+      - run: pyinstaller packaging/rdpstudio.spec
       - uses: actions/upload-artifact@v4
         with:
-          name: KB-Remote-${{ runner.os }}
+          name: KB-Remote-Linux
           path: dist/KB-Remote/

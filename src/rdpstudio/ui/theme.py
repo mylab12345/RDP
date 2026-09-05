@@ -769,15 +769,7 @@ def _indicator_image_urls(pal: dict[str, str]) -> dict[str, str]:
     so we regenerate the small glyphs in the theme's colours every time the
     palette changes.
     """
-    # os.getuid() is POSIX-only; on Windows fall back to the login name so
-    # each user still gets a private indicator cache (cf. rdpfile.py).
-    if hasattr(os, "getuid"):
-        owner = str(os.getuid())
-    else:
-        import getpass
-
-        owner = getpass.getuser()
-    cache = Path(tempfile.gettempdir()) / f"kb-remote-indicators-{owner}"
+    cache = Path(tempfile.gettempdir()) / f"kb-remote-indicators-{os.getuid()}"
     empty = {
         "check_url": "", "dot_url": "", "chev_right_url": "",
         "chev_down_url": "", "chev_up_url": "", "chev_down_dim_url": "",
