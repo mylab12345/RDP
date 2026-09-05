@@ -15,14 +15,14 @@
 #define MyAppPublisher "KB-Remote contributors"
 #define MyAppURL "https://github.com/mylab12345/RDP"
 #define MyAppExeName "kb-remote.exe"
-#define MyAppId "{A531FAD6-A0F9-469C-BF5B-769BA62B4969}"
+#define MyAppId "A531FAD6-A0F9-469C-BF5B-769BA62B4969"
 ; Version is injected by the build script (/DMyAppVersion=...); fallback for IDE builds.
 #ifndef MyAppVersion
   #define MyAppVersion "0.9.0"
 #endif
 
 [Setup]
-AppId={#MyAppId}
+AppId={{#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
