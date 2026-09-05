@@ -291,8 +291,8 @@ class NativeTerminalView(QWidget):
                 lambda: native.setScrollBarPosition(getattr(native, "ScrollBarRight", 2)),
             ),  # right
             # The native widget must never show its own multiline-paste
-            # confirmation: Ctrl+V, Ctrl+Shift+V and middle-click in this
-            # widget all route through paste_clipboard(confirm=False) and the
+            # confirmation: Ctrl+Shift+V and middle-click in this widget
+            # route through paste_clipboard(confirm=False) and the
             # context menu offers its own optional confirm. A native prompt
             # here would be a second, surprising permission dialog.
             ("confirm paste", lambda: native.setConfirmMultilinePaste(False)),
@@ -367,6 +367,17 @@ class NativeTerminalView(QWidget):
         if obj not in targets or self._closed:
             return super().eventFilter(obj, event)
         etype = event.type()
+        if etype == QEvent.Type.ShortcutOverride:
+            # QActions/QShortcuts are resolved before KeyPress.  Claim all
+            # encodable terminal keys so window commands never steal native
+            # shell editing (Ctrl+B/K/P/W, Home/End, function keys, …).
+            mode_stub = type(
+                "_ModeStub", (), {"mode": {1 << 5} if self._app_cursor else set()}
+            )()
+            if encode_key_event(event, mode_stub) is not None:
+                event.accept()
+                return True
+            return False
         if etype == QEvent.Type.KeyPress:
             key = event.key()
             mods = event.modifiers()
@@ -374,16 +385,17 @@ class NativeTerminalView(QWidget):
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             alt = bool(mods & Qt.KeyboardModifier.AltModifier)
 
-            # Clipboard: Ctrl+V / Ctrl+Shift+V paste into the terminal
-            # immediately (no confirmation); Ctrl+Shift+C copies; Ctrl+C
-            # copies only when there is a selection and otherwise stays the
-            # shell interrupt.
-            if ctrl and not alt:
+            # Match native terminal conventions: use Ctrl+Shift+C/V for the
+            # clipboard, leaving bare Ctrl+C and Ctrl+V for the remote shell.
+            if ctrl and shift and not alt:
                 if key == Qt.Key.Key_V:
                     self.paste_clipboard(confirm=False)
                     return True
-                if key == Qt.Key.Key_C and (shift or bool(self.selection())):
+                if key == Qt.Key.Key_C:
                     self.copy_selection()
+                    return True
+                if key == Qt.Key.Key_F:
+                    self.open_search()
                     return True
 
             data = encode_key_event(
@@ -742,7 +754,7 @@ class NativeTerminalView(QWidget):
         select_all.triggered.connect(self.select_all)
         clear_sb = menu.addAction("Clear scrollback")
         clear_sb.triggered.connect(self.clear_scrollback)
-        search = menu.addAction("Find in terminal…\tCtrl+F")
+        search = menu.addAction("Find in terminal…\tCtrl+Shift+F")
         search.triggered.connect(self.open_search)
         menu.exec(event.globalPos())
 
