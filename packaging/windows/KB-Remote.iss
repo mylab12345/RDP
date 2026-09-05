@@ -22,7 +22,7 @@
 #endif
 
 [Setup]
-AppId={{#MyAppId}
+AppId={{#MyAppId}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
