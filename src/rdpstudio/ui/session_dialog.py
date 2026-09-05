@@ -51,7 +51,7 @@ _VALID_STYLE = "border: 1px solid {border};"
 
 
 class SessionDialog(QDialog):
-    """Create or edit a saved session — modern bento-card design."""
+    """Create or edit a saved session — MobaXterm "Session settings" style dialog."""
 
     def __init__(self, ctx: SessionContext, session: Session | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -64,14 +64,14 @@ class SessionDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(620)
         self.setMinimumHeight(560)
-        self.resize(680, 780)
+        self.resize(660, 720)
 
         from .theme import palette as theme_palette
         self._pal = theme_palette()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(16)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(8)
 
         title_row = QHBoxLayout()
         title_label = QLabel("New Session" if self.is_new else "Edit Session")
@@ -92,13 +92,14 @@ class SessionDialog(QDialog):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(2, 2, 8, 2)
-        scroll_layout.setSpacing(16)
+        scroll_layout.setContentsMargins(2, 2, 6, 2)
+        scroll_layout.setSpacing(10)
 
         header_card = self._make_card("General")
         header_content = self._card_content(header_card)
         head = QFormLayout(header_content)
-        head.setSpacing(12)
+        head.setSpacing(8)
+        head.setContentsMargins(12, 10, 12, 10)
         self.protocol = QComboBox()
         for plugin in registry().editable():
             self.protocol.addItem(icon_text(plugin), plugin.id)
@@ -118,8 +119,8 @@ class SessionDialog(QDialog):
         conn_card = self._make_card("Connection")
         conn_content = self._card_content(conn_card)
         conn_layout = QVBoxLayout(conn_content)
-        conn_layout.setContentsMargins(16, 16, 16, 16)
-        conn_layout.setSpacing(12)
+        conn_layout.setContentsMargins(12, 10, 12, 10)
+        conn_layout.setSpacing(8)
         self._build_connection(conn_layout)
         scroll_layout.addWidget(conn_card)
 
@@ -216,10 +217,11 @@ class SessionDialog(QDialog):
     def _make_card(self, title: str) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
-        br = 14
+        # Classic group-box: 1 px border, 3 px radius, gray header strip
+        br = 3
         card.setStyleSheet(
-            f"QWidget#card {{ background: {self._pal['bg2']}; "
-            f"border: 1px solid {self._pal['border']}; "
+            f"QWidget#card {{ background: {self._pal['bg']}; "
+            f"border: 1px solid {self._pal['border_strong']}; "
             f"border-radius: {br}px; }}"
         )
         outer = QVBoxLayout(card)
@@ -228,19 +230,15 @@ class SessionDialog(QDialog):
         if title:
             header = QWidget()
             header.setStyleSheet(
-                f"background: {self._pal['panel']}; "
+                f"background: {self._pal['bg3']}; "
                 f"border-top-left-radius: {br}px; border-top-right-radius: {br}px;"
             )
             hl = QHBoxLayout(header)
-            hl.setContentsMargins(18, 10, 18, 10)
-            dot = QLabel("\u25c9")
-            dot.setStyleSheet(f"color: {self._pal['accent']}; font-size: 10px;")
-            hl.addWidget(dot)
+            hl.setContentsMargins(10, 4, 10, 4)
             lbl = QLabel(title)
             lbl.setObjectName("h2")
             lbl.setStyleSheet(
-                f"font-size: 12.5px; font-weight: 700; letter-spacing: 0.6px; "
-                f"color: {self._pal['fg']};"
+                f"font-size: 12px; font-weight: 700; color: {self._pal['fg']};"
             )
             hl.addWidget(lbl)
             hl.addStretch(1)
@@ -276,111 +274,40 @@ class SessionDialog(QDialog):
     def _make_input(self, text: str = "", placeholder: str = "") -> QLineEdit:
         le = QLineEdit(text)
         le.setPlaceholderText(placeholder)
-        le.setMinimumHeight(34)
-        le.setStyleSheet(
-            f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
-            f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
-            f"QLineEdit:focus {{ border-color: {self._pal['accent']}; }}"
-            f"QLineEdit#invalid {{ border-color: {self._pal['bad']}; "
-            f"background: {self._pal['bad']}14; }}"
-            f"QLineEdit:disabled {{ color: {self._pal['fg_muted']}; "
-            f"background: {self._pal['bg2']}; border-color: {self._pal['border_subtle']}; }}"
-        )
+        # Styled by the global MobaXterm QSS (white sunken field, blue focus)
+        le.setMinimumHeight(24)
         return le
 
     def _make_spinbox(self, value: int, lo: int = 0, hi: int = 65535, suffix: str = "") -> QSpinBox:
         sb = QSpinBox()
         sb.setRange(lo, hi)
         sb.setValue(value)
-        sb.setMinimumHeight(34)
+        sb.setMinimumHeight(24)
         if suffix:
             sb.setSuffix(suffix)
-        sb.setStyleSheet(
-            f"QSpinBox {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
-            f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
-            f"QSpinBox:focus {{ border-color: {self._pal['accent']}; }}"
-            f"QSpinBox#invalid {{ border-color: {self._pal['bad']}; "
-            f"background: {self._pal['bad']}14; }}"
-            f"QSpinBox:disabled {{ color: {self._pal['fg_muted']}; "
-            f"background: {self._pal['bg2']}; border-color: {self._pal['border_subtle']}; }}"
-        )
         return sb
 
     def _make_combo(self) -> QComboBox:
         cb = QComboBox()
-        cb.setMinimumHeight(34)
-        cb.setStyleSheet(
-            f"QComboBox {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {self._pal['border']}; border-radius: 8px; "
-            f"background: {self._pal['bg3']}; color: {self._pal['fg']}; }}"
-            f"QComboBox:focus {{ border-color: {self._pal['accent']}; }}"
-            f"QComboBox::drop-down {{ border: none; width: 28px; }}"
-            f"QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; "
-            f"border-right: 4px solid transparent; border-top: 5px solid {self._pal['fg_dim']}; "
-            f"margin-right: 8px; }}"
-            f"QComboBox QAbstractItemView {{ background: {self._pal['bg2']}; color: {self._pal['fg']}; "
-            f"border: 1px solid {self._pal['border']}; border-radius: 6px; "
-            f"selection-background-color: {self._pal['accent_subtle']}; padding: 4px; }}"
-        )
+        cb.setMinimumHeight(24)
         return cb
 
     def _make_checkbox(self, text: str, checked: bool = False) -> QCheckBox:
         cb = QCheckBox(text)
         cb.setChecked(checked)
-        cb.setStyleSheet(
-            f"QCheckBox {{ font-size: 13px; color: {self._pal['fg']}; spacing: 8px; }}"
-            f"QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; "
-            f"border: 1px solid {self._pal['border']}; background: {self._pal['bg3']}; }}"
-            f"QCheckBox::indicator:checked {{ background: {self._pal['accent']}; "
-            f"border-color: {self._pal['accent']}; }}"
-            f"QCheckBox::indicator:hover {{ border-color: {self._pal['accent']}; }}"
-        )
-        return cb
+        return cb  # global QSS: Windows-style 13 px check box
 
     def _make_label(self, text: str, size: float = 11.5) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"font-size: {size}px; color: {self._pal['fg_dim']}; font-weight: 600;")
+        lbl.setStyleSheet(f"font-size: {max(size, 12)}px; color: {self._pal['fg']}; font-weight: 400;")
         return lbl
 
     def _apply_button_styles(self) -> None:
-        p = self._pal
+        """Buttons follow the global MobaXterm QSS (#primary/#accent/#danger/
+        #ghost/#subtle object names) — no per-dialog overrides."""
         for btn in self.findChildren(QPushButton):
-            obj = btn.objectName()
-            if obj == "primary":
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {p['panel2']}; color: {p['fg']}; border: 1px solid {p['border']}; "
-                    f"border-radius: 8px; font-size: 13px; font-weight: 600; padding: 8px 18px; }}"
-                    f"QPushButton:hover {{ background: {p['panel3']}; border-color: {p['border_strong']}; }}"
-                    f"QPushButton:pressed {{ background: {p['border']}; }}"
-                )
-            elif obj == "accent":
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {p['accent']}; color: {p['accent_text']}; border: none; "
-                    f"border-radius: 8px; font-size: 13px; font-weight: 700; padding: 8px 22px; }}"
-                    f"QPushButton:hover {{ background: {p['accent_hover']}; }}"
-                    f"QPushButton:pressed {{ background: {p['accent_active']}; }}"
-                )
-            elif obj == "danger":
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: transparent; color: {p['bad']}; border: 1px solid {p['bad']}; "
-                    f"border-radius: 8px; font-size: 13px; font-weight: 600; padding: 8px 18px; }}"
-                    f"QPushButton:hover {{ background: {p['bad']}18; }}"
-                    f"QPushButton:pressed {{ background: {p['bad']}30; }}"
-                )
-            elif obj == "ghost":
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: transparent; color: {p['fg_dim']}; border: none; "
-                    f"font-size: 12.5px; font-weight: 600; padding: 6px 10px; }}"
-                    f"QPushButton:hover {{ color: {p['fg']}; }}"
-                )
-            elif obj == "subtle":
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {p['bg3']}; color: {p['fg_dim']}; border: 1px solid {p['border']}; "
-                    f"border-radius: 8px; font-size: 13px; padding: 8px 18px; }}"
-                    f"QPushButton:hover {{ background: {p['panel2']}; color: {p['fg']}; }}"
-                )
+            if btn.styleSheet():
+                btn.setStyleSheet("")
 
     # ------------------------------------------------------------------
     # Connection card fields
@@ -430,15 +357,11 @@ class SessionDialog(QDialog):
         self.password = self._make_input(self.session.password, "leave blank to prompt at connect")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         pw_wrap.addWidget(self.password)
-        self._pw_toggle = QPushButton("\u25ce")
+        self._pw_toggle = QPushButton("Show")
         self._pw_toggle.setCheckable(True)
-        self._pw_toggle.setFixedSize(34, 34)
-        self._pw_toggle.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {self._pal['fg_dim']}; border: none; "
-            f"font-size: 15px; border-left: 1px solid {self._pal['border']}; border-radius: 0px; "
-            f"border-top-right-radius: 8px; border-bottom-right-radius: 8px; }}"
-            f"QPushButton:hover {{ color: {self._pal['fg']}; }}"
-        )
+        self._pw_toggle.setFixedSize(46, 24)
+        self._pw_toggle.setObjectName("subtle")
+        self._pw_toggle.setToolTip("Show / hide password")
         self._pw_toggle.toggled.connect(self._toggle_password)
         pw_wrap.addWidget(self._pw_toggle)
         pw_col.addLayout(pw_wrap)
@@ -486,6 +409,7 @@ class SessionDialog(QDialog):
         self.password.setEchoMode(
             QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
         )
+        self._pw_toggle.setText("Hide" if visible else "Show")
 
     # ------------------------------------------------------------------
     # Auth box (SSH / RDP)

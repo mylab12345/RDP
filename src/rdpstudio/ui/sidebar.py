@@ -1,14 +1,17 @@
-"""Left sidebar: searchable tree of saved sessions — clean, compact, professional."""
+"""Left sidebar: MobaXterm-style Sessions panel — vertical rail + Explorer tree."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
     QPushButton,
+    QStackedWidget,
+    QTabBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -18,7 +21,7 @@ from PySide6.QtWidgets import (
 from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
-from .theme import icon, palette, protocol_badge
+from .theme import icon, palette, protocol_badge, toolbar_icon
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
@@ -46,15 +49,42 @@ class SessionTree(QWidget):
         # Buttons whose icons are re-tinted on a live theme switch
         self._themed_buttons: list[tuple[QPushButton, str]] = []
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 8)
-        layout.setSpacing(8)
+        # MobaXterm layout: a vertical tab rail on the far left ("Sessions",
+        # "Tools") next to a white panel holding a search box, a compact
+        # icon button row and the Explorer-style session tree.
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        # Header — compact title + count
+        self.rail = QTabBar()
+        self.rail.setObjectName("sideRail")
+        self.rail.setShape(QTabBar.Shape.RoundedWest)
+        self.rail.setDrawBase(False)
+        self.rail.setExpanding(False)
+        self.rail.setUsesScrollButtons(False)
+        self.rail.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rail.addTab("Sessions")
+        self.rail.addTab("Tools")
+        self.rail.setTabToolTip(0, "Saved sessions")
+        self.rail.setTabToolTip(1, "Tools & utilities")
+        outer.addWidget(self.rail, 0, Qt.AlignmentFlag.AlignTop)
+
+        self.pages = QStackedWidget()
+        outer.addWidget(self.pages, 1)
+        self.rail.currentChanged.connect(self.pages.setCurrentIndex)
+
+        # ---- page 0: Sessions -------------------------------------------
+        page = QWidget()
+        page.setObjectName("sidebarPanel")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        # Header — title + count
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(2, 0, 2, 0)
-        hl.setSpacing(8)
+        hl.setSpacing(6)
 
         title = QLabel("Sessions")
         title.setObjectName("sideTitle")
@@ -67,47 +97,54 @@ class SessionTree(QWidget):
         hl.addWidget(self._count_label)
         layout.addWidget(header)
 
-        # Search — standard input, icon inline
+        # Icon toolbar row (new session · local terminal · new folder) —
+        # MobaXterm's small 16 px buttons above the sessions tree.
+        bar_wrap = QWidget()
+        bl = QHBoxLayout(bar_wrap)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(2)
+
+        def make_btn(label, icon_name, tip, cb, primary=False):
+            b = QPushButton(label)
+            b.setIcon(toolbar_icon(icon_name))
+            self._themed_buttons.append((b, icon_name))
+            b.setObjectName("ghost")
+            b.setToolTip(tip)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(cb)
+            b.setFixedSize(24, 22)
+            b.setIconSize(QSize(16, 16))
+            return b
+
+        btn_new = make_btn("", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
+        btn_local = make_btn(
+            "",
+            "console",
+            "Open a local shell in a new tab (Ctrl+Shift+T)",
+            self.localTerminalRequested.emit,
+        )
+        btn_folder = make_btn("", "folder", "New folder", self.newFolderRequested.emit)
+        bl.addWidget(btn_new)
+        bl.addWidget(btn_local)
+        bl.addWidget(btn_folder)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedHeight(16)
+        bl.addWidget(sep)
+
+        # Search — inline filter box
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("Search sessions…")
+        self.search.setPlaceholderText("Find a session…")
         self.search.setClearButtonEnabled(True)
         self._search_action = self.search.addAction(
             icon("search"), QLineEdit.ActionPosition.LeadingPosition
         )
         self._search_action.setToolTip("Filter sessions by name, host, tag or folder")
         self.search.textChanged.connect(self._on_search)
-        self.search.setFixedHeight(30)
-        layout.addWidget(self.search)
-
-        # Actions — consistent compact buttons
-        bar_wrap = QWidget()
-        bl = QHBoxLayout(bar_wrap)
-        bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(6)
-
-        def make_btn(label, icon_name, tip, cb, primary=False):
-            b = QPushButton(label)
-            b.setIcon(icon(icon_name))
-            self._themed_buttons.append((b, icon_name))
-            b.setObjectName("primary" if primary else "subtle")
-            b.setToolTip(tip)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(cb)
-            b.setFixedHeight(28)
-            return b
-
-        btn_new = make_btn("plus", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
-        btn_local = make_btn(
-            "terminal",
-            "terminal",
-            "Open a local shell in a new tab (Ctrl+Shift+T)",
-            self.localTerminalRequested.emit,
-        )
-        btn_folder = make_btn("folder", "folder", "New folder", self.newFolderRequested.emit)
-        bl.addWidget(btn_new, 2)
-        bl.addWidget(btn_local, 2)
-        bl.addWidget(btn_folder, 1)
+        self.search.setFixedHeight(22)
+        bl.addWidget(self.search, 1)
         layout.addWidget(bar_wrap)
 
         # Debounce typing
@@ -116,14 +153,15 @@ class SessionTree(QWidget):
         self._search_timer.setInterval(140)
         self._search_timer.timeout.connect(self.reload)
 
-        # Tree — compact rows, keyboard navigable (styled via #sessionTree QSS)
+        # Tree — Explorer rows, keyboard navigable (styled via #sessionTree QSS)
         self.tree = QTreeWidget()
         self.tree.setObjectName("sessionTree")
         self.tree.setHeaderHidden(True)
         self.tree.setAlternatingRowColors(False)
         self.tree.setAnimated(False)
-        self.tree.setIndentation(14)
+        self.tree.setIndentation(16)
         self.tree.setRootIsDecorated(True)
+        self.tree.setIconSize(QSize(16, 16))
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(self._double_clicked)
@@ -133,8 +171,44 @@ class SessionTree(QWidget):
         # Footer hint — plain caption
         self._hint = QLabel("Double-click to connect · Right-click for actions")
         self._hint.setObjectName("caption")
+        self._hint.setWordWrap(True)
         self._hint.setToolTip("Keyboard: Up/Down to move, Enter to connect, Menu key for actions")
         layout.addWidget(self._hint)
+        self.pages.addWidget(page)
+
+        # ---- page 1: Tools --------------------------------------------
+        tools = QWidget()
+        tools.setObjectName("sidebarPanel")
+        tl = QVBoxLayout(tools)
+        tl.setContentsMargins(4, 4, 4, 4)
+        tl.setSpacing(4)
+        t_title = QLabel("Tools")
+        t_title.setObjectName("sideTitle")
+        tl.addWidget(t_title)
+        self.tools_list = QTreeWidget()
+        self.tools_list.setObjectName("sessionTree")
+        self.tools_list.setHeaderHidden(True)
+        self.tools_list.setRootIsDecorated(False)
+        self.tools_list.setIconSize(QSize(16, 16))
+        self._tool_items: list[tuple[QTreeWidgetItem, str]] = []
+        for label, icon_name, signal_name in (
+            ("Local terminal", "console", "localTerminalRequested"),
+            ("New session…", "plus", "newSessionRequested"),
+            ("New folder…", "folder", "newFolderRequested"),
+        ):
+            it = QTreeWidgetItem([label])
+            it.setIcon(0, toolbar_icon(icon_name))
+            it.setData(0, ROLE_GROUP, signal_name)
+            self.tools_list.addTopLevelItem(it)
+            self._tool_items.append((it, icon_name))
+        self.tools_list.itemDoubleClicked.connect(self._tool_activated)
+        self.tools_list.itemClicked.connect(self._tool_activated)
+        tl.addWidget(self.tools_list, 1)
+        t_hint = QLabel("More tools live in the toolbar and the Tools menu.")
+        t_hint.setObjectName("caption")
+        t_hint.setWordWrap(True)
+        tl.addWidget(t_hint)
+        self.pages.addWidget(tools)
 
         self.reload()
 
@@ -154,6 +228,7 @@ class SessionTree(QWidget):
 
         # Count badge — styled by the global QSS (#sideCount)
         self._count_label.setText(str(total) if total else "")
+        self._count_label.setVisible(bool(total))
 
         if self._filter:
             needle = self._filter.lower()
@@ -178,13 +253,13 @@ class SessionTree(QWidget):
         for name in sorted(g for g in groups if g):
             folder = QTreeWidgetItem([name])
             folder.setData(0, ROLE_GROUP, name)
-            folder.setIcon(0, icon("folder"))
+            folder.setIcon(0, toolbar_icon("folder"))
             folder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             folder.setToolTip(0, f"Folder: {name} ({len(groups[name])} sessions)")
             for s in sorted(groups[name], key=_sort_key):
                 self._add_session_item(folder, s, reg)
-            folder.setExpanded(True)
             self.tree.addTopLevelItem(folder)
+            folder.setExpanded(True)
 
         if self._filter:
             self.tree.expandAll()
@@ -221,7 +296,16 @@ class SessionTree(QWidget):
         self.reload()
         self._search_action.setIcon(icon("search"))
         for btn, icon_name in self._themed_buttons:
-            btn.setIcon(icon(icon_name))
+            btn.setIcon(toolbar_icon(icon_name))
+        for it, icon_name in getattr(self, "_tool_items", []):
+            it.setIcon(0, toolbar_icon(icon_name))
+
+    def _tool_activated(self, item: QTreeWidgetItem, _col: int = 0) -> None:
+        """Tools page rows fire the same signals as the buttons/menu."""
+        name = item.data(0, ROLE_GROUP)
+        sig = getattr(self, str(name), None)
+        if sig is not None:
+            sig.emit()
 
     # -- events -----------------------------------------------------------
     def _double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:

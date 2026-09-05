@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStatusBar,
     QSystemTrayIcon,
@@ -97,7 +98,7 @@ class _HistoryLineEdit(QLineEdit):
 
 
 class CommandBar(QWidget):
-    """Beautiful per-tab command line — bento pill, natural."""
+    """Per-tab command line (MobaXterm: plain \"Command:\" strip under the terminal)."""
 
     commandSent = Signal(str)
 
@@ -106,17 +107,16 @@ class CommandBar(QWidget):
         self.setObjectName("commandBar")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 8, 14, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(6)
 
-        prompt = QLabel("❯")
+        prompt = QLabel("Command:")
         prompt.setObjectName("commandPrompt")
-        prompt.setStyleSheet("font-size: 13px; font-weight: 700; padding-left: 2px;")
         layout.addWidget(prompt)
 
         self.line = _HistoryLineEdit()
         self.line.setObjectName("commandLine")
-        self.line.setPlaceholderText("Type a command — Enter runs, ↑↓ history")
+        self.line.setPlaceholderText("Type a command and press Enter  (Up/Down: history)")
         self.line.setClearButtonEnabled(True)
         self.line.returnPressed.connect(self._on_return)
         layout.addWidget(self.line, 1)
@@ -163,11 +163,11 @@ class SessionTab(QWidget):
         # Compact session header — chips, info, actions
         header = QWidget()
         header.setObjectName("header")
-        header.setMinimumHeight(36)
-        header.setMaximumHeight(36)
+        header.setMinimumHeight(30)
+        header.setMaximumHeight(30)
         h = QHBoxLayout(header)
-        h.setContentsMargins(10, 4, 10, 4)
-        h.setSpacing(8)
+        h.setContentsMargins(8, 3, 6, 3)
+        h.setSpacing(6)
 
         self.chip = StateChip("connecting", "info")
         h.addWidget(self.chip)
@@ -179,7 +179,7 @@ class SessionTab(QWidget):
 
         self.info = QLabel("")
         self.info.setObjectName("muted")
-        self.info.setStyleSheet("font-size: 12px; font-weight: 500;")
+        self.info.setStyleSheet("font-size: 11.5px; font-weight: 400;")
         h.addWidget(self.info, 1)
 
         # Session action buttons — compact icon-style
@@ -193,12 +193,12 @@ class SessionTab(QWidget):
             b.setObjectName("subtle")
             b.setToolTip(tip)
             b.clicked.connect(cb)
-            b.setFixedHeight(26)
+            b.setFixedHeight(22)
             b.setFixedWidth(70)
             b.setStyleSheet(
                 b.styleSheet()
-                + "font-size: 11px; font-weight: 600; padding: 2px 8px; "
-                + "border-radius: 4px;"
+                + "font-size: 11px; font-weight: 400; padding: 1px 8px; "
+                + "border-radius: 2px;"
             )
             return b
 
@@ -208,12 +208,12 @@ class SessionTab(QWidget):
         self.btn_reconnect.setObjectName("primary")
         self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
-        self.btn_reconnect.setFixedHeight(26)
-        self.btn_reconnect.setFixedWidth(80)
+        self.btn_reconnect.setFixedHeight(22)
+        self.btn_reconnect.setFixedWidth(84)
         self.btn_reconnect.setStyleSheet(
             self.btn_reconnect.styleSheet()
-            + "font-size: 11px; font-weight: 700; padding: 2px 10px; "
-            + "border-radius: 4px;"
+            + "font-size: 11px; font-weight: 400; padding: 1px 10px; "
+            + "border-radius: 2px;"
         )
         h.addWidget(self.btn_reconnect)
 
@@ -229,7 +229,7 @@ class SessionTab(QWidget):
         self._themed_buttons.append((close_btn, "close", None))
         close_btn.setObjectName("tabClose")
         close_btn.setToolTip("Close this session tab")
-        close_btn.setFixedSize(24, 24)
+        close_btn.setFixedSize(20, 20)
         close_btn.clicked.connect(lambda: self.main.close_tab(self.main.tabs.indexOf(self)))
         h.addWidget(close_btn)
 
@@ -565,27 +565,26 @@ class MainWindow(QMainWindow):
         m_help.addAction(a)
 
     def _build_toolbar(self) -> None:
-        # Compact professional toolbar: icon+label actions, inline quick connect
+        """MobaXterm-style toolbar: large coloured icons with labels below.
+
+        Same actions and wiring as before — only the look changed (icon size,
+        text-under-icon layout, per-action colour tints, grouping).
+        """
         bar = QToolBar()
         bar.setObjectName("moxaToolbar")
         bar.setMovable(False)
-        bar.setIconSize(QSize(16, 16))
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        bar.setFloatable(False)
+        bar.setIconSize(QSize(24, 24))
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self._toolbar = bar
         self._themed_actions: list[tuple[QAction, str]] = []
 
         def themed_action(icon_name: str, text: str) -> QAction:
-            act = bar.addAction(icon(icon_name), text)
+            act = bar.addAction(theme.toolbar_icon(icon_name), text)
             self._themed_actions.append((act, icon_name))
             return act
 
-        act_sidebar = themed_action("panel", "Sidebar")
-        act_sidebar.setToolTip("Toggle the session sidebar (Ctrl+B)")
-        act_sidebar.setCheckable(True)
-        act_sidebar.toggled.connect(self._toggle_sidebar)
-        self._act_sidebar_toolbar = act_sidebar
-
-        a = themed_action("plus", "New")
+        a = themed_action("plus", "Session")
         a.setToolTip("Create a new saved session (Ctrl+N)")
         a.triggered.connect(self.new_session)
 
@@ -593,33 +592,11 @@ class MainWindow(QMainWindow):
         a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
         a.triggered.connect(self.open_local_terminal)
 
-        a = themed_action("search", "Commands")
-        a.setToolTip("Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)")
-        a.triggered.connect(self.open_command_palette)
-
-        bar.addSeparator()
-
-        # Quick connect — compact single-line group with a real button
-        quick_wrap = QWidget()
-        quick_wrap.setObjectName("quickConnect")
-        ql = QHBoxLayout(quick_wrap)
-        ql.setContentsMargins(1, 1, 1, 1)
-        ql.setSpacing(0)
-
-        self.quick = QLineEdit()
-        self.quick.setPlaceholderText("Quick connect — user@host[:port]")
-        self.quick.setFixedWidth(230)
-        self.quick.setObjectName("quickInput")
-        self.quick.returnPressed.connect(self.quick_connect)
-        ql.addWidget(self.quick, 1)
-
-        qc_btn = QPushButton("Connect")
-        qc_btn.setObjectName("primary")
-        qc_btn.setToolTip("Connect now (Enter)")
-        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        qc_btn.clicked.connect(self.quick_connect)
-        ql.addWidget(qc_btn)
-        bar.addWidget(quick_wrap)
+        act_sidebar = themed_action("panel", "Sessions")
+        act_sidebar.setToolTip("Show / hide the Sessions side panel (Ctrl+B)")
+        act_sidebar.setCheckable(True)
+        act_sidebar.toggled.connect(self._toggle_sidebar)
+        self._act_sidebar_toolbar = act_sidebar
 
         bar.addSeparator()
 
@@ -629,79 +606,130 @@ class MainWindow(QMainWindow):
             act.triggered.connect(cb)
             return act
 
-        add_tool("server", "Scan", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
+        add_tool("search", "Commands", "Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)", self.open_command_palette)
+        add_tool("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
+        add_tool("transfer", "Tunneling", "SSH tunnels / port forwarding for the active session", self.open_tunnels_dialog)
 
         bar.addSeparator()
 
+        # Quick connect — MobaXterm's "Quick connect" strip: white input +
+        # blue Connect button, sitting in the toolbar after the tool groups.
+        quick_wrap = QWidget()
+        quick_wrap.setObjectName("quickConnect")
+        ql = QHBoxLayout(quick_wrap)
+        ql.setContentsMargins(1, 1, 1, 1)
+        ql.setSpacing(0)
+
+        self.quick = QLineEdit()
+        self.quick.setPlaceholderText("Quick connect:  user@host[:port]")
+        self.quick.setFixedWidth(220)
+        self.quick.setObjectName("quickInput")
+        self.quick.returnPressed.connect(self.quick_connect)
+        ql.addWidget(self.quick, 1)
+
+        qc_btn = QPushButton("Connect")
+        qc_btn.setObjectName("primary")
+        qc_btn.setToolTip("Connect now (Enter)")
+        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        qc_btn.clicked.connect(self.quick_connect)
+        qc_btn.setFixedWidth(72)
+        ql.addWidget(qc_btn, 0)
+        quick_wrap.setFixedHeight(24)
+        quick_wrap.setFixedWidth(220 + 72 + 2)
+        quick_holder = QWidget()
+        qhl = QVBoxLayout(quick_holder)
+        qhl.setContentsMargins(6, 0, 6, 0)
+        qhl.addStretch(1)
+        qhl.addWidget(quick_wrap)
+        qhl.addStretch(1)
+        bar.addWidget(quick_holder)
+
+        # Right-aligned group (Settings · Help · Close all) like MobaXterm's
+        # "X server / Exit" cluster.
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        bar.addWidget(spacer)
+
+        bar.addSeparator()
+        add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
+        add_tool("shield", "Help", "Keyboard shortcuts & help", self.open_shortcuts)
+
         # Close all tabs button
-        self._close_all_btn = themed_action("close", "Close All")
+        self._close_all_btn = themed_action("close", "Close all")
         self._close_all_btn.setToolTip("Close all open session tabs")
         self._close_all_btn.triggered.connect(self._close_all_tabs)
         self._close_all_btn.setVisible(False)
-
-        add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
 
         self.addToolBar(bar)
         self._apply_ui_prefs()
 
     def _build_dashboard(self) -> QWidget:
-        """Welcome screen shown when no tabs are open.
+        """MobaXterm-style welcome page shown when no tabs are open.
 
-        Styling lives in the global QSS (object-name selectors), so a live
-        theme switch re-tints everything without rebuilding the widget tree.
+        A white document page with the app title, a one-line quick connect,
+        a row of flat action tiles and the recent-sessions list. Styling
+        lives in the global QSS (object-name selectors).
         """
         w = QWidget()
+        w.setObjectName("dashboard")
         el = QVBoxLayout(w)
         el.setAlignment(Qt.AlignmentFlag.AlignTop)
-        el.setSpacing(14)
-        el.setContentsMargins(32, 28, 32, 24)
+        el.setSpacing(12)
+        el.setContentsMargins(28, 22, 28, 20)
 
-        # Compact header: small logo mark + name + version
+        # Header: logo mark + name + version — MobaXterm's "Start local terminal" page header
         header_row = QHBoxLayout()
         header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
         header_row.setSpacing(10)
         logo = QLabel()
-        logo.setPixmap(icon("logo").pixmap(20, 20))
+        logo.setPixmap(icon("logo").pixmap(28, 28))
         header_row.addWidget(logo)
         title = QLabel(APP_NAME)
         title.setObjectName("dashTitle")
         self._dash_header_label = title  # density-dependent font size
         header_row.addWidget(title)
-        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP")
+        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP · local terminal")
         version.setObjectName("dashVersion")
-        header_row.addWidget(version)
+        header_row.addWidget(version, 0, Qt.AlignmentFlag.AlignBottom)
         header_row.addStretch(1)
         el.addLayout(header_row)
 
-        # Quick connect — prominent, one line, explicit Connect button
+        rule = QFrame()
+        rule.setObjectName("hairline")
+        rule.setFixedHeight(1)
+        el.addWidget(rule)
+
+        # Quick connect — one line, label + white input + blue Connect button
         qc_card = QWidget()
         qc_card.setObjectName("card")
         qc_lay = QHBoxLayout(qc_card)
-        qc_lay.setContentsMargins(12, 10, 12, 10)
+        qc_lay.setContentsMargins(10, 8, 10, 8)
         qc_lay.setSpacing(8)
-        qc_title = QLabel("Quick Connect")
+        qc_title = QLabel("Quick connect")
         qc_title.setObjectName("quickTitle")
         qc_lay.addWidget(qc_title)
         self._dash_quick = QLineEdit()
-        self._dash_quick.setPlaceholderText("user@host[:port]  ·  port 3389 = RDP")
+        self._dash_quick.setPlaceholderText("user@host[:port]   (port 3389 = RDP)")
         self._dash_quick.setObjectName("search")
-        self._dash_quick.setFixedHeight(30)
+        self._dash_quick.setFixedHeight(24)
         self._dash_quick.returnPressed.connect(self._dash_quick_connect)
         qc_lay.addWidget(self._dash_quick, 1)
         qc_btn = QPushButton("Connect")
         qc_btn.setObjectName("primary")
-        qc_btn.setFixedHeight(30)
+        qc_btn.setFixedHeight(24)
         qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         qc_btn.clicked.connect(self._dash_quick_connect)
         qc_lay.addWidget(qc_btn)
-        qc_card.setFixedWidth(560)
-        el.addWidget(qc_card, 0, Qt.AlignmentFlag.AlignHCenter)
+        qc_card.setMinimumWidth(640)
+        qc_card.setMaximumWidth(640)
+        el.addWidget(qc_card, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # Action cards — icon tile + label + caption (2026 bento pattern)
+        # Action tiles — MobaXterm's big flat launcher buttons
         actions_row = QHBoxLayout()
-        actions_row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        actions_row.setSpacing(10)
+        actions_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        actions_row.setSpacing(8)
         self._dash_action_icons: list[tuple[QLabel, str]] = []
 
         def _action_card(icon_name: str, label: str, caption: str, tooltip: str, callback) -> QWidget:
@@ -709,48 +737,52 @@ class MainWindow(QMainWindow):
             card.setObjectName("card_hover")
             card.setCursor(Qt.CursorShape.PointingHandCursor)
             card.setToolTip(tooltip)
-            card.setFixedHeight(64)
-            lay = QHBoxLayout(card)
-            lay.setContentsMargins(14, 10, 14, 10)
-            lay.setSpacing(12)
+            card.setFixedSize(150, 92)
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(10, 10, 10, 8)
+            lay.setSpacing(4)
+            lay.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             ic = QLabel()
-            ic.setPixmap(icon(icon_name).pixmap(QSize(20, 20)))
-            ic.setFixedSize(20, 20)
+            ic.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(28, 28)))
+            ic.setFixedSize(28, 28)
+            ic.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._dash_action_icons.append((ic, icon_name))
-            lay.addWidget(ic, 0, Qt.AlignmentFlag.AlignVCenter)
-            text_col = QVBoxLayout()
-            text_col.setContentsMargins(0, 0, 0, 0)
-            text_col.setSpacing(1)
+            lay.addWidget(ic, 0, Qt.AlignmentFlag.AlignHCenter)
             lbl = QLabel(label)
             lbl.setObjectName("cardTitle")
-            text_col.addWidget(lbl)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lay.addWidget(lbl)
             sub = QLabel(caption)
             sub.setObjectName("cardSub")
-            text_col.addWidget(sub)
-            lay.addLayout(text_col, 1)
+            sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lay.addWidget(sub)
             card.mousePressEvent = lambda _, c=callback: c()
             return card
 
-        actions_row.addWidget(_action_card("plus", "New Session", "Save a connection", "Create a new connection (Ctrl+N)", self.new_session))
-        actions_row.addWidget(_action_card("console", "Local Terminal", "Instant shell", "Open a local terminal (Ctrl+Shift+T)", self.open_local_terminal))
-        actions_row.addWidget(_action_card("search", "Command Palette", "Everything, one keystroke", "Search commands & sessions (Ctrl+K)", self.open_command_palette))
-        actions_row.addWidget(_action_card("gear", "Settings", "Themes, fonts, keys", "Configure KB-Remote (Ctrl+,)", self.open_settings))
+        actions_row.addWidget(_action_card("plus", "New session", "SSH · RDP · more", "Create a new connection (Ctrl+N)", self.new_session))
+        actions_row.addWidget(_action_card("console", "Local terminal", "Start a shell", "Open a local terminal (Ctrl+Shift+T)", self.open_local_terminal))
+        actions_row.addWidget(_action_card("search", "Commands", "Palette · switcher", "Search commands & sessions (Ctrl+K)", self.open_command_palette))
+        actions_row.addWidget(_action_card("gear", "Settings", "Themes · fonts · keys", "Configure KB-Remote (Ctrl+,)", self.open_settings))
         el.addLayout(actions_row)
 
         # Recent connections — protocol badges, pinned first
         self._build_recent_card(el)
 
-        # Keyboard shortcut chips — real keycap styling
+        el.addStretch(1)
+
+        # Keyboard shortcut chips
         chips = QHBoxLayout()
-        chips.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        chips.setAlignment(Qt.AlignmentFlag.AlignLeft)
         chips.setSpacing(14)
         for combo, what in (
-            ("Ctrl+N", "new"),
-            ("Ctrl+Shift+T", "terminal"),
+            ("Ctrl+N", "new session"),
+            ("Ctrl+Shift+T", "local terminal"),
             ("Ctrl+K", "commands"),
+            ("Ctrl+B", "sessions panel"),
             ("Ctrl+,", "settings"),
         ):
             pair = QHBoxLayout()
+            pair.setContentsMargins(0, 0, 0, 0)
             pair.setSpacing(5)
             key = QLabel(combo)
             key.setObjectName("kbd")
@@ -774,11 +806,12 @@ class MainWindow(QMainWindow):
             return
         recent_card = QWidget()
         recent_card.setObjectName("card")
-        recent_card.setFixedWidth(560)
+        recent_card.setMinimumWidth(640)
+        recent_card.setMaximumWidth(640)
         rc_lay = QVBoxLayout(recent_card)
-        rc_lay.setContentsMargins(12, 10, 12, 10)
-        rc_lay.setSpacing(4)
-        rc_header = QLabel("Recent Connections")
+        rc_lay.setContentsMargins(10, 8, 10, 8)
+        rc_lay.setSpacing(2)
+        rc_header = QLabel("Recent sessions")
         rc_header.setObjectName("h2")
         rc_lay.addWidget(rc_header)
 
@@ -814,7 +847,7 @@ class MainWindow(QMainWindow):
             proto.setObjectName("protoChip")
             il.addWidget(proto)
             rc_lay.addWidget(item)
-        el.addWidget(recent_card, 0, Qt.AlignmentFlag.AlignHCenter)
+        el.addWidget(recent_card, 0, Qt.AlignmentFlag.AlignLeft)
 
     @staticmethod
     def _proto_icon(protocol: str) -> str:
@@ -822,7 +855,7 @@ class MainWindow(QMainWindow):
 
     def _build_body(self) -> None:
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        self.main_splitter.setHandleWidth(1)
+        self.main_splitter.setHandleWidth(4)
 
         self.sidebar = SessionTree(self.ctx.store)
         self.main_splitter.addWidget(self.sidebar)
@@ -831,17 +864,18 @@ class MainWindow(QMainWindow):
         tabs_wrap = QWidget()
         tabs_wrap.setObjectName("workArea")
         tl = QVBoxLayout(tabs_wrap)
-        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setContentsMargins(0, 2, 4, 4)
         tl.setSpacing(0)
 
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
-        self.tabs.setDocumentMode(True)
+        # Classic framed tabs (MobaXterm), not document-mode underline tabs
+        self.tabs.setDocumentMode(False)
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
-        # Protocol badges render on a 18px rounded tile
-        self.tabs.setIconSize(QSize(18, 18))
+        # Protocol badges render on a 16px tile
+        self.tabs.setIconSize(QSize(16, 16))
 
         # Tab bar context menu
         self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -854,8 +888,8 @@ class MainWindow(QMainWindow):
         # Corner buttons — session count + quick actions
         corner = QWidget()
         cl = QHBoxLayout(corner)
-        cl.setContentsMargins(4, 2, 8, 2)
-        cl.setSpacing(4)
+        cl.setContentsMargins(4, 3, 4, 0)
+        cl.setSpacing(2)
 
         # Session count indicator
         self._tab_count_label = QLabel("0")
@@ -873,7 +907,7 @@ class MainWindow(QMainWindow):
             self._themed_corner_buttons.append((b, icon_name))
             b.setObjectName("ghost")
             b.setToolTip(tip)
-            b.setFixedSize(26, 24)
+            b.setFixedSize(24, 22)
             b.clicked.connect(cb)
             return b
 
@@ -1036,18 +1070,17 @@ class MainWindow(QMainWindow):
         )
         if hasattr(self, "_toolbar"):
             if s.toolbar_labels:
-                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                self._toolbar.setIconSize(QSize(16, 16))
+                # MobaXterm default: large icon with the caption underneath
+                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+                self._toolbar.setIconSize(QSize(24, 24))
             else:
                 self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(18, 18))
+                self._toolbar.setIconSize(QSize(24, 24))
         if hasattr(self, "_dash_header_label"):
             # Compact density trims the dashboard header; comfortable uses the
             # QSS #dashTitle size (theme-aware) with no inline override.
             if s.density == "compact":
-                self._dash_header_label.setStyleSheet(
-                    "font-size: 15px; font-weight: 700; letter-spacing: -0.2px;"
-                )
+                self._dash_header_label.setStyleSheet("font-size: 17px; font-weight: 400;")
             else:
                 self._dash_header_label.setStyleSheet("")
 
@@ -1057,14 +1090,14 @@ class MainWindow(QMainWindow):
         Called by ``theme.apply_theme`` via the change-callback registry.
         """
         for act, icon_name in getattr(self, "_themed_actions", []):
-            act.setIcon(icon(icon_name))
+            act.setIcon(theme.toolbar_icon(icon_name))
         sidebar = getattr(self, "sidebar", None)
         if sidebar is not None:
             sidebar.refresh_theme()
         for btn, icon_name in getattr(self, "_themed_corner_buttons", []):
             btn.setIcon(icon(icon_name))
         for lbl, icon_name in getattr(self, "_dash_action_icons", []):
-            lbl.setPixmap(icon(icon_name).pixmap(QSize(20, 20)))
+            lbl.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(28, 28)))
         for lbl, mode, arg in getattr(self, "_dash_recent_rows", []):
             if mode == "proto":
                 lbl.setPixmap(protocol_badge(str(arg), self._proto_icon(str(arg))).pixmap(QSize(18, 18)))
@@ -1614,7 +1647,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_theme(self, dark: bool) -> None:
         """Legacy dark/light flip used by older callers."""
-        self.apply_theme_id("dark" if dark else "light")
+        self.apply_theme_id("dark" if dark else "mobaxterm")
 
     def _sync_theme_actions(self) -> None:
         current = self.ctx.settings.theme

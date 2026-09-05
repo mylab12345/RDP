@@ -1,5 +1,28 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 4 — MobaXterm look (2026-09, UI files only)
+
+The whole presentation layer now mirrors MobaXterm's classic Windows chrome.
+Everything lives in `ui/theme.py` (new `mobaxterm` palette + rewritten QSS,
+`TOOLBAR_ICON_TINTS`, `toolbar_icon()`), `ui/main_window.py` (big
+text-under-icon toolbar, framed tabs, `Command:` strip, welcome page),
+`ui/sidebar.py` (vertical *Sessions/Tools* rail + Explorer tree),
+`ui/settings_dialog.py` (top tab strip, flat groups) and
+`ui/session_dialog.py` (flat group boxes, global-QSS inputs). The only
+non-UI edit is the additive `mobaxterm` theme id / default in
+`core/settings.py`.
+
+| Element | MobaXterm reference | Implementation |
+|---|---|---|
+| Window chrome | `#f0f0f0` gray, white panes | `bg` / `bg2` palette keys |
+| Selection / hover | `#0078d7`, `#cce8ff`, `#e5f3ff` | `accent`, `accent_subtle`, `sel_hover` |
+| Fonts | Segoe UI / Tahoma 9 pt, Consolas | `_UI_SANS`, `_UI_MONO` |
+| Toolbar | 24 px coloured icons, caption below | `QToolBar#moxaToolbar`, `toolbar_icon()` |
+| Side panel | vertical tab rail + tree | `QTabBar#sideRail`, `#sessionTree` |
+| Tabs | framed, blue top rule on active | `QTabBar::tab` rules |
+| Controls | 2–3 px radii, 1 px `#adadad` borders | global QSS |
+
+
 This is a prioritised, trend-aware (2025/2026) modernisation plan for KB-Remote's
 workbench UI. Every item below lives in the **presentation layer** —
 `src/rdpstudio/ui/theme.py` (QSS + palettes), `src/rdpstudio/ui/widgets.py`,

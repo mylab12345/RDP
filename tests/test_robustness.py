@@ -176,7 +176,7 @@ def test_settings_coerce_enums_and_floats():
             "geometry": "wide",
         }
     )
-    assert s.theme == "dark"
+    assert s.theme == "mobaxterm"  # default (MobaXterm look)
     assert s.host_key_policy == "accept-new"
     assert s.rdp_client == "auto"
     assert s.cursor_style == "block"

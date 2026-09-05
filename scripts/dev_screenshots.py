@@ -62,7 +62,7 @@ def main() -> int:
     from rdpstudio.ui.main_window import MainWindow
 
     app = QApplication([])
-    theme.apply_theme(app, "dark")
+    theme.apply_theme(app, "mobaxterm")
     ctx = build_context()
 
     # offscreen: replace GUI prompts with automatic answers

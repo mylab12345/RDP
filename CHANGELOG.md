@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Changed — MobaXterm-style UI (presentation layer only)
+- **New default look: `mobaxterm`.** Light gray Windows chrome (`#f0f0f0`),
+  white work surfaces, 1 px `#adadad` borders, 2–3 px radii, Windows-blue
+  selection/hover (`#0078d7` / `#cce8ff` / `#e5f3ff`), Segoe UI / Tahoma
+  typography with Consolas for code. `dark` is now the MobaXterm dark
+  variant (charcoal chrome, same blue). All other palettes remain available
+  and share the new flat geometry.
+- **Toolbar.** MobaXterm's large text-under-icon buttons (24 px coloured
+  glyphs: Session green, Sessions panel orange, Keys gold, Tunneling purple,
+  Close all red…) grouped by separators, an inline *Quick connect* strip and a
+  right-aligned Settings · Help · Close all cluster.
+- **Sessions side panel.** A vertical tab rail (*Sessions* / *Tools*) on the
+  far left, then a white panel with a compact icon row (new session · local
+  terminal · new folder · find box) and an Explorer-style tree with yellow
+  folders, chevron expanders and blue row selection.
+- **Tabs.** Classic framed document tabs (gray inactive, white active with a
+  blue top rule) instead of underline tabs; framed pane.
+- **Command bar.** A plain `Command:` strip under each terminal tab.
+- **Welcome page, Settings, Session editor and dialogs** re-flowed to
+  MobaXterm's flat groups, top tab strip and 24 px controls; inline "bento"
+  radii removed everywhere.
+- Backend, protocol, session, vault and reconnect logic are untouched;
+  `settings.theme` gains one additional id (`mobaxterm`) and defaults to it.
+
 ### Added
 - **Live theme switching.** `theme.add_theme_changed_callback()` notifies views
   after every `apply_theme()`; the main window, session-tab headers, sidebar,

@@ -8,9 +8,10 @@ import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-# Theme ids accepted in settings.json. Restrained, professional design system.
+# Theme ids accepted in settings.json. MobaXterm look is the default.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("dark", "Dark — neutral slate · blue accent (default)"),
+    ("mobaxterm", "MobaXterm — light gray chrome · Windows blue (default)"),
+    ("dark", "MobaXterm Dark — charcoal chrome · Windows blue"),
     ("graphite", "Graphite — warm gray · blue accent"),
     ("nord", "Nord — arctic · polar night & frost"),
     ("dracula", "Dracula — violet night · pink & cyan"),
@@ -91,7 +92,7 @@ def _as_float(value, default: float, minimum: float) -> float:
 @dataclass
 class Settings:
     # appearance
-    theme: str = "dark"  # see THEME_IDS
+    theme: str = "mobaxterm"  # see THEME_IDS
     density: str = "comfortable"  # comfortable | compact
     toolbar_labels: bool = True  # icon+label vs icon-only toolbar
     animations: bool = True  # disable for reduced motion
@@ -159,7 +160,7 @@ class Settings:
         s.vault_autolock_minutes = _as_int(s.vault_autolock_minutes, 15, minimum=0)
         s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
         if s.theme not in THEME_IDS:
-            s.theme = "dark"
+            s.theme = "mobaxterm"
         if s.density not in ("comfortable", "compact"):
             s.density = "comfortable"
         s.toolbar_labels = bool(s.toolbar_labels)

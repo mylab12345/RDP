@@ -136,7 +136,7 @@ class CredentialDialog(QDialog):
 
         _input_style = (
             f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {pal['border']}; border-radius: 8px; "
+            f"border: 1px solid {pal['border']}; border-radius: 3px; "
             f"background: {pal['bg3']}; color: {pal['fg']}; }}"
             f"QLineEdit:focus {{ border-color: {pal['accent']}; }}"
         )
