@@ -39,19 +39,56 @@ if [[ ! -x "$PIP" || ! -x "$PYTHON" ]]; then
 fi
 
 [[ -x "$PIP" && -x "$PYTHON" ]] || die "Python virtualenv is unavailable: $VENV_DIR"
+command -v timeout >/dev/null || die "GNU coreutils 'timeout' not found; install it (e.g. sudo apt install coreutils)"
 
 say "Removing Python, test, lint, and stale build caches"
-find "$ROOT_DIR" -type d \( \
+# Tolerant cleanup: a cache dir owned by another user (e.g. a stale
+# root-owned src/*.egg-info from a sudo pip run) must not abort the whole
+# refresh with a cryptic find error — collect failures and report them.
+CLEAN_FAILED=()
+while IFS= read -r target; do
+  if ! rm -rf "$target" 2>/dev/null; then
+    CLEAN_FAILED+=("$target")
+  fi
+done < <(find "$ROOT_DIR" -type d \( \
   -name __pycache__ -o \
   -name .pytest_cache -o \
   -name .ruff_cache -o \
   -name '*.egg-info' \
-\) -prune -exec rm -rf {} +
-rm -rf "$ROOT_DIR/build/lib" "$ROOT_DIR/dist"
-find "$ROOT_DIR/build" -maxdepth 1 -type d -name 'bdist.*' -prune -exec rm -rf {} + 2>/dev/null || true
+\) -print -prune 2>/dev/null)
+for target in "$ROOT_DIR/build/lib" "$ROOT_DIR/dist"; do
+  if ! rm -rf "$target" 2>/dev/null; then
+    CLEAN_FAILED+=("$target")
+  fi
+done
+while IFS= read -r target; do
+  if ! rm -rf "$target" 2>/dev/null; then
+    CLEAN_FAILED+=("$target")
+  fi
+done < <(find "$ROOT_DIR/build" -maxdepth 1 -type d -name 'bdist.*' -print -prune 2>/dev/null || true)
+if [ "${#CLEAN_FAILED[@]}" -gt 0 ]; then
+  printf '\033[1;33mwarning:\033[0m could not remove %d stale path(s) (likely owned by another user):\n' "${#CLEAN_FAILED[@]}" >&2
+  printf '    %s\n' "${CLEAN_FAILED[@]}" >&2
+  printf '    Fix with:  sudo rm -rf %s\n' "${CLEAN_FAILED[@]}" >&2
+fi
+
+# A leftover egg-info that pip cannot rewrite fails the reinstall with
+# "Cannot update time stamp of directory" — fail fast with the fix instead.
+for egg in "$ROOT_DIR"/src/*.egg-info; do
+  [ -e "$egg" ] || continue
+  if [ ! -w "$egg" ]; then
+    die "stale $egg is not writable by you; remove it first:  sudo rm -rf $egg"
+  fi
+done
 
 say "Force-reinstalling KB-Remote from current source"
-"$PIP" install --quiet --force-reinstall --no-deps -e "$ROOT_DIR"
+# Quiet first for clean output; on failure re-run verbosely so the actual
+# pip/setuptools error is visible instead of dying silently under set -e.
+if ! "$PIP" install --quiet --force-reinstall --no-deps -e "$ROOT_DIR" 2>/tmp/kb-remote-pip.log; then
+  cat /tmp/kb-remote-pip.log >&2
+  say "Retrying verbosely for full diagnostics"
+  "$PIP" install --force-reinstall --no-deps -e "$ROOT_DIR"
+fi
 
 say "Verifying installed source"
 installed_path="$($PYTHON -c 'import rdpstudio.ui.main_window as m; print(m.__file__)')"
@@ -85,7 +122,11 @@ print("boot OK")
 PYEOF
 
 say "Lint (ruff)"
-"$VENV_DIR/bin/ruff" check "$ROOT_DIR/src" "$ROOT_DIR/tests" "$ROOT_DIR/scripts"
+# Non-fatal, like the test step below: pre-existing violations elsewhere in
+# the tree must not block applying the current code change.
+if ! "$VENV_DIR/bin/ruff" check "$ROOT_DIR/src" "$ROOT_DIR/tests" "$ROOT_DIR/scripts"; then
+  say "Ruff reported findings (see above); continuing — rebuild is unaffected."
+fi
 
 if [ "$RUN_TESTS" = "1" ]; then
   say "Tests (offscreen)"

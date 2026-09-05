@@ -243,6 +243,13 @@ class SessionTree(QWidget):
         groups: dict[str, list[Session]] = {}
         for s in sessions:
             groups.setdefault(s.group or "", []).append(s)
+        if not self._filter:
+            # Show empty folders too: a freshly created folder owns no
+            # sessions yet, but it was saved and must be visible (and
+            # renamable/deletable) in the tree. While searching, empty
+            # folders stay hidden — they can never match the filter.
+            for name in self.store.groups():
+                groups.setdefault(name, [])
 
         # top-level sessions first — pinned sessions float to the top
         def _sort_key(x: Session):
@@ -353,6 +360,7 @@ class SessionTree(QWidget):
                 menu.addSeparator()
                 menu.addAction(icon("edit"), "Edit…", lambda: self.editRequested.emit(session_id))
                 menu.addAction(icon("plus"), "Duplicate", lambda: self.duplicateRequested.emit(session_id))
+                self._add_move_submenu(menu, session_id, s.group if s else "")
                 menu.addSeparator()
                 menu.addAction(icon("trash"), "Delete", lambda: self.deleteRequested.emit(session_id))
             elif item.data(0, ROLE_GROUP):
@@ -372,6 +380,45 @@ class SessionTree(QWidget):
         menu.addAction(icon("plus"), "New session…", self.newSessionRequested.emit)
         menu.addAction(icon("folder"), "New folder…", self.newFolderRequested.emit)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _add_move_submenu(self, menu: QMenu, session_id: str, current: str) -> None:
+        """'Move to folder' submenu: every folder, plus new/remove options."""
+        from PySide6.QtWidgets import QInputDialog
+
+        groups = self.store.groups()
+        move_menu = QMenu("Move to folder", menu)
+        move_menu.setIcon(icon("folder"))
+        for name in groups:
+            action = move_menu.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(name == current)
+            if name != current:
+                action.triggered.connect(
+                    lambda _checked=False, n=name: self.move_session_to_group(session_id, n)
+                )
+        if groups:
+            move_menu.addSeparator()
+        if current:
+            move_menu.addAction(
+                "Remove from folder (top level)",
+                lambda: self.move_session_to_group(session_id, ""),
+            )
+        def _new_and_move() -> None:
+            name, ok = QInputDialog.getText(self, "New folder", "Folder name:")
+            if ok and name and name != current:
+                self.move_session_to_group(session_id, name.strip())
+
+        move_menu.addAction("New folder…", _new_and_move)
+        menu.addMenu(move_menu)
+
+    def move_session_to_group(self, session_id: str, group: str) -> None:
+        """Assign a session to a folder ("" = top level) and refresh the tree."""
+        s = self.store.get(session_id)
+        if s is None or s.group == group:
+            return
+        s.group = group
+        self.store.upsert(s)  # upsert registers a new group and persists
+        self.reload()
 
     def _toggle_pin(self, session_id: str) -> None:
         s = self.store.get(session_id)
