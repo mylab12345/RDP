@@ -36,20 +36,43 @@ except Exception:
 # no reboot, no separate download.
 msvc_binaries: list[tuple[str, str]] = []
 if IS_WIN:
+    import glob as _glob
     import os as _os
 
-    _sys32 = _os.path.join(_os.environ.get("SystemRoot", r"C:\Windows"), "System32")
-    for _dll in (
+    _dll_names = (
         "vcruntime140.dll",
         "vcruntime140_1.dll",
         "msvcp140.dll",
         "msvcp140_1.dll",
         "msvcp140_2.dll",
         "concrt140.dll",
-    ):
-        _path = _os.path.join(_sys32, _dll)
-        if _os.path.isfile(_path):
-            msvc_binaries.append((_path, "."))
+    )
+    _roots = [
+        # Visual Studio redistributable payload (exact, version-matched).
+        _os.path.join(
+            _os.environ.get("ProgramFiles", r"C:\Program Files"),
+            "Microsoft Visual Studio",
+        ),
+        _os.path.join(
+            _os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            "Microsoft Visual Studio",
+        ),
+        # System-wide copies (present when the VC++ Redist is installed).
+        _os.path.join(_os.environ.get("SystemRoot", r"C:\Windows"), "System32"),
+    ]
+    _seen = set()
+    for _root in _roots:
+        for _dll in _dll_names:
+            if _dll in _seen:
+                continue
+            for _path in _glob.glob(_os.path.join(_root, "**", _dll), recursive=True):
+                # Skip 32-bit and ARM payloads; the frozen app is x64.
+                if "x86" in _path.lower() or "arm" in _path.lower():
+                    continue
+                msvc_binaries.append((_path, "."))
+                _seen.add(_dll)
+                break
+    print(f"bundled VC++ runtime DLLs: {sorted(_seen) or 'NONE FOUND'}")
 
 
 a = Analysis(
