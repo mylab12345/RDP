@@ -41,9 +41,9 @@ jobs:
         # The frozen app must start on machines without the system-wide
         # VC++ Redistributable (Windows Server). Fail here, not on users.
         run: |
+          Get-ChildItem dist/KB-Remote/ | Select-Object Name
           $missing = @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll') | Where-Object { -not (Test-Path "dist/KB-Remote/$_") }
           if ($missing) { Write-Error "Missing bundled runtime DLLs: $($missing -join ', ')"; exit 1 }
-          Get-ChildItem dist/KB-Remote/*.dll | Select-Object Name
       - name: Smoke test (frozen exe)
         run: dist/KB-Remote/kb-remote.exe --version
       - name: zip portable
