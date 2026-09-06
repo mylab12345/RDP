@@ -322,8 +322,11 @@ def test_embedded_start_falls_back_without_x11_client(tmp_path, qtapp, monkeypat
     monkeypatch.setattr(
         rdp_session.RdpSessionController, "_start_external", lambda self: fell_back.append(1)
     )
+    # Full credentials: start()'s credential guard must not abort the launch
+    # before the embedded→external fallback is exercised.
     controller = rdp_session.RdpSessionController(
-        Session(name="win", protocol="rdp", host="w", port=3389), _ctx(tmp_path)
+        Session(name="win", protocol="rdp", host="w", port=3389, username="u", password="p"),
+        _ctx(tmp_path),
     )
     controller.start()
     assert fell_back == [1]

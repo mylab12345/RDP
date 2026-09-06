@@ -14,9 +14,10 @@ KB-Remote (RDP/SSH/local terminal client, PySide6). Source in `src/rdpstudio`.
   Then verify the installed module resolves to the updated code and the app launches.
 - Run checks before finishing any change:
   - `QT_QPA_PLATFORM=offscreen ~/.kb-remote/venv/bin/python -m pytest tests`
-    (3 known pre-existing failures: test_local_terminal_and_monitor tab-completes,
-    test_security_hardening monitor-probe, test_ui_moxa monitor-panel — ignore those)
+    (1 known pre-existing failure: test_local_terminal_and_session_ui tab-completes
+    — ignore that one; the suite must otherwise complete, not hang or mass-fail)
   - `~/.kb-remote/venv/bin/ruff check src tests scripts`
+  - `./update.sh` bundles the reinstall + verification; `--test`/`--lint` add the checks.
 - Never commit unless explicitly asked.
 
 ## Known quirks

@@ -26,15 +26,13 @@ def _needs(defn: Session) -> bool:
     # Import the pure-logic function without pulling in any Qt widget code.
     import importlib
     import sys
-
-    # Stub the PySide6 sub-packages so the import succeeds headlessly.
-    for mod in list(sys.modules):
-        if mod.startswith("PySide6") or mod.startswith("rdpstudio.ui"):
-            sys.modules.pop(mod, None)
-
     import types
+    from unittest.mock import patch
 
-    # Build a minimal PySide6 stub so the import chain succeeds.
+    # Build a minimal PySide6 stub so the import chain succeeds headlessly.
+    # patch.dict snapshots sys.modules and restores it on exit — the stubs
+    # must never leak, or every later test in this pytest process that
+    # imports PySide6 breaks with "cannot import name ... (unknown location)".
     pyside = types.ModuleType("PySide6")
     pyside.QtCore = types.ModuleType("PySide6.QtCore")
     pyside.QtCore.Qt = object()
@@ -44,14 +42,19 @@ def _needs(defn: Session) -> bool:
         "QHBoxLayout", "QLabel", "QLineEdit", "QVBoxLayout", "QWidget",
     ):
         setattr(pyside.QtWidgets, cls, type(cls, (), {}))
-    sys.modules.setdefault("PySide6", pyside)
-    sys.modules.setdefault("PySide6.QtCore", pyside.QtCore)
-    sys.modules.setdefault("PySide6.QtWidgets", pyside.QtWidgets)
 
-    # Reload the module cleanly with stubs in place.
-    sys.modules.pop("rdpstudio.ui.credential_dialog", None)
-    mod = importlib.import_module("rdpstudio.ui.credential_dialog")
-    return mod.needs_credential_prompt(defn)
+    with patch.dict(
+        sys.modules,
+        {
+            "PySide6": pyside,
+            "PySide6.QtCore": pyside.QtCore,
+            "PySide6.QtWidgets": pyside.QtWidgets,
+        },
+    ):
+        # Reload the module cleanly with stubs in place.
+        sys.modules.pop("rdpstudio.ui.credential_dialog", None)
+        mod = importlib.import_module("rdpstudio.ui.credential_dialog")
+        return mod.needs_credential_prompt(defn)
 
 
 # ---------------------------------------------------------------------------

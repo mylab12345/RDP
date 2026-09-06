@@ -343,7 +343,10 @@ def _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp):
     for _ in range(40):
         qtapp.processEvents()
         time.sleep(0.01)
-    ctx.store.upsert(Session(protocol="rdp", host="win-server", port=3389, username="u"))
+    # Password included: open_session() must not open the (modal, blocking)
+    # credential prompt for a session that already has full credentials.
+    ctx.store.upsert(Session(protocol="rdp", host="win-server", port=3389,
+                             username="u", password="p"))
     tab = win.open_session(ctx.store.sessions()[0])
     ctrl = tab.controller
     for _ in range(60):  # let the surface get laid out and the client start
