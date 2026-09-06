@@ -110,6 +110,7 @@ class SessionController(QObject):
         self.ctx = ctx
         self._state = SessionState.CLOSED
         self._finished_emitted = False
+        self._layout_busy = False
 
     # -- lifecycle -------------------------------------------------------
     @abstractmethod
@@ -167,8 +168,10 @@ class SessionController(QObject):
         hundred milliseconds.  Controllers that host a native/embedded surface
         (RDP) use this to tell that resize storm apart from the user resizing
         the tab, so a purely cosmetic window change never tears the session
-        down.  Default: nothing to do.
+        down.  Shell controllers use it to defer PTY resizes until the
+        animation settles.  Default: sets the flag only.
         """
+        self._layout_busy = busy
 
     # -- helpers -----------------------------------------------------------
     def open_sftp(self) -> None:  # pragma: no cover - optional

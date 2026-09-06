@@ -957,6 +957,10 @@ class MainWindow(QMainWindow):
         self.sidebar.newFolderRequested.connect(self.sidebar.prompt_new_folder)
         self.sidebar.localTerminalRequested.connect(self.open_local_terminal)
 
+        # Track manual splitter drag so the sidebar width survives a
+        # hide/show toggle and persists across restarts.
+        self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
+
         # Restore sidebar state (persistence) then sync the checkable actions.
         # "checked" on the toggle actions means the sidebar is *visible*.
         self._last_sidebar_width = 260
@@ -974,7 +978,19 @@ class MainWindow(QMainWindow):
             return 240
         return self.main_splitter.sizes()[0]
 
+    def _on_splitter_moved(self, pos: int, index: int) -> None:
+        """Record the sidebar width after the user drags the splitter handle."""
+        if index == 0:
+            w = self.main_splitter.sizes()[0]
+            self._sidebar_collapsed = w <= 0
+            if w > 0:
+                self._last_sidebar_width = w
+
     def _set_sidebar_width(self, width: int) -> None:
+        # Never record the width here: this runs on every tween frame, so a
+        # hide animation would clobber the user's width with the last partial
+        # frame (~5 px). Only _on_splitter_moved records (real user drags —
+        # programmatic setSizes never emits splitterMoved).
         sizes = self.main_splitter.sizes()
         total = sum(sizes)
         self._sidebar_collapsed = width <= 0
@@ -1786,7 +1802,7 @@ class MainWindow(QMainWindow):
             "pos": [self.x(), self.y()],
             "maximized": self.isMaximized(),
             "sidebar_collapsed": self._sidebar_collapsed,
-            "sidebar_width": self._last_sidebar_width if not self._sidebar_collapsed else None,
+            "sidebar_width": self._last_sidebar_width,
         }
         settings.save(paths.settings_file())
         super().closeEvent(event)

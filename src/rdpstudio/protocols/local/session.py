@@ -82,7 +82,9 @@ class LocalShellController(SessionController):
 
         self.term = make_terminal_view(ctx.settings)
         self.term.dataWritten.connect(self._on_input)
-        self.term.sizeChanged.connect(self._on_resize)
+        self.term.sizeChanged.connect(lambda c, r: (
+            None if self._layout_busy else self._on_resize(c, r)
+        ))
         self._sigFeed.connect(self.term.feed)
         self._sigClosed.connect(self._finished)
         self._proc: subprocess.Popen | None = None

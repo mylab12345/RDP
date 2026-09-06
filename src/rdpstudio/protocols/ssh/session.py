@@ -51,7 +51,9 @@ class SshSessionController(SessionController):
 
         self.term = make_terminal_view(ctx.settings, native_colors=True)
         self.term.dataWritten.connect(self._on_terminal_input)
-        self.term.sizeChanged.connect(lambda c, r: self._worker_call("resize_pty", c, r))
+        self.term.sizeChanged.connect(lambda c, r: (
+            None if self._layout_busy else self._worker_call("resize_pty", c, r)
+        ))
         self.term.clipboardRequested.connect(self._on_osc52)
 
         self._thread: QThread | None = None

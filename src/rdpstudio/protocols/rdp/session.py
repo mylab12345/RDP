@@ -70,10 +70,10 @@ _STARTUP_GRACE_MS = 15000
 # change (sidebar collapse tween, window drag, density switch) produces dozens
 # of resize events; acting on each one used to restart the RDP client over and
 # over — and to leave the session dead (see ``_on_surface_resized``).
-_REFIT_SETTLE_MS = 250
+_REFIT_SETTLE_MS = 150
 # Extra quiet period after the window chrome finishes re-laying out, so the
 # last layout pass of a sidebar toggle is absorbed too.
-_UI_SETTLE_MS = 350
+_UI_SETTLE_MS = 150
 
 
 def find_rdp_client() -> tuple[str, str] | None:
@@ -744,12 +744,17 @@ class RdpSessionController(SessionController):
     def _clear_ui_layout_busy(self) -> None:
         self._ui_layout_busy = False
         if self._mode == "embedded":
-            # Chrome is at rest: refit if the tab settled at a different size
-            # than the desktop was launched with (e.g. sidebar hidden/shown).
-            # All safety guards (connected state, live client, no refit in
-            # flight, real size delta) live in _on_surface_resized, so this is
-            # a no-op unless a refit is genuinely due.
-            self._on_surface_resized()
+            # After a layout animation (sidebar toggle, density switch),
+            # update the launched size so that the next settle-based resize
+            # check does NOT immediately trigger a refit for a pure chrome
+            # change.  A genuine user resize after this will be caught by the
+            # surface's own settle timer and the normal refit flow.
+            # The 32 px dead-zone in size_changed() still protects against
+            # spurious refits from minor splitter rounding.
+            if self._surface.size_changed():
+                # Size changed meaningfully — update launched_size so the
+                # next comparison doesn't immediately refit.
+                self._launched_size = self._detected_size()
 
     def _retire_proc(self) -> None:
         """Detach the current client process object.
