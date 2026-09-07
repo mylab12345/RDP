@@ -35,7 +35,12 @@ def build_context(home_override: str | None = None, verbose: bool = False):
     vault = CredentialVault(paths.vault_file(), settings.kdf_iterations)
     bus = EventBus()
 
+    from .tools.share_server import ShareService
     from .ui.prompter import GuiPromptProvider
+
+    # The share server is created but never started here: binding a socket is
+    # an explicit user action (or opt-in autostart), done from the GUI.
+    share_service = ShareService(settings)
 
     ctx = SessionContext(
         settings=settings,
@@ -44,6 +49,7 @@ def build_context(home_override: str | None = None, verbose: bool = False):
         bus=bus,
         prompter=GuiPromptProvider(None),
         parent_widget=None,
+        share_service=share_service,
     )
     log.info("%s starting (config dir: %s)", APP_NAME, paths.app_dir())
     return ctx

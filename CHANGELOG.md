@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added — file sharing for Windows / RDP machines (built-in SFTP share server)
+
+Windows boxes reached over RDP have no SSH daemon, so there was no way to hand
+them files except RDP drive redirection. KB-Remote now serves the files
+instead: pick the local folders to share, start the built-in SFTP share
+server, and the remote machine connects back with its own client
+(`sftp.exe` on Windows 10 1809+, WinSCP, FileZilla) — nothing to install on it.
+
+- **`tools/share_server.py`** — a threaded SFTP listener on paramiko:
+  password auth only (PBKDF2-HMAC-SHA256, constant-time compare), no
+  shell/exec/pty/port-forwarding, `sftp` as the only subsystem, a generated
+  RSA-3072 host key written `0600`, and a per-connection activity log.
+- **`core/shares.py`** — named shares (global defaults + per-session extras)
+  presented as one virtual root, so a share is `/Tools/` to the client. Every
+  path is jailed to the share's real path, so `..` and symlink escapes resolve
+  to nothing (CWE-22, CWE-59). Shares are read live, so they can be added or
+  removed while a client is connected.
+- **Share manager** (*Tools → File sharing server*, `Ctrl+Shift+S`, toolbar
+  “Sharing”, or the **Share** button on an RDP tab): start/stop the listener,
+  edit shared folders, set the password, copy the exact `sftp -P … user@host`
+  command and `sftp://` URL for the remote machine, and watch transfers.
+- **Per-machine shares**: each RDP session gets its own *Shared folders* card;
+  those folders are published while its tab is open and withdrawn on close.
+- **Settings → Connections → File sharing**: port, username, bind address,
+  write permission, autostart, and the global folder list shared with every
+  machine. The share password is stored only as a hash.
+- Off by default: the socket is bound only by explicit user action or opt-in
+  autostart, and a listener that cannot bind never blocks an RDP session.
+
 ### Engineering stability and modularity
 
 - Extracted FreeRDP discovery and command policy from the Qt session

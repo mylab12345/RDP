@@ -223,6 +223,15 @@ class SessionTab(QWidget):
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             h.addWidget(b)
 
+        if caps.file_sharing:
+            b = make_action_btn(
+                "Share",
+                "transfer",
+                "Share local folders with this machine over SFTP",
+                lambda: self.main.open_share_for_session(controller.definition),
+            )
+            h.addWidget(b)
+
         # Close button for the tab
         close_btn = QPushButton()
         close_btn.setIcon(icon("close"))
@@ -389,6 +398,11 @@ class MainWindow(QMainWindow):
         self._lock_timer.timeout.connect(self._autolock)
         self._lock_timer.start()
 
+        # Opt-in: bring the share listener up with the app. Deferred so a
+        # socket error surfaces as a toast after the window is visible rather
+        # than during construction.
+        QTimer.singleShot(400, self._autostart_share_server)
+
         geo = ctx.settings.geometry
         if isinstance(geo, dict) and geo.get("size"):
             try:
@@ -478,6 +492,12 @@ class MainWindow(QMainWindow):
         a = QAction(icon("key"), "SSH &Key Utility & Converter…", self)
         a.setShortcut(QKeySequence("Ctrl+Shift+U"))
         a.triggered.connect(self.open_key_utility)
+        m_tools.addAction(a)
+
+        a = QAction(icon("transfer"), "&File sharing server…", self)
+        a.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        a.setStatusTip("Share local folders with remote machines over SFTP")
+        a.triggered.connect(self.open_share_server)
         m_tools.addAction(a)
 
         m_tools.addSeparator()
@@ -610,6 +630,7 @@ class MainWindow(QMainWindow):
         add_tool("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
         add_tool("transfer", "Tunneling", "SSH tunnels / port forwarding for the active session", self.open_tunnels_dialog)
+        add_tool("folder", "Sharing", "Serve local folders to remote machines (Ctrl+Shift+S)", self.open_share_server)
 
         bar.addSeparator()
 
@@ -1288,6 +1309,11 @@ class MainWindow(QMainWindow):
         if caps.sftp:
             menu.addSeparator()
             menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
+        if caps.file_sharing:
+            menu.addAction(
+                "Share Local Folders\u2026",
+                lambda: self.open_share_for_session(widget.controller.definition),
+            )
 
         menu.exec(tab_bar.mapToGlobal(pos))
 
@@ -1354,6 +1380,49 @@ class MainWindow(QMainWindow):
         from .key_utility_dialog import KeyUtilityDialog
 
         KeyUtilityDialog(self.ctx, self).show()
+
+    # ------------------------------------------------------------------
+    # Built-in SFTP share server
+    # ------------------------------------------------------------------
+    def share_service(self):
+        """The app-wide share service (built lazily when the context lacks one)."""
+        service = getattr(self.ctx, "share_service", None)
+        if service is None:
+            from ..tools.share_server import ShareService
+
+            service = ShareService(self.ctx.settings)
+            self.ctx.share_service = service
+        return service
+
+    def open_share_server(self):
+        from .share_server_dialog import open_share_dialog
+
+        return open_share_dialog(self, self.share_service())
+
+    def open_share_for_session(self, definition: Session):
+        """Share manager scoped to one machine: global folders + its own."""
+        from .share_server_dialog import open_share_dialog
+
+        return open_share_dialog(self, self.share_service(), definition)
+
+    def save_settings(self) -> None:
+        """Persist settings now (used by tool dialogs that edit them live)."""
+        self.ctx.settings.save(paths.settings_file())
+
+    def _autostart_share_server(self) -> None:
+        """Bring the share listener up if the user enabled autostart."""
+        service = self.share_service()
+        settings = self.ctx.settings
+        if not (settings.share_server_enabled or settings.share_server_autostart):
+            return
+        if service.server.running:
+            return
+        try:
+            service.start()
+            toast(self, f"File share listening on {service.server.display_address()}", "info")
+        except Exception as exc:  # a failed listener must never block startup
+            log.warning("share server autostart failed: %s", exc)
+            toast(self, f"Share server could not start: {exc}", "warn")
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -1805,4 +1874,10 @@ class MainWindow(QMainWindow):
             "sidebar_width": self._last_sidebar_width,
         }
         settings.save(paths.settings_file())
+        service = getattr(self.ctx, "share_service", None)
+        if service is not None:
+            try:
+                service.server.stop()
+            except Exception:
+                log.exception("error stopping the share server on shutdown")
         super().closeEvent(event)

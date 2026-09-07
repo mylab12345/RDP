@@ -77,6 +77,36 @@ prompt, material resolution).
 - Tunnels bind to `127.0.0.1` by default, never `0.0.0.0`.
 - No telemetry, no network calls except the sessions you open.
 
+## Built-in SFTP share server
+
+KB-Remote can *serve* local folders to remote machines (Windows boxes reached
+over RDP have no SSH daemon, so the files are served from here). That is a
+real inbound network service, so it is constrained deliberately:
+
+- **Off by default.** The socket is bound only by explicit user action, or by
+  the opt-in *Start the share server when KB-Remote opens* setting. A listener
+  that fails to bind is reported and never blocks a session from connecting.
+- **Password auth only.** No `none`, no keyboard-interactive, no agent
+  forwarding. The password is stored as PBKDF2-HMAC-SHA256 (310k iterations,
+  per-user salt) in `settings.json` (`0600`) — never in clear text — and is
+  compared with `hmac.compare_digest`. A login attempt for an unknown user
+  still runs a full PBKDF2 against a dummy hash, so timing does not disclose
+  which usernames exist.
+- **File transfer only.** The only permitted subsystem is `sftp`; shell,
+  exec, pty, X11, agent and port-forwarding requests are refused and logged.
+  `check_channel_request` accepts `session` channels and nothing else.
+- **Jailed to the shares.** Every operation resolves through
+  `ShareRegistry.resolve`, which compares *real* paths, so `../` traversal and
+  symlinks that point outside a share resolve to nothing (CWE-22, CWE-59).
+  `symlink`/`readlink` are refused outright. Writes can be disabled globally
+  (read-only shares).
+- **Server identity.** A generated RSA-3072 host key authenticates the server
+  to clients; it is written `0600` before first use and its SHA256 fingerprint
+  is displayed so the remote side can verify what it accepted.
+- **Bounded.** At most 16 concurrent connections, an auth timeout, and a
+  capped in-memory activity log (200 entries) that records peer, operation and
+  path — useful for audit, and containing no file contents.
+
 ## Reporting
 
 Please open a private security advisory on GitHub (Security tab) rather than a
@@ -96,5 +126,6 @@ These properties are covered by regression tests in
 | State on disk | The config directory is `0700` and `sessions.json` is `0600`; pre-existing lax permissions are tightened at startup. A saved session password is plain text by design, so the file must stay private (CWE-276). |
 | `.rdp` files | Written `0600`, with the filename derived from the session name **sanitised** so it cannot traverse out of the target directory (CWE-22). |
 | SFTP transfers | Remote-supplied names are reduced to their basename and re-checked against the destination root, so a hostile server cannot write outside it ("Zip-Slip"). Non-regular files (devices, FIFOs, symlinks) are skipped. |
+| Share server (inbound) | Off by default; password-only auth against a PBKDF2 hash with constant-time compare and uniform timing for unknown users; `sftp` is the only subsystem; every path is jailed to a share's real path so `..` and symlink escapes fail closed; host key written `0600`; connection count bounded. Covered by `tests/test_share_server.py`. |
 | Terminal | OSC-52 clipboard payloads are applied **once**, only when freshly received (a remote host cannot hold the local clipboard hostage), are size-bounded, and are strictly base64-validated. |
 | Dependencies | Floors exclude known CVEs: `paramiko>=3.4.1` (CVE-2023-48795 "Terrapin"), `cryptography>=44.0.1` (CVE-2024-12797). |

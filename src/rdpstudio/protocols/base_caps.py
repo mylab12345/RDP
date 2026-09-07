@@ -6,6 +6,8 @@ from ..core.plugin import Capabilities
 
 
 def capability_set(**flags) -> Capabilities:
-    defaults = dict(shell=False, sftp=False, tunnels=False, external_window=False)
+    defaults = dict(
+        shell=False, sftp=False, tunnels=False, external_window=False, file_sharing=False
+    )
     defaults.update(flags)
     return Capabilities(**defaults)
