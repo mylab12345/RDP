@@ -10,11 +10,15 @@ Policy:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import paramiko
 
 from ...core.log import get_logger
-from ...core.plugin import PromptProvider
+from ...core.persistence import atomic_write_via_path
+
+if TYPE_CHECKING:
+    from ...core.plugin import PromptProvider
 
 log = get_logger("ssh.knownhosts")
 
@@ -67,15 +71,15 @@ class KnownHostsVerifier(paramiko.MissingHostKeyPolicy):
 
     def _save(self) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.host_keys.save(str(self.path))
-            try:
-                import os
-
-                os.chmod(self.path, 0o600)
-            except OSError:
-                pass
+            atomic_write_via_path(
+                self.path,
+                lambda temp_path: self.host_keys.save(str(temp_path)),
+                prefix=".known-hosts-",
+            )
         except OSError:
+            # The current connection already made an explicit trust decision;
+            # keep it alive, but make the persistence failure visible so the
+            # user is prompted again rather than relying on a partial file.
             log.exception("could not persist known_hosts")
 
     def known_fingerprint(self, hostname: str) -> str | None:

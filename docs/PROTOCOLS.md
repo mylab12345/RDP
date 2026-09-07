@@ -49,8 +49,11 @@ class VncController(SessionController):
 
 ## Registering
 
-**Built-in**: add a package under `rdpstudio/protocols/<id>/` whose
-`__init__.py` registers itself with `registry()` (see `ssh/__init__.py`).
+**Built-in**: add a side-effect-free package under
+`rdpstudio/protocols/<id>/`, implement the plugin class in its runtime module,
+and add `(module, class)` to `core.plugin.BUILTIN_PLUGIN_SPECS`. Built-ins are
+loaded explicitly when `registry()` is requested; importing a parser/helper
+must not mutate the registry or initialize Qt.
 
 **Third-party** (no fork needed): declare an entry point —
 
@@ -75,12 +78,17 @@ sidebar icons and quick-connect automatically.
    need to touch the store schema.
 5. **Secrets**: resolve from the vault at connect time; call
    `core.log.redact_secret(value)` for anything that might reach a log.
+6. **Keep policy pure.** Put target parsing, command construction and protocol
+   negotiation in modules without PySide imports; keep widgets/process
+   supervision in the controller. Fresh-process boundary tests should prove
+   pure helpers do not pull in Qt.
 
 ## Worked examples in-tree
 
 - `protocols/ssh/session.py` — full in-app shell (worker thread, tunnels,
   SFTP, reconnect)
-- `protocols/rdp/session.py` — external-process protocol with monitor tab
+- `protocols/rdp/client.py` + `session.py` — pure command policy plus a
+  Qt-supervised external/embedded process
 - `protocols/local/session.py` — PTY-based local terminal
 
 ## Roadmap idea: in-process RDP

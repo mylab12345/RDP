@@ -40,6 +40,15 @@ from .store import SessionStore
 log = get_logger("plugins")
 
 ENTRY_POINT_GROUP = "rdpstudio.protocols"
+# Built-ins are explicit rather than package-import side effects.  This keeps
+# ``rdpstudio.protocols.rdp.negotiate`` and other pure helpers importable in
+# headless processes that do not load Qt, while preserving the same registry
+# contents when the application asks for them.
+BUILTIN_PLUGIN_SPECS: tuple[tuple[str, str], ...] = (
+    ("rdpstudio.protocols.ssh.session", "SshPlugin"),
+    ("rdpstudio.protocols.rdp.session", "RdpPlugin"),
+    ("rdpstudio.protocols.local.session", "LocalShellPlugin"),
+)
 
 
 # ----------------------------------------------------------------------
@@ -241,6 +250,20 @@ class PluginRegistry:
         return [p for p in self.all() if p.can_edit]
 
     # -- discovery ---------------------------------------------------------
+    def load_builtins(self) -> list[str]:
+        """Load the built-in plugin classes from explicit module specs."""
+        loaded: list[str] = []
+        for module_name, class_name in BUILTIN_PLUGIN_SPECS:
+            try:
+                module = importlib.import_module(module_name)
+                plugin_type = getattr(module, class_name)
+                plugin = plugin_type()
+                self.register(plugin)
+                loaded.append(plugin.id)
+            except Exception:  # noqa: BLE001
+                log.exception("builtin plugin failed to load: %s:%s", module_name, class_name)
+        return loaded
+
     def load_entry_points(self) -> list[str]:
         """Load third-party plugins registered via packaging entry points."""
         loaded: list[str] = []
@@ -263,7 +286,8 @@ class PluginRegistry:
         return loaded
 
     def builtin_module_names(self) -> list[str]:
-        return ["rdpstudio.protocols.ssh", "rdpstudio.protocols.rdp", "rdpstudio.protocols.local"]
+        """Compatibility/introspection view of explicitly loaded modules."""
+        return [module_name for module_name, _class_name in BUILTIN_PLUGIN_SPECS]
 
 
 _REGISTRY: PluginRegistry | None = None
@@ -273,11 +297,7 @@ def registry() -> PluginRegistry:
     global _REGISTRY
     if _REGISTRY is None:
         _REGISTRY = PluginRegistry()
-        for modname in _REGISTRY.builtin_module_names():
-            try:
-                importlib.import_module(modname)
-            except Exception:  # noqa: BLE001
-                log.exception("builtin plugin module failed to import: %s", modname)
+        _REGISTRY.load_builtins()
         _REGISTRY.load_entry_points()
     return _REGISTRY
 

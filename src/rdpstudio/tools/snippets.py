@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..core import paths
+from ..core.persistence import atomic_write_text
 
 
 @dataclass
@@ -242,16 +241,9 @@ class SnippetStore:
         self.save()
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = [s.to_dict() for s in self.snippets()]
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".snippets-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2)
-            os.replace(tmp, self.path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_write_text(
+            self.path,
+            json.dumps(payload, indent=2),
+            prefix=".snippets-",
+        )

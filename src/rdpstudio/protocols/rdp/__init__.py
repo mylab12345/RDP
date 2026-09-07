@@ -1,12 +1,6 @@
-"""RDP protocol plugin (built-in)."""
+"""RDP protocol package.
 
-from ...core.plugin import registry
-
-
-def _register() -> None:
-    from .session import RdpPlugin
-
-    registry().register(RdpPlugin())
-
-
-_register()
+Importing pure helpers such as :mod:`.negotiate`, :mod:`.rdpfile`, or
+:mod:`.client` intentionally has no GUI/plugin-registration side effects.
+Built-in plugins are loaded explicitly by :func:`rdpstudio.core.plugin.registry`.
+"""

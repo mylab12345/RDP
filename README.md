@@ -135,6 +135,9 @@ SFTP round-trips — skipped automatically if no `sshd` is available.
 - [docs/PROTOCOLS.md](docs/PROTOCOLS.md) — writing protocol plugins
 - [docs/SECURITY.md](docs/SECURITY.md) — threat model, vault design, host-key policy
 - [docs/INSTALL.md](docs/INSTALL.md) — per-OS install, packaging, CI builds
+- [docs/TESTING.md](docs/TESTING.md) — test layers, markers, CI and release checks
+- [docs/ENGINEERING_REVIEW.md](docs/ENGINEERING_REVIEW.md) — risk register and staged refactoring plan
+- [docs/adr/](docs/adr/) — architectural decision records
 
 ## License
 

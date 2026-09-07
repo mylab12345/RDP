@@ -19,8 +19,7 @@ Display mode is chosen in Settings → Connection → "RDP display":
 from __future__ import annotations
 
 import os
-import shutil
-import sys
+import shutil  # noqa: F401 - historical monkeypatch/introspection surface
 import threading
 from pathlib import Path
 
@@ -46,6 +45,23 @@ from ...core.plugin import (
 )
 from ...core.reconnect import ReconnectPolicy
 from ..base_caps import capability_set
+from . import client as _rdp_client
+from .client import (
+    MAX_RDP_HEIGHT,
+    MAX_RDP_WIDTH,
+    MIN_RDP_HEIGHT,
+    MIN_RDP_WIDTH,
+    build_embedded_args,
+    build_freerdp_args,
+    find_rdp_client,
+    write_args_file,
+)
+from .client import (
+    freerdp_supports_args_from_file as _freerdp_supports_args_from_file,
+)
+from .client import (
+    redact_args as _redact_args,
+)
 from .embed import (
     EMBEDDABLE_CLIENTS,  # noqa: F401  (re-exported for tests/docs)
     embed_blocked_on_wayland,
@@ -59,231 +75,24 @@ from .x11 import fit_child_windows
 
 log = get_logger("rdp.session")
 
-# FreeRDP / Windows RD Session Host limits for the remote desktop resolution.
-# Kept in sync with the Session dialog's spin-box ranges.
-_MIN_RDP_W, _MIN_RDP_H = 640, 480
-_MAX_RDP_W, _MAX_RDP_H = 7680, 4320
+# Public compatibility aliases retained at the historical session.py path.
+uses_args_file = _rdp_client.uses_args_file
+password_via_stdin = _rdp_client.password_via_stdin
+
+# Backward-compatible private names used by the controller and historical
+# imports.  The command-policy implementation itself is isolated in client.py.
+_MIN_RDP_W, _MIN_RDP_H = MIN_RDP_WIDTH, MIN_RDP_HEIGHT
+_MAX_RDP_W, _MAX_RDP_H = MAX_RDP_WIDTH, MAX_RDP_HEIGHT
 # Below this the surface is not laid out yet (widget not mapped); fall back
 # to the session's saved resolution instead of launching a tiny desktop.
 _MIN_MAPPED_W, _MIN_MAPPED_H = 320, 200
 _STARTUP_GRACE_MS = 15000
-# A resize only counts once the size has been stable for this long.  A layout
-# change (sidebar collapse tween, window drag, density switch) produces dozens
-# of resize events; acting on each one used to restart the RDP client over and
-# over — and to leave the session dead (see ``_on_surface_resized``).
+# A resize only counts once the size has been stable for this long.
 _REFIT_SETTLE_MS = 150
-# Extra quiet period after the window chrome finishes re-laying out, so the
-# last layout pass of a sidebar toggle is absorbed too.
+# Extra quiet period after the window chrome finishes re-laying out.
 _UI_SETTLE_MS = 150
-# Live fit of the FreeRDP child window to the surface: resize events inside
-# one frame are coalesced into a single X request (~60 Hz is plenty for the
-# 140 ms sidebar tween and never floods the X server on a window drag).
+# Coalesce live X11 fits to approximately one request per display frame.
 _LIVE_FIT_MS = 16
-
-
-def find_rdp_client() -> tuple[str, str] | None:
-    """Locate an RDP client binary: (path, kind) where kind is mstsc|freerdp."""
-    if sys.platform == "win32":
-        system_root = os.environ.get("SystemRoot", r"C:\Windows")
-        mstsc = os.path.join(system_root, "System32", "mstsc.exe")
-        alt = shutil.which("mstsc")
-        if os.path.exists(mstsc):
-            return mstsc, "mstsc"
-        if alt:
-            return alt, "mstsc"
-        return None
-    for name in (
-        "sdl-freerdp3",
-        "sdl-freerdp",
-        "wlfreerdp3",
-        "wlfreerdp",
-        "xfreerdp3",
-        "xfreerdp2",
-        "xfreerdp",
-    ):
-        path = shutil.which(name)
-        if path:
-            return path, "freerdp"
-    return None
-
-
-def _freerdp_supports_args_from_file(path: str | None = None) -> bool:
-    """Detect whether the installed FreeRDP supports ``/args-from:file:``.
-
-    FreeRDP 3.x supports ``/args-from:file:`` (secure args delivery without
-    exposing the password in ``ps``).  FreeRDP 2.x does not — it treats the
-    argument as a server name.  This is checked once per process and cached.
-    """
-    if not hasattr(_freerdp_supports_args_from_file, "_cache"):
-        _freerdp_supports_args_from_file._cache: dict[str, bool] = {}
-    if path is None:
-        client = find_rdp_client()
-        path = client[0] if client else ""
-    if path in _freerdp_supports_args_from_file._cache:
-        return _freerdp_supports_args_from_file._cache[path]
-    try:
-        import subprocess
-
-        out = subprocess.run(
-            [path, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        text = (out.stdout + out.stderr).lower()
-        # FreeRDP 3.x prints "This is FreeRDP version 3.x.x"
-        # FreeRDP 2.x prints "This is FreeRDP version 2.x.x"
-        has_args_from = "args-from" in text or "/args-from" in text
-        # Fallback: check version number
-        if not has_args_from:
-            for line in text.splitlines():
-                if "freerdp version" in line:
-                    # Extract major version
-                    import re
-                    m = re.search(r"version\s+(\d+)\.", line)
-                    if m and int(m.group(1)) >= 3:
-                        has_args_from = True
-                    break
-        _freerdp_supports_args_from_file._cache[path] = has_args_from
-        return has_args_from
-    except Exception:  # noqa: BLE001
-        _freerdp_supports_args_from_file._cache[path] = False
-        return False
-
-
-def build_freerdp_args(defn: Session, password: str | None) -> list[str]:
-    """FreeRDP command line for ``defn`` — **never contains the secret**.
-
-    The password is delivered through a private ``/args-from:file:`` args
-    file (see :func:`write_args_file`) unless the user explicitly opts in
-    via ``rdp_pass_on_cmdline`` (then ``/p:`` lands on argv, visible in
-    ``ps`` — a documented opt-in, CWE-214).
-
-    Why not ``/from-stdin``: FreeRDP ≥3.x reads stdin credentials through
-    its terminal passphrase helper, which aborts with
-    ``ERRCONNECT_CONNECT_CANCELLED`` (client exit 145) when stdin is a pipe
-    instead of a TTY — exactly what QProcess gives it. ``/args-from`` is the
-    supported non-TTY path and is what Remmina-class wrappers use too.
-    """
-    host, port = defn.endpoint()
-    args = ["/v:" + (f"{host}:{port}" if port != 3389 else host)]
-    if defn.username:
-        args.append(f"/u:{defn.username}")
-    if password and defn.rdp_pass_on_cmdline:
-        # explicit opt-in only; default path routes the secret via args file
-        args.append(f"/p:{password}")
-    args.append(f"/size:{defn.rdp_width}x{defn.rdp_height}")
-    args.append(f"/bpp:{defn.rdp_color_depth}")
-    args.append("/clipboard" if defn.rdp_clipboard else "-clipboard")
-    if defn.rdp_fit_screen:
-        args.append("/smart-sizing")  # scale the remote desktop to fit the window
-    if defn.rdp_fullscreen:
-        args.append("/f")
-    if defn.rdp_drives:
-        args.append(f"/drive:KB-Remote,{os.path.expanduser('~')}")
-    if getattr(defn, "rdp_printer", False):
-        args.append("/printer")
-    audio = getattr(defn, "rdp_audio_mode", "local")
-    if audio == "remote":
-        args.append("/sound:sys:pulse")
-        args.append("/audio-mode:0")
-    elif audio == "none":
-        args.append("-sound")
-        args.append("/audio-mode:2")
-    else:
-        args.append("/sound:sys:pulse")
-        args.append("/audio-mode:1")
-    args.append("/cert:ignore")
-    args.append("+auto-reconnect")
-    args.append("/network:auto")
-    if defn.domain:
-        args.append(f"/d:{defn.domain}")
-    if defn.rdp_gateway_host:
-        args.append(f"/g:{defn.rdp_gateway_host}:{defn.rdp_gateway_port}")
-        if defn.rdp_gateway_user:
-            args.append(f"/gu:{defn.rdp_gateway_user}")
-    return args
-
-
-def password_via_stdin(defn: Session, password: str | None) -> bool:
-    """Deprecated alias for :func:`uses_args_file` (old stdin mechanism)."""
-    return uses_args_file(defn, password)
-
-
-def uses_args_file(defn: Session, password: str | None) -> bool:
-    """Whether the secret must be delivered via a private args file."""
-    return bool(password) and not defn.rdp_pass_on_cmdline
-
-
-def write_args_file(args: list[str]) -> Path:
-    """Persist FreeRDP arguments one-per-line for ``/args-from:file:``.
-
-    The file is created ``0600`` so the credential inside is private; the
-    controller unlinks it shortly after the client starts. This keeps the
-    secret out of ``ps``/``/proc/*/cmdline`` while avoiding the broken
-    piped-stdin credential path of FreeRDP 3.x.
-    """
-    import tempfile
-
-    fd, name = tempfile.mkstemp(prefix="rdpstudio-args-", suffix=".cmd")
-    try:
-        os.fchmod(fd, 0o600)
-    except (AttributeError, OSError):
-        pass
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(args) + "\n")
-    return Path(name)
-
-
-def build_embedded_args(
-    defn: Session, password: str | None, parent_xid: int, size: tuple[int, int] | None = None
-) -> list[str]:
-    """FreeRDP args for the built-in mode: render inside our X window.
-
-    ``/parent-window`` makes FreeRDP create its framebuffer as a *child* of
-    the given X11 window, so the desktop appears inside KB-Remote itself;
-    ``-decorations`` drops the title bar (we provide the tab chrome).
-
-    ``size`` (optional) is the *detected* display area of the embedded
-    surface.  When given it replaces the session's fixed ``/size:`` so the
-    remote desktop is created at exactly the resolution of the tab — the
-    whole screen is visible, no scrolling or clipping.  Clamped to the
-    FreeRDP/Windows-supported range.
-
-    Inside a tab the desktop always tracks the display area (the saved
-    resolution only seeds the size while the widget is unmapped), so the
-    built-in mode always uses ``/dynamic-resolution`` — never
-    ``/smart-sizing`` (the two are mutually exclusive in FreeRDP, and only
-    dynamic resolution lets the desktop *follow* the tab without a relaunch).
-    When the host widget grows or shrinks (sidebar hidden/shown, window
-    resized) we resize FreeRDP's child window to the new surface size; FreeRDP
-    sees the ``ConfigureNotify`` and asks the server for exactly that
-    resolution, so the remote desktop always fills the tab edge to edge — no
-    black gap, no clipped strip, no scaled/blurry bitmaps.
-    """
-    args = build_freerdp_args(defn, password)
-    if size is not None:
-        w = min(max(int(size[0]), _MIN_RDP_W), _MAX_RDP_W)
-        h = min(max(int(size[1]), _MIN_RDP_H), _MAX_RDP_H)
-        args = [a for a in args if not a.startswith("/size:")]
-        args.append(f"/size:{w}x{h}")
-    args = [a for a in args if a != "/smart-sizing"]
-    args.append("/dynamic-resolution")
-    if defn.rdp_fullscreen:  # fullscreen is meaningless inside a tab
-        args.remove("/f")
-    args += [f"/parent-window:{parent_xid}", "-decorations"]
-    return args
-
-
-def _redact_args(args: list[str]) -> str:
-    """Command line for logs with any ``/p:`` secret masked."""
-    out = []
-    for a in args:
-        if a.startswith("/p:"):
-            out.append("/p:***")
-        else:
-            out.append(a)
-    return " ".join(out)
 
 
 class _EmbeddedSurface(QWidget):
@@ -545,7 +354,7 @@ class RdpSessionController(SessionController):
         pref = getattr(self.ctx.settings, "rdp_client", "auto")
         if pref == "external":
             return "external"
-        ok, reason = embedded_support()
+        ok, reason = embedded_support(find_client=find_rdp_client)
         if not ok:
             log.warning(
                 "built-in RDP display unavailable (%s) — %s",

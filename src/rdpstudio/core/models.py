@@ -12,6 +12,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from .coerce import as_bool, as_float, as_int
+
 PROTOCOL_SSH = "ssh"
 PROTOCOL_RDP = "rdp"
 PROTOCOL_LOCAL = "local"
@@ -25,29 +27,6 @@ AUTH_NONE = "none"
 
 def new_id() -> str:
     return uuid.uuid4().hex[:12]
-
-
-def _as_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
-    """Best-effort int coercion that never raises (hand-edited JSON may be junk)."""
-    try:
-        out = int(value)
-    except (TypeError, ValueError):
-        out = default
-    if minimum is not None:
-        out = max(minimum, out)
-    if maximum is not None:
-        out = min(maximum, out)
-    return out
-
-
-def _as_float(value: Any, default: float) -> float:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return default
-    if out != out:  # NaN
-        return default
-    return out
 
 
 @dataclass
@@ -100,10 +79,10 @@ class Forward:
         return cls(
             kind=kind,
             listen_host=str(d.get("listen_host") or "127.0.0.1"),
-            listen_port=_as_int(d.get("listen_port", 0) or 0, 0, minimum=0, maximum=65535),
+            listen_port=as_int(d.get("listen_port", 0) or 0, 0, minimum=0, maximum=65535),
             dest_host=str(d.get("dest_host") or ""),
-            dest_port=_as_int(d.get("dest_port", 0) or 0, 0, minimum=0, maximum=65535),
-            enabled=bool(d.get("enabled", True)),
+            dest_port=as_int(d.get("dest_port", 0) or 0, 0, minimum=0, maximum=65535),
+            enabled=as_bool(d.get("enabled", True), True),
             name=str(d.get("name") or ""),
         )
 
@@ -247,7 +226,7 @@ class Session:
         s.group = str(d.get("group") or "")
         s.host = str(d.get("host") or "")
         default_port = 3389 if s.protocol == PROTOCOL_RDP else (0 if s.protocol == PROTOCOL_LOCAL else 22)
-        s.port = _as_int(d.get("port", default_port) or default_port, default_port, minimum=0, maximum=65535)
+        s.port = as_int(d.get("port", default_port) or default_port, default_port, minimum=0, maximum=65535)
         s.username = str(d.get("username") or "")
         password = d.get("password", "")
         s.password = password if isinstance(password, str) else ""
@@ -256,10 +235,10 @@ class Session:
         s.credential_id = str(d.get("credential_id") or "")
         s.key_path = str(d.get("key_path") or "")
         s.jump_session_id = str(d.get("jump_session_id") or "")
-        s.timeout = _as_int(d.get("timeout", 10) or 10, 10, minimum=1, maximum=300)
+        s.timeout = as_int(d.get("timeout", 10) or 10, 10, minimum=1, maximum=300)
         s.startup_command = str(d.get("startup_command") or "")
-        s.auto_reconnect = bool(d.get("auto_reconnect", True))
-        s.keepalive = _as_int(d.get("keepalive", 30) or 30, 30, minimum=0, maximum=3600)
+        s.auto_reconnect = as_bool(d.get("auto_reconnect", True), True)
+        s.keepalive = as_int(d.get("keepalive", 30) or 30, 30, minimum=0, maximum=3600)
         s.description = str(d.get("description") or "")
         tags = d.get("tags", [])
         if isinstance(tags, str):
@@ -277,28 +256,28 @@ class Session:
                         s.forwards.append(Forward.from_dict(f))
                     except Exception:
                         continue
-        s.agent_forwarding = bool(d.get("agent_forwarding", False))
-        s.compression = bool(d.get("compression", True))
+        s.agent_forwarding = as_bool(d.get("agent_forwarding", False), False)
+        s.compression = as_bool(d.get("compression", True), True)
         s.domain = str(d.get("domain") or "")
-        s.rdp_width = _as_int(d.get("rdp_width", 1600) or 1600, 1600, minimum=640, maximum=7680)
-        s.rdp_height = _as_int(d.get("rdp_height", 900) or 900, 900, minimum=480, maximum=4320)
-        s.rdp_color_depth = _as_int(d.get("rdp_color_depth", 32) or 32, 32, minimum=8, maximum=32)
-        s.rdp_fullscreen = bool(d.get("rdp_fullscreen", False))
-        s.rdp_fit_screen = bool(d.get("rdp_fit_screen", True))
-        s.rdp_clipboard = bool(d.get("rdp_clipboard", True))
-        s.rdp_drives = bool(d.get("rdp_drives", False))
-        s.rdp_printer = bool(d.get("rdp_printer", False))
+        s.rdp_width = as_int(d.get("rdp_width", 1600) or 1600, 1600, minimum=640, maximum=7680)
+        s.rdp_height = as_int(d.get("rdp_height", 900) or 900, 900, minimum=480, maximum=4320)
+        s.rdp_color_depth = as_int(d.get("rdp_color_depth", 32) or 32, 32, minimum=8, maximum=32)
+        s.rdp_fullscreen = as_bool(d.get("rdp_fullscreen", False), False)
+        s.rdp_fit_screen = as_bool(d.get("rdp_fit_screen", True), True)
+        s.rdp_clipboard = as_bool(d.get("rdp_clipboard", True), True)
+        s.rdp_drives = as_bool(d.get("rdp_drives", False), False)
+        s.rdp_printer = as_bool(d.get("rdp_printer", False), False)
         rdp_audio = str(d.get("rdp_audio_mode") or "local")
         s.rdp_audio_mode = rdp_audio if rdp_audio in ("local", "remote", "none") else "local"
-        s.rdp_cert_ignore = bool(d.get("rdp_cert_ignore", False))
-        s.rdp_pass_on_cmdline = bool(d.get("rdp_pass_on_cmdline", False))
+        s.rdp_cert_ignore = as_bool(d.get("rdp_cert_ignore", False), False)
+        s.rdp_pass_on_cmdline = as_bool(d.get("rdp_pass_on_cmdline", False), False)
         s.rdp_gateway_host = str(d.get("rdp_gateway_host") or "")
-        s.rdp_gateway_port = _as_int(d.get("rdp_gateway_port", 443) or 443, 443, minimum=1, maximum=65535)
+        s.rdp_gateway_port = as_int(d.get("rdp_gateway_port", 443) or 443, 443, minimum=1, maximum=65535)
         s.rdp_gateway_user = str(d.get("rdp_gateway_user") or "")
         options = d.get("options", {})
         s.options = dict(options) if isinstance(options, dict) else {}
-        s.created_at = _as_float(d.get("created_at", time.time()), time.time())
-        s.updated_at = _as_float(d.get("updated_at", time.time()), time.time())
+        s.created_at = as_float(d.get("created_at", time.time()), time.time())
+        s.updated_at = as_float(d.get("updated_at", time.time()), time.time())
         return s
 
 

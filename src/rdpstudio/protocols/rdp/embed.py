@@ -99,7 +99,7 @@ def embedded_support(
     (native X11 or XWayland).  Returns ``(ok, reason)`` — the reason doubles
     as a UI hint and is kept actionable.
     """
-    from .session import find_rdp_client
+    from .client import find_rdp_client
 
     client = (find_client or find_rdp_client)()
     if client is None:
