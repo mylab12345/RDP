@@ -101,7 +101,10 @@ def test_build_embedded_args():
     args = build_embedded_args(s, "s3cret", 0x1234)
     assert "/parent-window:4660" in args
     assert "-decorations" in args
-    assert "/smart-sizing" in args
+    # in-tab desktops follow the tab size: dynamic resolution, never the
+    # (mutually exclusive) client-side bitmap scaling
+    assert "/dynamic-resolution" in args
+    assert "/smart-sizing" not in args
     # password never rides argv — delivered via /args-from:file: (0600)
     assert "s3cret" not in " ".join(args)
     assert "/from-stdin" not in args
@@ -291,13 +294,42 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
 
 
 # --- sidebar toggle must not disturb a live session ---------------------------
-def _install_fake_client(tmp_path, monkeypatch) -> list[list[str]]:
-    """A stand-in xfreerdp that records every launch and stays alive.
+def _install_fake_fitter(monkeypatch, available: bool = True) -> list[tuple[int, int, int]]:
+    """Stand-in for the X11 child-window fit (no X server under offscreen Qt).
 
-    Returns the list of recorded argument lists (one per launch).
+    Records every ``(xid, width, height)`` request.  ``available=False``
+    mimics a host without libX11 / DISPLAY, where the fit reports failure and
+    the controller must fall back to the relaunch-based refit.
     """
     from rdpstudio.protocols.rdp import session as rdp_session
 
+    fits: list[tuple[int, int, int]] = []
+
+    def fake_fit(xid: int, w: int, h: int) -> bool:
+        fits.append((int(xid), int(w), int(h)))
+        return available
+
+    monkeypatch.setattr(rdp_session, "fit_child_windows", fake_fit)
+    original_init = rdp_session._EmbeddedSurface.__init__
+
+    def patched_init(self, *a, **k):
+        original_init(self, *a, **k)
+        self._fitter = fake_fit
+
+    monkeypatch.setattr(rdp_session._EmbeddedSurface, "__init__", patched_init)
+    return fits
+
+
+def _install_fake_client(tmp_path, monkeypatch, fit_available: bool = True) -> list[list[str]]:
+    """A stand-in xfreerdp that records every launch and stays alive.
+
+    Returns the list of recorded argument lists (one per launch).  The X11
+    child fit is faked too (see :func:`_install_fake_fitter`); the recorded
+    fit requests are available as ``launches.fits``.
+    """
+    from rdpstudio.protocols.rdp import session as rdp_session
+
+    fits = _install_fake_fitter(monkeypatch, available=fit_available)
     script = tmp_path / "fake-freerdp.sh"
     script.write_text("#!/bin/sh\nwhile true; do sleep 0.05; done\n")
     script.chmod(0o755)
@@ -305,7 +337,11 @@ def _install_fake_client(tmp_path, monkeypatch) -> list[list[str]]:
     monkeypatch.setattr(rdp_session, "find_embedded_client", lambda: str(script))
     monkeypatch.setattr(rdp_session, "embedded_support", lambda *a, **k: (True, ""))
 
-    launches: list[list[str]] = []
+    class _Launches(list):
+        fits: list[tuple[int, int, int]]
+
+    launches = _Launches()
+    launches.fits = fits
     original = rdp_session.RdpSessionController._launch_client
 
     def counting(self, path, args, direct_argv=None):
@@ -316,7 +352,7 @@ def _install_fake_client(tmp_path, monkeypatch) -> list[list[str]]:
     return launches
 
 
-def _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp):
+def _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp, fit_available: bool = True):
     """MainWindow with one embedded RDP tab whose handshake has completed."""
     import time
 
@@ -328,7 +364,7 @@ def _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp):
     from rdpstudio.ui.main_window import MainWindow
     from rdpstudio.ui.prompter import HeadlessPromptProvider
 
-    launches = _install_fake_client(tmp_path, monkeypatch)
+    launches = _install_fake_client(tmp_path, monkeypatch, fit_available=fit_available)
     ctx = SessionContext(
         settings=Settings(),
         store=SessionStore(tmp_path / "sessions.json"),
@@ -527,14 +563,15 @@ def test_ui_layout_busy_suppresses_refit(tmp_path, qtapp):
 
 @posix_shell_client
 def test_settled_user_resize_refits_once_and_relaunches(tmp_path, qtapp, monkeypatch):
-    """A real resize of the display area re-fits: one kill, one relaunch."""
+    """Fallback without X11 live fit: a real resize re-fits by relaunching —
+    one kill, one relaunch — so the desktop still ends up filling the tab."""
     import time
 
     from rdpstudio.core.models import Session
     from rdpstudio.protocols.rdp import session as rdp_session
     from rdpstudio.protocols.rdp.session import RdpSessionController
 
-    launches = _install_fake_client(tmp_path, monkeypatch)
+    launches = _install_fake_client(tmp_path, monkeypatch, fit_available=False)
     ctx = _ctx(tmp_path)
     ctx.settings.rdp_client = "embedded"
     monkeypatch.setattr(rdp_session, "_freerdp_supports_args_from_file", lambda *a, **k: False)
@@ -569,6 +606,132 @@ def test_settled_user_resize_refits_once_and_relaunches(tmp_path, qtapp, monkeyp
     assert ctrl._launched_size == (800, 600)
     ctrl.stop("test done")
     _pump(qtapp, 0.5)
+
+
+@posix_shell_client
+def test_settled_user_resize_follows_tab_without_relaunch(tmp_path, qtapp, monkeypatch):
+    """With X11 live fit the desktop follows the tab: the FreeRDP child window
+    is resized in place (dynamic resolution does the rest) — no relaunch."""
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp import session as rdp_session
+    from rdpstudio.protocols.rdp.session import RdpSessionController
+
+    launches = _install_fake_client(tmp_path, monkeypatch)
+    ctx = _ctx(tmp_path)
+    ctx.settings.rdp_client = "embedded"
+    monkeypatch.setattr(rdp_session, "_freerdp_supports_args_from_file", lambda *a, **k: False)
+    ctrl = RdpSessionController(
+        Session(protocol="rdp", host="w", username="u", password="s"), ctx, qtapp
+    )
+    monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)
+    ctrl._surface.resize(1200, 800)
+    ctrl.start()
+    for _ in range(100):
+        qtapp.processEvents()
+        if ctrl._proc is not None and ctrl._proc.state() == ctrl._proc.ProcessState.Running:
+            break
+    ctrl._mark_connected()
+    assert len(launches) == 1
+    assert "/dynamic-resolution" in launches[0]
+    first = ctrl._proc
+
+    ctrl._surface.resize(800, 600)
+    ctrl._on_surface_resized()
+    assert not ctrl._refit_requested, "no relaunch when the child window can be resized"
+    assert ctrl._proc is first and first.state() == first.ProcessState.Running
+    assert launches.fits[-1] == (0xABC, 800, 600), "the child window was fitted to the tab"
+    assert ctrl._launched_size == (800, 600)
+    _pump(qtapp, 0.3)
+    assert len(launches) == 1
+    ctrl.stop("test done")
+    _pump(qtapp, 0.5)
+
+
+@posix_shell_client
+def test_sidebar_toggle_keeps_desktop_flush_with_tab(tmp_path, qtapp, monkeypatch):
+    """Regression: hiding the sidebar left a black gap next to the desktop and
+    showing it again clipped the desktop — the FreeRDP child X window kept its
+    old size.  It must be resized to the surface during and after the tween."""
+    win, tab, ctrl, launches = _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp)
+    try:
+        surface = ctrl._surface
+        xid = int(surface.winId())
+        start = (surface.width(), surface.height())
+
+        n0 = len(launches.fits)
+        win._toggle_sidebar(False)  # hide → the tab grows
+        _pump(qtapp, 1.0)
+        grown = (surface.width(), surface.height())
+        assert grown[0] > start[0], "hiding the sidebar widened the tab"
+        assert len(launches.fits) > n0, "the child window was fitted during/after the tween"
+        assert launches.fits[-1] == (xid, *grown), "final fit == the settled tab size (no gap)"
+        assert surface.fitted_size() == grown
+        assert ctrl._launched_size == ctrl._detected_size(), "settled size is the new reference"
+        assert not ctrl._ui_layout_busy
+
+        n1 = len(launches.fits)
+        win._toggle_sidebar(True)  # show → the tab shrinks back
+        _pump(qtapp, 1.0)
+        shrunk = (surface.width(), surface.height())
+        assert shrunk[0] < grown[0]
+        assert len(launches.fits) > n1
+        assert launches.fits[-1] == (xid, *shrunk), "desktop shrank with the tab (no clipping)"
+        assert ctrl._launched_size == ctrl._detected_size()
+
+        # all of it without disturbing the session
+        assert len(launches) == 1
+        assert ctrl.state() == "connected"
+        assert ctrl._proc.state() == ctrl._proc.ProcessState.Running
+    finally:
+        ctrl.stop("test done")
+        win.close()
+        _pump(qtapp, 0.3)
+
+
+def test_surface_live_fit_only_while_embedded(qtapp, monkeypatch, tmp_path):
+    """The X fit runs only while a client is embedded and never for a 0-size
+    widget; each resize burst is coalesced into one request per frame."""
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import RdpSessionController
+
+    fits = _install_fake_fitter(monkeypatch)
+    ctx = _ctx(tmp_path)
+    ctx.settings.rdp_client = "embedded"
+    ctrl = RdpSessionController(Session(protocol="rdp", host="w"), ctx, qtapp)
+    surface = ctrl._surface
+    page = ctrl._page_emb
+    page.resize(1000, 700)
+    page.show()
+    qtapp.processEvents()
+
+    assert surface.fit_child() is False and fits == [], "idle surface: nothing to fit"
+
+    surface.live_fit_enabled = True
+    for width in range(1000, 700, -25):  # a 12-frame tween
+        page.resize(width, 700)
+        qtapp.processEvents()
+    _pump(qtapp, 0.1)
+    assert fits, "the child was fitted"
+    assert len(fits) < 12, "per-frame coalescing: fewer requests than resize events"
+    assert fits[-1][1:] == (surface.width(), surface.height())
+
+    surface.live_fit_enabled = False
+    n = len(fits)
+    page.resize(900, 700)
+    _pump(qtapp, 0.1)
+    assert len(fits) == n, "no fit once the client is gone"
+
+
+def test_fit_child_windows_without_x11_is_a_noop(monkeypatch):
+    """No DISPLAY (Windows, headless): the helper reports False, never raises."""
+    from rdpstudio.protocols.rdp import x11
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(x11, "_display", None)
+    monkeypatch.setattr(x11, "_display_failed", False)
+    assert x11.fit_child_windows(0x123, 800, 600) is False
+    assert x11.fit_child_windows(0, 800, 600) is False
+    assert x11.fit_child_windows(0x123, 0, 600) is False
 
 
 @posix_shell_client

@@ -76,6 +76,19 @@
   to the session's signal handlers.
 
 ### Fixed
+- **No more gap (or clipped edge) next to the embedded RDP desktop when the
+  sidebar is hidden or shown.** The remote desktop is a FreeRDP-owned X child
+  window, and X11 does not resize a child with its parent: hiding the sidebar
+  widened the tab but left the desktop at its old width (black strip), and
+  showing it again pushed the desktop under the sidebar. The embedded surface
+  now resizes the child window to its own size on every layout pass
+  (coalesced per frame, `protocols/rdp/x11.py`) and once more when the chrome
+  settles; the client runs with `/dynamic-resolution` (instead of the
+  mutually exclusive `/smart-sizing`), so FreeRDP asks the server for the new
+  resolution and the desktop tracks the tab edge to edge during and after the
+  toggle — with no relaunch and no interruption of the session. Plain window
+  resizes take the same in-place path; the relaunch-based refit remains only
+  as a fallback when the X helper is unavailable.
 - **Hiding/showing the sidebar no longer kills the RDP session.** Collapsing
   or expanding the sidebar resizes every open tab; the embedded RDP surface
   read that as the user resizing the tab, killed FreeRDP (reported to the user

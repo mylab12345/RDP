@@ -112,8 +112,14 @@ so the tab shows a live countdown chip.
 - **Built-in (embedded, Linux/X11)** — the FreeRDP client is launched with
   `/parent-window:<xid> -decorations`, so the remote desktop renders *inside
   the app's tab* (no separate RDP window). The tab hosts a native X11
-  surface (`_EmbeddedSurface`); resizing the tab restarts the client so the
-  desktop refits. Requires the **X11** FreeRDP flavour (`xfreerdp*` — the SDL
+  surface (`_EmbeddedSurface`). The client runs with `/dynamic-resolution`,
+  and whenever the surface changes size (sidebar hidden/shown, window
+  resized) `protocols/rdp/x11.py` resizes FreeRDP's child X window to match
+  (`XMoveResizeWindow` via ctypes — X11 does not resize children with their
+  parent); FreeRDP then asks the server for that resolution, so the desktop
+  stays flush with the tab without a relaunch. If the X helper is unavailable
+  the controller falls back to restarting the client at the new size.
+  Requires the **X11** FreeRDP flavour (`xfreerdp*` — the SDL
   client ignores `/parent-window`) + the Qt `xcb` platform + `$DISPLAY`.
   On **Wayland** sessions, `protocols/rdp/embed.py` restarts the process with
   `QT_QPA_PLATFORM=xcb` (XWayland) before the QApplication exists when RDP is
