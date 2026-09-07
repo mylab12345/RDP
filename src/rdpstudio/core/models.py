@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .coerce import as_bool, as_float, as_int
+from .shares import Share, shares_from_dicts
 
 PROTOCOL_SSH = "ssh"
 PROTOCOL_RDP = "rdp"
@@ -138,6 +139,10 @@ class Session:
     rdp_gateway_host: str = ""
     rdp_gateway_port: int = 443
     rdp_gateway_user: str = ""
+    # Local folders handed to this machine through the built-in SFTP share
+    # server (in addition to the global shares in Settings).  Windows has no
+    # SSH daemon to serve files back, so the files are served from here.
+    rdp_shares: list[Share] = field(default_factory=list)
 
     # --- free-form protocol options (future protocols / plugins) ---
     options: dict[str, Any] = field(default_factory=dict)
@@ -207,6 +212,7 @@ class Session:
             "rdp_gateway_host": self.rdp_gateway_host,
             "rdp_gateway_port": self.rdp_gateway_port,
             "rdp_gateway_user": self.rdp_gateway_user,
+            "rdp_shares": [share.to_dict() for share in self.rdp_shares],
             "options": dict(self.options),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -274,6 +280,7 @@ class Session:
         s.rdp_gateway_host = str(d.get("rdp_gateway_host") or "")
         s.rdp_gateway_port = as_int(d.get("rdp_gateway_port", 443) or 443, 443, minimum=1, maximum=65535)
         s.rdp_gateway_user = str(d.get("rdp_gateway_user") or "")
+        s.rdp_shares = shares_from_dicts(d.get("rdp_shares"))
         options = d.get("options", {})
         s.options = dict(options) if isinstance(options, dict) else {}
         s.created_at = as_float(d.get("created_at", time.time()), time.time())

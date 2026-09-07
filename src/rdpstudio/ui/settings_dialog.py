@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
@@ -9,11 +11,15 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -23,7 +29,20 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import paths
-from ..core.settings import FONT_PRESETS, THEME_CHOICES
+from ..core.settings import (
+    FONT_PRESETS,
+    SHARE_DEFAULT_BIND,
+    SHARE_DEFAULT_PORT,
+    SHARE_DEFAULT_USER,
+    THEME_CHOICES,
+)
+from ..core.shares import (
+    MAX_SHARES,
+    Share,
+    sanitize_share_name,
+    share_name_from_path,
+    shares_from_dicts,
+)
 from .theme import PALETTE, icon, palette
 
 
@@ -625,9 +644,120 @@ class SettingsDialog(QDialog):
         ))
         lay.addWidget(grp3)
 
+        lay.addWidget(self._build_file_sharing_group(settings, pal))
+
         lay.addStretch(1)
 
-    # ── Security tab ─────────────────────────────────────────────────────
+    # ── File sharing (built-in SFTP share server) ────────────────────────
+
+    def _build_file_sharing_group(self, settings, pal: dict[str, str]) -> QWidget:
+        """Defaults for the share server that hands local folders to machines."""
+        grp, lay = _make_group("File Sharing (SFTP server)", pal)
+
+        lay.addWidget(_make_hint(
+            "Windows machines have no SSH daemon to serve files back to us, so KB-Remote "
+            "serves them instead: the folders below are offered to every machine, which "
+            "connects with its own SFTP client (sftp.exe, WinSCP, FileZilla).",
+            pal,
+        ))
+
+        self.share_autostart = QCheckBox("Start the share server when KB-Remote opens")
+        self.share_autostart.setChecked(getattr(settings, "share_server_autostart", False))
+        self.share_autostart.setMinimumHeight(28)
+        lay.addWidget(self.share_autostart)
+
+        self.share_enabled = QCheckBox("Share server enabled (can also be started per run)")
+        self.share_enabled.setChecked(getattr(settings, "share_server_enabled", False))
+        self.share_enabled.setMinimumHeight(28)
+        lay.addWidget(self.share_enabled)
+
+        self.share_writable = QCheckBox("Allow remote machines to write (upload / delete)")
+        self.share_writable.setChecked(getattr(settings, "share_server_writable", True))
+        self.share_writable.setMinimumHeight(28)
+        lay.addWidget(self.share_writable)
+
+        lay.addWidget(_make_separator(pal))
+
+        self.share_port = QSpinBox()
+        self.share_port.setRange(1, 65535)
+        self.share_port.setValue(int(getattr(settings, "share_server_port", SHARE_DEFAULT_PORT)))
+        self.share_port.setMinimumHeight(24)
+        port_row = QHBoxLayout()
+        port_row.setSpacing(12)
+        port_row.addWidget(_make_row_label("Port", pal))
+        port_row.addWidget(self.share_port, 1)
+        lay.addLayout(port_row)
+
+        self.share_user = QLineEdit(str(getattr(settings, "share_server_user", SHARE_DEFAULT_USER)))
+        self.share_user.setMinimumHeight(24)
+        user_row = QHBoxLayout()
+        user_row.setSpacing(12)
+        user_row.addWidget(_make_row_label("Username", pal))
+        user_row.addWidget(self.share_user, 1)
+        lay.addLayout(user_row)
+
+        self.share_bind = QLineEdit(str(getattr(settings, "share_server_bind", SHARE_DEFAULT_BIND)))
+        self.share_bind.setMinimumHeight(24)
+        bind_row = QHBoxLayout()
+        bind_row.setSpacing(12)
+        bind_row.addWidget(_make_row_label("Listen on", pal))
+        bind_row.addWidget(self.share_bind, 1)
+        lay.addLayout(bind_row)
+        lay.addWidget(_make_hint("0.0.0.0 = every interface (what remote machines need).", pal))
+
+        lay.addWidget(_make_separator(pal))
+        lay.addWidget(_make_row_label("Shared folders", pal))
+        self.share_folders = QListWidget()
+        self.share_folders.setMaximumHeight(110)
+        for share in shares_from_dicts(getattr(settings, "share_server_shares", [])):
+            self._add_share_item(share)
+        lay.addWidget(self.share_folders)
+
+        btn_row = QHBoxLayout()
+        btn_add = QPushButton("Add folder\u2026")
+        btn_add.clicked.connect(self._add_share_folder)
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(self._remove_share_folder)
+        btn_row.addWidget(btn_add)
+        btn_row.addWidget(btn_remove)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+        lay.addWidget(_make_hint(
+            "Per-machine extras live in each RDP session\u2019s \u201cShared folders\u201d card. "
+            "The share password is set in Tools \u2192 File sharing server (stored hashed, never here).",
+            pal,
+        ))
+        return grp
+
+    def _add_share_item(self, share) -> None:
+        item = QListWidgetItem(f"{share.name}  \u2192  {share.path}")
+        item.setData(Qt.ItemDataRole.UserRole, {"name": share.name, "path": share.path})
+        self.share_folders.addItem(item)
+
+    def _share_rows(self) -> list[Share]:
+        out = []
+        for i in range(self.share_folders.count()):
+            data = self.share_folders.item(i).data(Qt.ItemDataRole.UserRole) or {}
+            out.append(Share(name=data.get("name", ""), path=data.get("path", ""), enabled=True))
+        return out
+
+    def _add_share_folder(self) -> None:
+        if len(self._share_rows()) >= MAX_SHARES:
+            QMessageBox.information(self, "Limit reached", f"At most {MAX_SHARES} shared folders.")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Choose a folder to share", os.path.expanduser("~"))
+        if not folder:
+            return
+        if any(os.path.abspath(s.path) == os.path.abspath(folder) for s in self._share_rows()):
+            return
+        self._add_share_item(Share(name=sanitize_share_name(share_name_from_path(folder)), path=folder))
+
+    def _remove_share_folder(self) -> None:
+        row = self.share_folders.currentRow()
+        if row >= 0:
+            self.share_folders.takeItem(row)
+
+# ── Security tab ─────────────────────────────────────────────────────
 
     def _build_security_tab(self, tabs: QTabWidget, settings, pal: dict[str, str]) -> None:
         scroll, lay = _make_scroll_page()
@@ -838,5 +968,12 @@ class SettingsDialog(QDialog):
         s.vault_autolock_minutes = self.vault_autolock.value()
         s.kdf_iterations = self.kdf_iterations.value()
         s.rdp_client = self.rdp_client.currentData()
+        s.share_server_enabled = self.share_enabled.isChecked()
+        s.share_server_autostart = self.share_autostart.isChecked()
+        s.share_server_writable = self.share_writable.isChecked()
+        s.share_server_port = self.share_port.value()
+        s.share_server_user = self.share_user.text().strip() or SHARE_DEFAULT_USER
+        s.share_server_bind = self.share_bind.text().strip() or SHARE_DEFAULT_BIND
+        s.share_server_shares = [share.to_dict() for share in self._share_rows()]
         s.save(paths.settings_file())
         self.accept()

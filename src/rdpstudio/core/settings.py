@@ -72,6 +72,13 @@ FONT_PRESETS: tuple[str, ...] = (
 )
 
 
+# Defaults for the built-in SFTP share server. Kept here so the settings UI,
+# the server and the tests agree on one value.
+SHARE_DEFAULT_BIND = "0.0.0.0"
+SHARE_DEFAULT_PORT = 2222
+SHARE_DEFAULT_USER = "kbshare"
+
+
 @dataclass
 class Settings:
     # appearance
@@ -111,6 +118,21 @@ class Settings:
 
     # files
     default_download_dir: str = ""
+
+    # file sharing — the built-in SFTP share server (see
+    # rdpstudio.tools.share_server). Off by default: it is a real network
+    # listener, so it is only ever bound by explicit user action.
+    share_server_enabled: bool = False
+    share_server_autostart: bool = False  # start the listener when the app opens
+    share_server_bind: str = SHARE_DEFAULT_BIND
+    share_server_port: int = SHARE_DEFAULT_PORT
+    share_server_user: str = SHARE_DEFAULT_USER
+    # PBKDF2-HMAC-SHA256 hash (``pbkdf2-sha256$iters$salt$hash``) — the
+    # plaintext is never written to disk.
+    share_server_password: str = ""
+    share_server_writable: bool = True
+    # Global shares offered to every machine: [{"name", "path", "enabled"}].
+    share_server_shares: list = field(default_factory=list)
 
     # window
     geometry: dict = field(default_factory=dict)
@@ -181,6 +203,19 @@ class Settings:
         }
         for name, default in bool_defaults.items():
             setattr(s, name, as_bool(getattr(s, name), default))
+
+        from .shares import shares_from_dicts
+
+        s.share_server_enabled = as_bool(s.share_server_enabled, False)
+        s.share_server_autostart = as_bool(s.share_server_autostart, False)
+        s.share_server_writable = as_bool(s.share_server_writable, True)
+        s.share_server_bind = as_text(s.share_server_bind, SHARE_DEFAULT_BIND) or SHARE_DEFAULT_BIND
+        s.share_server_user = (as_text(s.share_server_user, SHARE_DEFAULT_USER) or SHARE_DEFAULT_USER).strip()
+        s.share_server_port = as_int(
+            s.share_server_port, SHARE_DEFAULT_PORT, minimum=1, maximum=65535
+        )
+        s.share_server_password = as_text(s.share_server_password)
+        s.share_server_shares = [sh.to_dict() for sh in shares_from_dicts(s.share_server_shares)]
 
         if not isinstance(s.palette_recents, list):
             s.palette_recents = []

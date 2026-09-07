@@ -80,6 +80,10 @@ class SessionContext:
     bus: EventBus
     prompter: PromptProvider
     parent_widget: QWidget | None = None
+    # Built-in SFTP share server (rdpstudio.tools.share_server.ShareService).
+    # Typed loosely: it is optional, and protocols that do not serve files
+    # never look at it.
+    share_service: Any = None
 
     def publish(self, topic: str, payload: dict | None = None) -> None:
         self.bus.publish(topic, payload)
@@ -102,6 +106,9 @@ class Capabilities:
     sftp: bool = False
     tunnels: bool = False
     external_window: bool = False  # protocol renders in its own OS window
+    # Protocol has no file channel of its own, but local folders can be handed
+    # to the remote machine through the built-in SFTP share server.
+    file_sharing: bool = False
 
 
 class SessionController(QObject):

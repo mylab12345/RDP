@@ -307,7 +307,8 @@ class RdpSessionController(SessionController):
         else:
             note_text = (
                 "The RDP window opens in its own OS window (mstsc / FreeRDP).\n"
-                "Clipboard and drive redirection follow the session settings."
+                "Clipboard and drive redirection follow the session settings.\n"
+                "Use “Share” above to hand local folders to this machine over SFTP."
             )
         note = QLabel(note_text)
         note.setObjectName("muted")
@@ -340,7 +341,9 @@ class RdpSessionController(SessionController):
             )
 
     def capabilities(self) -> Capabilities:
-        return capability_set(external_window=True)
+        # RDP has no file channel of its own; local folders reach the Windows
+        # machine through the built-in SFTP share server instead.
+        return capability_set(external_window=True, file_sharing=True)
 
     def widget(self) -> QWidget:
         if self._mode == "embedded":
@@ -423,6 +426,10 @@ class RdpSessionController(SessionController):
                         )
                     return
                 self.definition.password = pw
+
+        # Hand this machine its own shared folders (and bring the listener up
+        # if the user asked for that) before the desktop opens.
+        self._publish_shares()
 
         new_mode = self.resolve_mode()
         if new_mode != self._mode:
@@ -988,6 +995,7 @@ class RdpSessionController(SessionController):
         self.statusInfo.emit({"error": message})
 
     def stop(self, reason: str = "closed by user") -> None:
+        self._unpublish_shares()
         self._cleanup_args_file()
         # The kill below is ours: neither a refit relaunch nor a "client
         # crashed" report may follow it.
@@ -1006,6 +1014,37 @@ class RdpSessionController(SessionController):
 
     def request_reconnect(self) -> None:
         self.start()
+
+    # ------------------------------------------------------------------
+    # Local folder shares (built-in SFTP share server)
+    # ------------------------------------------------------------------
+    def _publish_shares(self) -> None:
+        """Offer this session's folders, and start the listener if configured.
+
+        Windows machines have no SSH daemon to serve files back to us, so the
+        folders are served from here: the remote box connects with its own SFTP
+        client and sees one directory per share.  A share server that cannot
+        bind must never stop the desktop from opening, so this only logs.
+        """
+        service = getattr(self.ctx, "share_service", None)
+        if service is None:
+            return
+        shares = list(getattr(self.definition, "rdp_shares", []) or [])
+        try:
+            service.publish_session(self.definition.id, self.definition.display_name(), shares)
+            if shares or service.registry.entries():
+                service.ensure_running()
+        except Exception as exc:  # noqa: BLE001 - the desktop comes first
+            log.warning("share server unavailable for %s: %s", self.definition.id, exc)
+
+    def _unpublish_shares(self) -> None:
+        service = getattr(self.ctx, "share_service", None)
+        if service is None:
+            return
+        try:
+            service.forget_session(self.definition.id)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("could not forget shares for %s: %s", self.definition.id, exc)
 
     # ------------------------------------------------------------------
     def _resolve_secret(self) -> str | None:

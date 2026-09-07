@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,6 +16,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -32,6 +37,7 @@ from ..core.models import (
     default_port_for,
 )
 from ..core.plugin import SessionContext, registry
+from ..core.shares import MAX_SHARES, Share, sanitize_share_name, share_name_from_path, unique_share_names
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
 _RDP_STEP = 8
@@ -636,6 +642,8 @@ class SessionDialog(QDialog):
         self._mark_advanced(self.rdp_audio)
         layout.addWidget(redir_card)
 
+        layout.addWidget(self._build_rdp_shares_card())
+
         sec_card = self._make_card("Security")
         sec_content = self._card_content(sec_card)
         sform = QFormLayout(sec_content)
@@ -687,6 +695,90 @@ class SessionDialog(QDialog):
         layout.addStretch(1)
         self._on_rdp_display_mode()
         return page
+
+    # ------------------------------------------------------------------
+    # Shared folders — local directories handed to this machine over SFTP
+    # ------------------------------------------------------------------
+    def _build_rdp_shares_card(self) -> QWidget:
+        card = self._make_card("Shared folders (SFTP)")
+        content = self._card_content(card)
+        outer = QVBoxLayout(content)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(8)
+
+        note = QLabel(
+            "Folders here are served from this machine by the built-in share server and "
+            "reached from Windows with its own SFTP client — nothing to install over there."
+        )
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"font-size: 11px; color: {self._pal['fg_muted']};")
+        outer.addWidget(note)
+
+        self.share_list = QListWidget()
+        self.share_list.setMaximumHeight(120)
+        for share in self.session.rdp_shares:
+            self._append_share_row(share)
+        outer.addWidget(self.share_list)
+
+        row = QHBoxLayout()
+        btn_add = QPushButton("Add folder\u2026")
+        btn_add.clicked.connect(self._add_shared_folder)
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(self._remove_shared_folder)
+        btn_manage = QPushButton("Open share manager\u2026")
+        btn_manage.setToolTip("Start/stop the share server and copy the connect command")
+        btn_manage.clicked.connect(self._open_share_manager)
+        row.addWidget(btn_add)
+        row.addWidget(btn_remove)
+        row.addStretch(1)
+        row.addWidget(btn_manage)
+        outer.addLayout(row)
+        return card
+
+    def _append_share_row(self, share: Share) -> None:
+        item = QListWidgetItem(f"{share.name}  \u2192  {share.path}")
+        item.setData(Qt.ItemDataRole.UserRole, {"name": share.name, "path": share.path})
+        self.share_list.addItem(item)
+
+    def _current_share_rows(self) -> list[Share]:
+        out = []
+        for i in range(self.share_list.count()):
+            data = self.share_list.item(i).data(Qt.ItemDataRole.UserRole) or {}
+            out.append(Share(name=data.get("name", ""), path=data.get("path", ""), enabled=True))
+        return out
+
+    def _add_shared_folder(self) -> None:
+        existing = self._current_share_rows()
+        if len(existing) >= MAX_SHARES:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(self, "Limit reached", f"At most {MAX_SHARES} shared folders.")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Choose a folder to share", os.path.expanduser("~"))
+        if not folder:
+            return
+        if any(os.path.abspath(s.path) == os.path.abspath(folder) for s in existing):
+            return
+        name = unique_share_names(existing, share_name_from_path(folder))
+        self._append_share_row(Share(name=sanitize_share_name(name), path=folder))
+
+    def _remove_shared_folder(self) -> None:
+        row = self.share_list.currentRow()
+        if row >= 0:
+            self.share_list.takeItem(row)
+
+    def _open_share_manager(self) -> None:
+        main = self.parent()
+        opener = getattr(main, "open_share_for_session", None)
+        if callable(opener):
+            opener(self._collect_session())
+        else:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self, "Share manager", "Open the share manager from Tools \u2192 File sharing server."
+            )
 
     def _on_rdp_display_mode(self) -> None:
         mode = self.rdp_display_mode.currentData()
@@ -838,6 +930,7 @@ class SessionDialog(QDialog):
             s.rdp_fit_screen = self.rdp_fit_screen.isChecked()
             s.rdp_clipboard = self.rdp_clipboard.isChecked()
             s.rdp_drives = self.rdp_drives.isChecked()
+            s.rdp_shares = self._current_share_rows()
             s.rdp_cert_ignore = self.rdp_cert_ignore.isChecked()
             s.rdp_pass_on_cmdline = self.rdp_pass_cmd.isChecked()
             s.rdp_gateway_host = self.gw_host.text().strip()

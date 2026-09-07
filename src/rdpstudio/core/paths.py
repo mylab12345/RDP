@@ -90,3 +90,8 @@ def cache_dir() -> Path:
 def snippets_file() -> Path:
     return app_dir() / "snippets.json"
 
+
+def share_host_key_file() -> Path:
+    """Host key that authenticates the built-in SFTP share server."""
+    return keys_dir() / "share_host_key"
+

@@ -28,6 +28,7 @@ NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
 | **Network diagnostics** | Standalone & workbench tool (`Ctrl+Shift+N`): multi-threaded TCP port scanner, TCP ping latency tester with jitter and loss stats, and forward/reverse DNS lookup |
 | **SSH key utility** | Standalone key tool (`Ctrl+Shift+U`): key generation (Ed25519/RSA/ECDSA), visual Randomart (Drunken Bishop algorithm), and OpenSSH ⇄ PuTTY `.ppk` converter |
 | **File transfer & edit** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, hidden files toggle (`.*`), and **in-app text file editor** with direct SFTP save-and-upload (`Ctrl+S`) |
+| **File sharing to Windows / RDP** | **Built-in SFTP share server** (`Ctrl+Shift+S`): share chosen local folders — globally to *every* RDP machine, plus per-session extras — and the Windows box pulls/pushes them with its own client (`sftp.exe`, WinSCP). One virtual root, one directory per share; password auth (hashed), read-only mode, activity log, copy-paste-ready connect command |
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+Tab`, `Ctrl+1..9`) |
 | **Simple by default** | The session editor asks for **host, username and password** — everything else (ports, tags, jump hosts, keepalives, forwards, RD gateway, certificates) lives behind a single **Advanced options** toggle. RDP display is one dropdown: fit to window, fullscreen, or a standard resolution |
@@ -92,6 +93,46 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 3. Double-click the session in the sidebar. Use **Files** on the tab header
    for SFTP.
 4. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.
+
+## Sharing files with Windows (RDP) machines
+
+A Windows box has no SSH daemon, so there is nothing to SFTP *to*. KB-Remote
+therefore serves the files from your side: pick the local folders you want to
+hand out, start the built-in share server, and the remote machine connects back
+with the SFTP client it already has.
+
+1. **Tools → File sharing server…** (`Ctrl+Shift+S`) — or the **Share** button
+   on an RDP tab.
+2. **Add folder…** to pick what to share. Each folder becomes a top-level
+   directory for the client (share `Tools` ⇒ `/Tools/`). Folders added here are
+   shared with *every* machine; an RDP session's own *Shared folders* card adds
+   folders just for that machine, for as long as its tab is open.
+3. **Set password…** — the remote login credential, stored as a
+   PBKDF2-HMAC-SHA256 hash (never in clear text).
+4. **Start server**, then copy the printed command onto the Windows machine:
+
+```powershell
+# Windows 10 1809+ ships sftp.exe; WinSCP / FileZilla take the sftp:// URL
+sftp -P 2222 kbshare@192.168.1.10
+sftp> ls
+Builds/  Tools/
+sftp> put patch.msi Tools/patch.msi
+sftp> get Builds/report.xlsx
+```
+
+Notes:
+
+- The listener is **off by default** and only binds when you start it (or turn
+  on *Settings → Connections → File sharing → Start the share server when
+  KB-Remote opens*). Bind `127.0.0.1` to keep it local.
+- Untick *Allow remote machines to write* for a read-only share, and untick a
+  folder's row to keep it configured but not shared.
+- Shares are read live: add or remove a folder while a client is connected and
+  it takes effect immediately — no reconnect.
+- The first connection asks the client to accept the server's host key; the
+  SHA256 fingerprint is shown in the dialog (and in the Activity log).
+- Only the `sftp` subsystem is served — no shell, no exec, no port forwarding —
+  and every path is confined to a shared folder.
 
 ## Scope note on RDP
 
