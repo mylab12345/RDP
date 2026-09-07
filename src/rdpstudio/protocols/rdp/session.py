@@ -55,6 +55,7 @@ from .embed import (
 )
 from .negotiate import RdpProbeError, probe
 from .rdpfile import write_rdp_file
+from .x11 import fit_child_windows
 
 log = get_logger("rdp.session")
 
@@ -74,6 +75,10 @@ _REFIT_SETTLE_MS = 150
 # Extra quiet period after the window chrome finishes re-laying out, so the
 # last layout pass of a sidebar toggle is absorbed too.
 _UI_SETTLE_MS = 150
+# Live fit of the FreeRDP child window to the surface: resize events inside
+# one frame are coalesced into a single X request (~60 Hz is plenty for the
+# 140 ms sidebar tween and never floods the X server on a window drag).
+_LIVE_FIT_MS = 16
 
 
 def find_rdp_client() -> tuple[str, str] | None:
@@ -244,6 +249,17 @@ def build_embedded_args(
     remote desktop is created at exactly the resolution of the tab — the
     whole screen is visible, no scrolling or clipping.  Clamped to the
     FreeRDP/Windows-supported range.
+
+    Inside a tab the desktop always tracks the display area (the saved
+    resolution only seeds the size while the widget is unmapped), so the
+    built-in mode always uses ``/dynamic-resolution`` — never
+    ``/smart-sizing`` (the two are mutually exclusive in FreeRDP, and only
+    dynamic resolution lets the desktop *follow* the tab without a relaunch).
+    When the host widget grows or shrinks (sidebar hidden/shown, window
+    resized) we resize FreeRDP's child window to the new surface size; FreeRDP
+    sees the ``ConfigureNotify`` and asks the server for exactly that
+    resolution, so the remote desktop always fills the tab edge to edge — no
+    black gap, no clipped strip, no scaled/blurry bitmaps.
     """
     args = build_freerdp_args(defn, password)
     if size is not None:
@@ -251,6 +267,8 @@ def build_embedded_args(
         h = min(max(int(size[1]), _MIN_RDP_H), _MAX_RDP_H)
         args = [a for a in args if not a.startswith("/size:")]
         args.append(f"/size:{w}x{h}")
+    args = [a for a in args if a != "/smart-sizing"]
+    args.append("/dynamic-resolution")
     if defn.rdp_fullscreen:  # fullscreen is meaningless inside a tab
         args.remove("/f")
     args += [f"/parent-window:{parent_xid}", "-decorations"]
@@ -285,10 +303,51 @@ class _EmbeddedSurface(QWidget):
         self._settle.setSingleShot(True)
         self._settle.setInterval(_REFIT_SETTLE_MS)
         self._settle.timeout.connect(self._notify_settled)
+        # Live fit: keep FreeRDP's child X window exactly the size of this
+        # widget *while* the size is changing, so the desktop never shows a
+        # gap next to the sidebar or gets clipped by it.  X11 does not resize
+        # children with their parent, hence the explicit request.
+        self._fitter = fit_child_windows
+        self._live_fit = QTimer(self)
+        self._live_fit.setSingleShot(True)
+        self._live_fit.setInterval(_LIVE_FIT_MS)
+        self._live_fit.timeout.connect(self.fit_child)
+        self._fitted_size: tuple[int, int] | None = None  # last size sent to X
+        self.live_fit_enabled = False  # only while a client is embedded
 
     def set_launch_size(self, size: tuple[int, int]) -> None:
         self._launch_size = size
         self._settle.stop()  # this size is now the reference; nothing pending
+
+    def fit_child(self) -> bool:
+        """Resize the embedded child window to fill this widget now.
+
+        Returns True when a child was resized (the desktop follows the tab),
+        False when there is nothing to fit yet or live fitting is unavailable
+        (no X11) — the caller then relies on the relaunch-based refit.
+        """
+        if not self.live_fit_enabled:
+            return False
+        size = (self.width(), self.height())
+        if size[0] <= 0 or size[1] <= 0:
+            return False
+        try:
+            xid = int(self.winId())
+        except RuntimeError:  # C++ widget already gone
+            return False
+        if not xid:
+            return False
+        try:
+            ok = bool(self._fitter(xid, size[0], size[1]))
+        except Exception:  # noqa: BLE001 - never let X plumbing break the tab
+            log.exception("live fit of the embedded desktop failed")
+            ok = False
+        if ok:
+            self._fitted_size = size
+        return ok
+
+    def fitted_size(self) -> tuple[int, int] | None:
+        return self._fitted_size
 
     def size_changed(self) -> bool:
         """True if the widget moved >=32 px away from the launch size."""
@@ -304,6 +363,10 @@ class _EmbeddedSurface(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        if self.live_fit_enabled:
+            # Follow the tab frame by frame (coalesced per frame).  This is
+            # what keeps the desktop flush with the sidebar during the tween.
+            self._live_fit.start()
         if self._launch_size is not None and self.size_changed():
             # (Re)arm the settle timer instead of signalling every frame: a
             # single sidebar toggle otherwise fires this ~10 times in 140 ms.
@@ -652,6 +715,20 @@ class RdpSessionController(SessionController):
         except Exception as exc:  # noqa: BLE001
             self._on_error_text(str(exc))
             return
+        # From now on the child window follows the surface.  The client's
+        # window only exists a little later, so also fit it once it should be
+        # there (covers a tab that changed size during the handshake).
+        self._surface.live_fit_enabled = True
+        for delay in (300, 1000, 2500):
+            QTimer.singleShot(delay, self._fit_embedded_window)
+
+    def _fit_embedded_window(self) -> bool:
+        """Snap the FreeRDP child window to the surface (no-op when idle)."""
+        if self._mode != "embedded" or self._stopping:
+            return False
+        if self._proc is None or self._proc.state() != QProcess.ProcessState.Running:
+            return False
+        return self._surface.fit_child()
 
     def _launch_client(self, path: str, args: list[str], direct_argv: list[str] | None = None) -> None:
         """Wire up and start the RDP client process.
@@ -743,18 +820,34 @@ class RdpSessionController(SessionController):
 
     def _clear_ui_layout_busy(self) -> None:
         self._ui_layout_busy = False
-        if self._mode == "embedded":
-            # After a layout animation (sidebar toggle, density switch),
-            # update the launched size so that the next settle-based resize
-            # check does NOT immediately trigger a refit for a pure chrome
-            # change.  A genuine user resize after this will be caught by the
-            # surface's own settle timer and the normal refit flow.
-            # The 32 px dead-zone in size_changed() still protects against
-            # spurious refits from minor splitter rounding.
-            if self._surface.size_changed():
-                # Size changed meaningfully — update launched_size so the
-                # next comparison doesn't immediately refit.
-                self._launched_size = self._detected_size()
+        if self._mode != "embedded":
+            return
+        # The chrome came to rest (sidebar hidden/shown, density switch).  The
+        # tab is now its final size and the remote desktop must fill it
+        # exactly — no black strip where the sidebar used to be, no clipped
+        # edge where it reappeared.
+        self._refit_after_layout()
+
+    def _refit_after_layout(self) -> None:
+        """Make the desktop match the settled surface size.
+
+        Preferred path: resize FreeRDP's child window in place — with
+        ``/dynamic-resolution`` the server re-renders at the new size and the
+        session is never interrupted.  Fallback (no X11 helper reachable):
+        the relaunch-based refit, which still ends with a desktop that fills
+        the tab.
+        """
+        if not self._surface.size_changed():
+            # Within the dead-zone: just make sure the child is flush.
+            self._fit_embedded_window()
+            return
+        if self._fit_embedded_window():
+            # The desktop follows the tab; this size is the new reference so
+            # the settle timer does not treat it as a fresh user resize.
+            self._surface.set_launch_size((self._surface.width(), self._surface.height()))
+            self._launched_size = self._detected_size()
+            return
+        self._on_surface_resized()
 
     def _retire_proc(self) -> None:
         """Detach the current client process object.
@@ -810,7 +903,15 @@ class RdpSessionController(SessionController):
             return
         size = self._detected_size()
         if size == self._launched_size:
+            self._fit_embedded_window()  # same resolution — just stay flush
             return  # nothing would change — no reason to disturb the session
+        if self._fit_embedded_window():
+            # Dynamic resolution: FreeRDP already asked the server for the new
+            # size when its window was resized.  Nothing to relaunch.
+            log.info("RDP tab resized — desktop follows the tab at %dx%d", size[0], size[1])
+            self._surface.set_launch_size((self._surface.width(), self._surface.height()))
+            self._launched_size = size
+            return
         log.info("RDP tab resized — refitting the embedded desktop to %dx%d", size[0], size[1])
         self._surface.set_launch_size((self._surface.width(), self._surface.height()))
         self._resized_restart = True
@@ -907,6 +1008,7 @@ class RdpSessionController(SessionController):
         self._set_emb_hint("")
         if self._mode == "embedded":
             self._status.setText("Built-in RDP window active.")
+            self._fit_embedded_window()
         else:
             self._status.setText(
                 "RDP session window is open (external client). "
@@ -944,6 +1046,7 @@ class RdpSessionController(SessionController):
             self._start_embedded()
             return
         self._retire_proc()
+        self._surface.live_fit_enabled = False  # nothing embedded any more
         # build diagnostic tail (first error line or last 500 chars)
         diag = (self._proc_stderr or self._proc_stdout).strip()
         # pick most relevant line
@@ -1084,6 +1187,8 @@ class RdpSessionController(SessionController):
         self._resized_restart = False
         self._ui_settle_timer.stop()
         self._surface._settle.stop()
+        self._surface._live_fit.stop()
+        self._surface.live_fit_enabled = False
         if self._proc is not None:
             self._proc.kill()
         self._btn_connect.setEnabled(True)
