@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+
+from .coerce import as_bool, as_float, as_int, as_text
+from .crypto import MAX_KDF_ITERATIONS
+from .persistence import atomic_write_text
 
 # Theme ids accepted in settings.json. MobaXterm look is the default.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
@@ -70,25 +72,6 @@ FONT_PRESETS: tuple[str, ...] = (
 )
 
 
-def _as_int(value, default: int, minimum: int) -> int:
-    """Best-effort int coercion that never raises (settings may be corrupt)."""
-    try:
-        out = int(value)
-    except (TypeError, ValueError):
-        out = default
-    return max(minimum, out)
-
-
-def _as_float(value, default: float, minimum: float) -> float:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        out = default
-    if out != out or out == float("inf") or out == float("-inf"):
-        out = default
-    return max(minimum, out)
-
-
 @dataclass
 class Settings:
     # appearance
@@ -139,35 +122,45 @@ class Settings:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> Settings:
+    def from_dict(cls, d: object) -> Settings:
+        if not isinstance(d, dict):
+            return cls()
         valid = {f.name for f in fields(cls)}
-        kwargs = {}
-        for k, v in (d or {}).items():
-            if k in valid:
-                kwargs[k] = v
+        kwargs = {key: value for key, value in d.items() if key in valid}
         try:
             s = cls(**kwargs)
         except TypeError:
             s = cls()
+
         # Coerce/repair fields that can arrive as garbage from a hand-edited
         # or half-written file — a bad value must never crash startup.
-        s.font_size = _as_int(s.font_size, 10, minimum=6)
-        s.scrollback_lines = _as_int(s.scrollback_lines, 5000, minimum=200)
-        s.default_keepalive = _as_int(s.default_keepalive, 30, minimum=5)
-        s.reconnect_max_attempts = _as_int(s.reconnect_max_attempts, 12, minimum=1)
-        s.reconnect_base_delay = _as_float(s.reconnect_base_delay, 1.5, minimum=0.2)
-        s.reconnect_max_delay = _as_float(s.reconnect_max_delay, 60.0, minimum=0.2)
-        s.vault_autolock_minutes = _as_int(s.vault_autolock_minutes, 15, minimum=0)
-        s.kdf_iterations = _as_int(s.kdf_iterations, 310_000, minimum=100_000)
+        s.font_size = as_int(s.font_size, 10, minimum=6)
+        s.scrollback_lines = as_int(s.scrollback_lines, 5000, minimum=200)
+        s.default_keepalive = as_int(s.default_keepalive, 30, minimum=5)
+        s.reconnect_max_attempts = as_int(s.reconnect_max_attempts, 12, minimum=1)
+        s.reconnect_base_delay = as_float(s.reconnect_base_delay, 1.5, minimum=0.2)
+        s.reconnect_max_delay = as_float(s.reconnect_max_delay, 60.0, minimum=0.2)
+        s.vault_autolock_minutes = as_int(s.vault_autolock_minutes, 15, minimum=0)
+        s.kdf_iterations = as_int(
+            s.kdf_iterations,
+            310_000,
+            minimum=100_000,
+            maximum=MAX_KDF_ITERATIONS,
+        )
+
+        s.theme = as_text(s.theme, "mobaxterm")
+        s.density = as_text(s.density, "comfortable")
+        s.font_family = as_text(s.font_family)
+        s.cursor_style = as_text(s.cursor_style, "block")
+        s.terminal_backend = as_text(s.terminal_backend, "auto")
+        s.host_key_policy = as_text(s.host_key_policy, "accept-new")
+        s.rdp_client = as_text(s.rdp_client, "auto")
+        s.default_download_dir = as_text(s.default_download_dir)
+
         if s.theme not in THEME_IDS:
             s.theme = "mobaxterm"
         if s.density not in ("comfortable", "compact"):
             s.density = "comfortable"
-        s.toolbar_labels = bool(s.toolbar_labels)
-        s.animations = bool(s.animations)
-        if not isinstance(s.palette_recents, list):
-            s.palette_recents = []
-        s.palette_recents = [t for t in s.palette_recents if isinstance(t, str)][:8]
         if s.host_key_policy not in ("accept-new", "strict"):
             s.host_key_policy = "accept-new"
         if s.rdp_client not in ("auto", "embedded", "external"):
@@ -176,6 +169,22 @@ class Settings:
             s.cursor_style = "block"
         if s.terminal_backend not in ("auto", "native", "pyte"):
             s.terminal_backend = "auto"
+
+        bool_defaults = {
+            "toolbar_labels": True,
+            "animations": True,
+            "copy_on_select": True,
+            "paste_on_middle_click": True,
+            "confirm_multiline_paste": True,
+            "bell_flash": True,
+            "default_auto_reconnect": True,
+        }
+        for name, default in bool_defaults.items():
+            setattr(s, name, as_bool(getattr(s, name), default))
+
+        if not isinstance(s.palette_recents, list):
+            s.palette_recents = []
+        s.palette_recents = [t for t in s.palette_recents if isinstance(t, str)][:8]
         if not isinstance(s.geometry, dict):
             s.geometry = {}
         return s
@@ -185,21 +194,13 @@ class Settings:
         try:
             if path.exists():
                 return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             pass
         return cls()
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".settings-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(json.dumps(self.to_dict(), indent=2))
-            os.replace(tmp, path)
-        except BaseException:
-            # Never leave a stray .settings-XXXX temp file behind on error.
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_write_text(
+            path,
+            json.dumps(self.to_dict(), indent=2),
+            prefix=".settings-",
+        )

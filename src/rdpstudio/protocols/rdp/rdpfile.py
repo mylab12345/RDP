@@ -45,7 +45,7 @@ def build_rdp_text(defn: Session) -> str:
         "redirectsmartcards:i:0",
         "redirectposdevices:i:0",
         "autoreconnection enabled:i:1",
-        "authentication level:i:2",
+        f"authentication level:i:{0 if defn.rdp_cert_ignore else 2}",
         "prompt for credentials:i:0",
         "negotiate security layer:i:1",
         "remoteapplicationmode:i:0",

@@ -19,6 +19,7 @@ silently downgraded.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -29,6 +30,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 VAULT_FORMAT = 1
 KDF_ALGO = "pbkdf2-sha256"
 AEAD_ALGO = "aes-256-gcm"
+# A corrupt envelope must not turn unlock into an effectively unbounded CPU
+# operation.  This ceiling is deliberately far above the current 310k default
+# and the UI's 2M maximum, while still bounding hostile hand-edited files.
+MAX_KDF_ITERATIONS = 10_000_000
 
 
 class CryptoError(Exception):
@@ -65,38 +70,58 @@ class Envelope:
     def from_json(cls, text: str) -> Envelope:
         try:
             data = json.loads(text)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, TypeError) as exc:
             raise CryptoError("vault file is not valid JSON") from exc
+        if not isinstance(data, dict):
+            raise CryptoError("vault file is not a JSON object")
         if data.get("format") != VAULT_FORMAT:
             raise CryptoError(f"unsupported vault format {data.get('format')!r}")
         kdf, aead = data.get("kdf"), data.get("aead")
-        if not kdf or not aead:
+        if not isinstance(kdf, dict) or not isinstance(aead, dict):
             raise CryptoError("vault file is missing kdf/aead sections")
         if kdf.get("algo") != KDF_ALGO or aead.get("algo") != AEAD_ALGO:
             raise CryptoError("unsupported KDF/AEAD algorithm")
         try:
-            iterations = int(kdf["iterations"])
+            raw_iterations = kdf["iterations"]
+            if isinstance(raw_iterations, bool):
+                raise TypeError("boolean KDF iterations")
+            iterations = int(raw_iterations)
             salt = _b64d(kdf["salt"])
             nonce = _b64d(aead["nonce"])
             ciphertext = _b64d(aead["ciphertext"])
-        except (KeyError, ValueError, TypeError) as exc:
+        except (KeyError, ValueError, TypeError, UnicodeError, binascii.Error) as exc:
             raise CryptoError("vault file is corrupted") from exc
         # Reject structurally impossible envelopes before they hit the KDF /
-        # AES-GCM (0 iterations, truncated nonce, empty ciphertext).
-        if iterations < 1 or len(salt) < 8 or len(nonce) != 12 or not ciphertext:
+        # AES-GCM.  The upper iteration bound prevents a tiny corrupt file
+        # from pinning a CPU for minutes during unlock.
+        if (
+            not 1 <= iterations <= MAX_KDF_ITERATIONS
+            or len(salt) < 8
+            or len(nonce) != 12
+            or len(ciphertext) < 16  # AES-GCM authentication tag
+        ):
             raise CryptoError("vault file is corrupted")
         return cls(salt=salt, iterations=iterations, nonce=nonce, ciphertext=ciphertext)
 
 
+def _validate_iterations(iterations: int) -> None:
+    if (
+        isinstance(iterations, bool)
+        or not isinstance(iterations, int)
+        or not 1 <= iterations <= MAX_KDF_ITERATIONS
+    ):
+        raise ValueError(
+            f"KDF iterations must be between 1 and {MAX_KDF_ITERATIONS}"
+        )
+
+
 def derive_key(passphrase: str, salt: bytes, iterations: int) -> bytes:
-    if iterations < 1:
-        raise ValueError("KDF iterations must be positive")
+    _validate_iterations(iterations)
     return hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, iterations, dklen=32)
 
 
 def seal(passphrase: str, plaintext: bytes, iterations: int = 310_000) -> Envelope:
-    if iterations < 1:
-        raise ValueError("KDF iterations must be positive")
+    _validate_iterations(iterations)
     salt = os.urandom(16)
     nonce = os.urandom(12)
     key = derive_key(passphrase, salt, iterations)
@@ -123,4 +148,6 @@ def _b64e(b: bytes) -> str:
 
 def _b64d(s: str) -> bytes:
     # validate=True: a corrupted vault must fail loudly, not decode garbage.
+    if not isinstance(s, str):
+        raise TypeError("base64 field must be text")
     return base64.b64decode(s.encode("ascii"), validate=True)

@@ -11,15 +11,15 @@ path and their passphrases can live in vault entries.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .coerce import as_float, as_text
 from .crypto import CryptoError, Envelope, open_envelope, seal
 from .log import get_logger, redact_secret
+from .persistence import atomic_write_text
 
 log = get_logger("vault")
 
@@ -39,12 +39,20 @@ class Credential:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> Credential:
-        c = cls()
-        for k, v in d.items():
-            if hasattr(c, k):
-                setattr(c, k, v)
-        return c
+    def from_dict(cls, d: object) -> Credential:
+        """Repair an untrusted vault entry into the model's scalar schema."""
+        if not isinstance(d, dict):
+            return cls(id="")
+        return cls(
+            id=as_text(d.get("id")),
+            name=as_text(d.get("name")),
+            kind=as_text(d.get("kind"), "password"),
+            username=as_text(d.get("username")),
+            secret=as_text(d.get("secret")),
+            host_hint=as_text(d.get("host_hint")),
+            notes=as_text(d.get("notes")),
+            updated_at=as_float(d.get("updated_at", time.time()), time.time()),
+        )
 
     def safe_summary(self) -> str:
         return f"{self.name or self.id} · {self.kind} · user={self.username or '—'}"
@@ -84,10 +92,18 @@ class CredentialVault:
             raise VaultBusyError("vault already exists")
         if not master_passphrase:
             raise ValueError("master passphrase must not be empty")
+        previous = (self._entries, self.unlocked, self._master, self.last_activity)
         self._entries = {}
         self.unlocked = True
         self._master = master_passphrase
-        self._save_locked(master_passphrase)
+        self.last_activity = time.monotonic()
+        try:
+            self._save_locked(master_passphrase)
+        except BaseException:
+            # A failed first write must not leave an apparently usable,
+            # unlocked vault that has no durable backing file.
+            self._entries, self.unlocked, self._master, self.last_activity = previous
+            raise
 
     def unlock(self, master_passphrase: str) -> None:
         if not self.exists:
@@ -171,43 +187,53 @@ class CredentialVault:
 
         Persistence requires the in-memory master (set by create/unlock);
         otherwise the change lives only in memory until an explicit save().
+        A failed auto-save rolls the in-memory mutation back so callers never
+        observe state that was reported as unsuccessfully persisted.
         """
         self._require_unlocked()
         if not cred.id or cred.id in ("new",):
             cred.id = uuid.uuid4().hex[:12]
         cred.updated_at = time.time()
+        missing = object()
+        previous = self._entries.get(cred.id, missing)
         self._entries[cred.id] = cred
-        self.save_if_master()
+        try:
+            self.save_if_master()
+        except BaseException:
+            if previous is missing:
+                self._entries.pop(cred.id, None)
+            else:
+                self._entries[cred.id] = previous
+            raise
         return cred
 
     def delete(self, credential_id: str) -> None:
         self._require_unlocked()
-        self._entries.pop(credential_id, None)
-        self.save_if_master()
+        previous = self._entries.pop(credential_id, None)
+        try:
+            self.save_if_master()
+        except BaseException:
+            if previous is not None:
+                self._entries[credential_id] = previous
+            raise
 
     # -- persistence -----------------------------------------------------
     def save(self, master_passphrase: str) -> None:
         self._require_unlocked()
+        if not master_passphrase:
+            raise ValueError("master passphrase must not be empty")
         self._save_locked(master_passphrase)
+        # Explicit save establishes the key used by subsequent auto-saves.
+        # Otherwise a save with a newly supplied key could be silently
+        # overwritten by the stale in-memory master on the next put().
+        self._master = master_passphrase
 
     def _save_locked(self, master_passphrase: str) -> None:
         raw = json.dumps(
             {"entries": [c.to_dict() for c in self._entries.values()]}, ensure_ascii=False
         ).encode("utf-8")
         env = seal(master_passphrase, raw, self.kdf_iterations)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".vault-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(env.to_json())
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, self.path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_write_text(self.path, env.to_json(), prefix=".vault-")
 
     def change_master(self, old_passphrase: str, new_passphrase: str) -> None:
         """Re-encrypt under a new master passphrase (verifies old first).

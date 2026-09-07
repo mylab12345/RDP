@@ -1,12 +1,5 @@
-"""Local shell protocol plugin (built-in)."""
+"""Local-shell protocol package.
 
-from ...core.plugin import registry
-
-
-def _register() -> None:
-    from .session import LocalShellPlugin
-
-    registry().register(LocalShellPlugin())
-
-
-_register()
+The built-in plugin is registered explicitly by the global registry; package
+imports do not instantiate Qt-backed controllers.
+"""

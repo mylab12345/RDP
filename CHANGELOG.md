@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Engineering stability and modularity
+
+- Extracted FreeRDP discovery and command policy from the Qt session
+  controller into the pure `protocols.rdp.client` module; historical helper
+  imports remain compatible. Protocol package imports are now side-effect
+  free, and the plugin registry explicitly loads built-ins.
+- Added shared defensive scalar coercion and durable private persistence
+  primitives. Settings, sessions, snippets, the vault, and `known_hosts` now
+  write through flushed `0600` temporary files and atomic replacement.
+- The network scanner lazily schedules at most twice its worker count instead
+  of allocating the complete host×port future set, and cancellation returns
+  without waiting for unscheduled targets. Observer callback failures no
+  longer duplicate/abort scan results.
+- Session imports no longer mutate or retain caller-owned objects; repeated
+  name conflicts receive deterministic unique suffixes and duplicate groups
+  are repaired on load.
+- Added a documented engineering review/refactoring roadmap, architectural
+  decision records, testing guide, registered pytest layers, and focused unit,
+  integration, regression, fault-injection, and import-boundary coverage.
+
+### Security
+
+- Fixed the RDP certificate option: FreeRDP now uses `/cert:tofu` by default
+  and mstsc keeps certificate warnings enabled; certificate verification is
+  disabled only by the existing explicit “Accept any certificate” opt-in.
+- Private FreeRDP argument files reject newline/NUL option injection and are
+  cleaned up on every failed write.
+- Vault parsing rejects wrong JSON shapes and bounds PBKDF2 iterations before
+  key derivation. Failed vault mutations roll back their in-memory collection,
+  and an explicit successful save updates the key used by later auto-saves.
+- Corrupt/non-object/invalid-UTF-8 settings and textual booleans are repaired
+  predictably (`"false"` is no longer interpreted as true).
+
 ### Changed — MobaXterm-style UI (presentation layer only)
 - **New default look: `mobaxterm`.** Light gray Windows chrome (`#f0f0f0`),
   white work surfaces, 1 px `#adadad` borders, 2–3 px radii, Windows-blue
@@ -341,10 +374,11 @@
 - Sidebar search is debounced and the tree is rebuilt in a single batch.
 
 ### Security
-- RDP passwords are no longer placed on the FreeRDP command line by default;
-  they are passed over stdin, so other local users can no longer read them via
-  `ps` / `/proc/<pid>/cmdline` (CWE-214). The old behaviour remains as an
-  explicit, clearly-labelled opt-in.
+- RDP passwords are no longer placed on the FreeRDP 3 command line by default;
+  they are delivered through a short-lived private `/args-from:file:` file, so
+  other local users cannot read them via `ps` / `/proc/<pid>/cmdline`
+  (CWE-214). Direct argv remains a clearly-labelled opt-in; FreeRDP 2 retains
+  a documented compatibility fallback because it lacks argument-file support.
 - The configuration directory and `sessions.json` (which may hold plain-text
   passwords) are created `0700`/`0600`; pre-existing lax permissions are
   tightened on startup (CWE-276).

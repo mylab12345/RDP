@@ -1,15 +1,6 @@
-"""SSH protocol plugin (built-in).
+"""SSH protocol package.
 
-Importing this package registers the SSH plugin with the global registry.
+The package itself is side-effect free so key, forwarding, and host-file
+helpers remain importable in headless tools.  The global plugin registry loads
+:class:`.session.SshPlugin` explicitly when the application starts.
 """
-
-from ...core.plugin import registry
-
-
-def _register() -> None:
-    from .session import SshPlugin
-
-    registry().register(SshPlugin())
-
-
-_register()

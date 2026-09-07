@@ -27,17 +27,40 @@ KB-Remote is a desktop remote-access workbench. The design goals, in order:
 │  SessionContext  ← settings/store/vault/bus/prompter services    │
 ├───────────────────────┬──────────────────────┬───────────────────┤
 │ protocols/ssh         │ protocols/rdp        │ protocols/local   │
-│  SshWorker (thread)   │  negotiate.py (X.224)│  PTY / ConPTY     │
-│  TunnelManager        │  rdpfile.py (.rdp)   │  LocalShell       │
-│  SftpEngine (thread)  │  RdpSession (proc)   │                   │
-│  KnownHostsVerifier   │  servermgr.py        │                   │
-│  keys.py              │                      │                   │
+│  SshWorker (thread)   │  client.py (pure CLI)│  PTY / ConPTY     │
+│  TunnelManager        │  negotiate.py (X.224)│  LocalShell       │
+│  SftpEngine (thread)  │  rdpfile.py (.rdp)   │                   │
+│  KnownHostsVerifier   │  RdpSession (proc)   │                   │
+│  keys.py              │  servermgr.py        │                   │
 ├───────────────────────┴──────────────────────┴───────────────────┤
-│ Core                                                              │
-│  SessionStore (JSON) · CredentialVault (AES-GCM) · crypto         │
-│  Settings · EventBus · ReconnectPolicy · logging(redaction)      │
+│ Core                                                             │
+│  SessionStore (JSON) · CredentialVault (AES-GCM) · crypto        │
+│  persistence · coercion · Settings · EventBus · ReconnectPolicy  │
+│  logging (secret redaction)                                      │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Dependency boundaries
+
+- `core`, importers, parsers, command builders and persistence policy are pure
+  Python. They must not import PySide at runtime.
+- Protocol package imports are side-effect free. `core.plugin.registry()` is
+  the single owner of built-in and entry-point loading; see
+  [ADR 0001](adr/0001-explicit-plugin-loading-and-pure-protocol-policy.md).
+- Qt belongs at the edge: protocol `session.py` controllers and `ui` modules.
+  Blocking work started there still crosses a worker/process boundary.
+- Historical import paths may forward to extracted pure modules for a release,
+  but new code imports the owning module directly.
+
+## Persistence contract
+
+Persisted files are untrusted on read and transactional on write. Model loaders
+repair documented scalar forms, reject wrong container shapes, and bound
+expensive values such as PBKDF2 iterations. `core.persistence` writes a private
+temporary file beside the destination, flushes it, and atomically replaces the
+old file. Filename-only serializers (currently Paramiko known-hosts) use the
+same transaction through `atomic_write_via_path`. See
+[ADR 0002](adr/0002-durable-private-state-writes.md).
 
 ## Threading model (the part that must never regress)
 

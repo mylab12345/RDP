@@ -12,14 +12,15 @@ it is written as-is to the local sessions file and stripped from exports.
 
 from __future__ import annotations
 
+import copy
 import json
-import os
-import tempfile
 import threading
+import time
 from pathlib import Path
 
 from .log import get_logger
-from .models import Session
+from .models import Session, new_id
+from .persistence import atomic_write_text
 
 log = get_logger("store")
 
@@ -51,7 +52,10 @@ class SessionStore:
                 return
             groups = data.get("groups", [])
             if isinstance(groups, list):
-                self._groups = [g for g in groups if isinstance(g, str) and g]
+                # Preserve file order while repairing duplicate/corrupt names.
+                self._groups = list(
+                    dict.fromkeys(g for g in groups if isinstance(g, str) and g)
+                )
             raw_sessions = data.get("sessions", [])
             if not isinstance(raw_sessions, list):
                 return
@@ -75,22 +79,11 @@ class SessionStore:
             self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False))
 
     def _atomic_write(self, text: str) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".sessions-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            # This file can hold plain-text session passwords, so it must not
-            # be readable by other users (mkstemp is already 0600; make the
-            # intent explicit and survive a pre-existing laxer file).
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, self.path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        """Compatibility wrapper around the shared durable writer."""
+        # This file can hold explicitly saved plain-text session passwords,
+        # so the shared writer publishes it as 0600 and never exposes a
+        # partially serialized replacement.
+        atomic_write_text(self.path, text, prefix=".sessions-", suffix=".tmp")
 
     # ------------------------------------------------------------------
     def sessions(self) -> list[Session]:
@@ -103,8 +96,6 @@ class SessionStore:
 
     def upsert(self, session: Session) -> None:
         with self._lock:
-            import time
-
             session.updated_at = time.time()
             self._sessions[session.id] = session
             if session.group and session.group not in self._groups:
@@ -164,30 +155,47 @@ class SessionStore:
             self.save()
 
     def import_sessions(self, sessions: list[Session], on_conflict: str = "rename") -> int:
-        """Bulk import; returns number imported. Conflicting ids/names get renamed."""
-        from .models import new_id
+        """Bulk import without mutating inputs or replacing saved sessions.
 
+        Returns the number imported.  Conflicting ids always receive a fresh
+        id; when ``on_conflict`` is ``"rename"``, names receive a stable,
+        unique ``(imported N)`` suffix even across repeated imports.
+        """
         added = 0
         with self._lock:
             existing_names = {s.display_name() for s in self._sessions.values()}
-            for s in sessions:
-                if not isinstance(s, Session):
+            for source in sessions:
+                if not isinstance(source, Session):
                     continue
+                # The store owns imported objects.  Without this copy, a
+                # caller retaining ``source`` could silently mutate persisted
+                # state after the import returned.
+                session = copy.deepcopy(source)
                 # An import must never silently replace an existing session:
                 # exports (and third-party files) carry their own ids, so a
                 # colliding id gets a fresh one instead of overwriting.
-                if not s.id or s.id in self._sessions:
-                    s.id = new_id()
-                name = s.display_name()
+                while not session.id or session.id in self._sessions:
+                    session.id = new_id()
+                name = session.display_name()
                 if name in existing_names and on_conflict == "rename":
-                    s.name = f"{name} (imported)"
-                self._sessions[s.id] = s
-                existing_names.add(s.display_name())
-                if s.group and s.group not in self._groups:
-                    self._groups.append(s.group)
+                    session.name = self._unique_import_name(name, existing_names)
+                self._sessions[session.id] = session
+                existing_names.add(session.display_name())
+                if session.group and session.group not in self._groups:
+                    self._groups.append(session.group)
                 added += 1
             self.save()
         return added
+
+    @staticmethod
+    def _unique_import_name(name: str, existing_names: set[str]) -> str:
+        candidate = f"{name} (imported)"
+        if candidate not in existing_names:
+            return candidate
+        index = 2
+        while f"{name} (imported {index})" in existing_names:
+            index += 1
+        return f"{name} (imported {index})"
 
     def jump_hops(self, session: Session, *, max_hops: int = 16) -> list[Session]:
         """Return the ProxyJump chain for ``session``, stopping on cycles.

@@ -5,10 +5,15 @@ from __future__ import annotations
 import concurrent.futures
 import ipaddress
 import socket
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from ..core.log import get_logger
+
+log = get_logger("tools.network")
 
 COMMON_PORTS: dict[int, str] = {
     21: "FTP",
@@ -221,14 +226,37 @@ def check_port(
 
 
 class PortScanner:
-    """Multithreaded concurrent scanner with progress callbacks."""
+    """Bounded concurrent scanner with progress and responsive cancellation.
+
+    At most twice ``max_workers`` futures are queued.  Earlier versions built
+    and submitted the entire Cartesian product first (up to hundreds of
+    thousands of futures), causing avoidable memory spikes and making Cancel
+    ineffective until submission completed.
+    """
+
+    _IN_FLIGHT_FACTOR = 2
 
     def __init__(self, max_workers: int = 50) -> None:
-        self.max_workers = max_workers
-        self._cancelled = False
+        try:
+            workers = int(max_workers)
+        except (TypeError, ValueError, OverflowError):
+            workers = 50
+        self.max_workers = max(1, workers)
+        self._cancelled = False  # compatibility/introspection flag
+        self._cancel_event = threading.Event()
 
     def cancel(self) -> None:
         self._cancelled = True
+        self._cancel_event.set()
+
+    @staticmethod
+    def _notify(callback: Callable | None, *args: object) -> None:
+        if callback is None:
+            return
+        try:
+            callback(*args)
+        except Exception:  # noqa: BLE001 - observer bugs must not abort a scan
+            log.exception("network scanner callback failed")
 
     def scan(
         self,
@@ -240,46 +268,72 @@ class PortScanner:
         on_progress: Callable[[int, int], None] | None = None,
     ) -> list[ScanResult]:
         self._cancelled = False
-        tasks: list[tuple[str, int]] = []
-        for host in targets:
-            for port in ports:
-                tasks.append((host, port))
+        self._cancel_event.clear()
+        total = len(targets) * len(ports)
+        if total == 0:
+            return []
 
-        total = len(tasks)
+        task_iter = ((host, port) for host in targets for port in ports)
         completed = 0
         results: list[ScanResult] = []
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
+        pending: dict[concurrent.futures.Future, tuple[str, int]] = {}
+        exhausted = False
+        max_pending = self.max_workers * self._IN_FLIGHT_FACTOR
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_task = {
-                executor.submit(check_port, host, port, timeout, grab_banner): (host, port)
-                for host, port in tasks
-            }
-
-            for future in concurrent.futures.as_completed(future_to_task):
-                if self._cancelled:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
+        def submit_available() -> None:
+            nonlocal exhausted
+            while (
+                not exhausted
+                and not self._cancel_event.is_set()
+                and len(pending) < max_pending
+            ):
                 try:
-                    res = future.result()
-                    results.append(res)
-                    if on_result is not None:
-                        on_result(res)
-                except Exception as exc:
-                    host, port = future_to_task[future]
-                    res = ScanResult(
-                        host=host,
-                        port=port,
-                        open=False,
-                        service=COMMON_PORTS.get(port, "unknown"),
-                        error=str(exc),
-                    )
-                    results.append(res)
-                    if on_result is not None:
-                        on_result(res)
+                    host, port = next(task_iter)
+                except StopIteration:
+                    exhausted = True
+                    break
+                future = executor.submit(check_port, host, port, timeout, grab_banner)
+                pending[future] = (host, port)
 
-                completed += 1
-                if on_progress is not None:
-                    on_progress(completed, total)
+        try:
+            submit_available()
+            while pending and not self._cancel_event.is_set():
+                # A short bounded wait makes cancellation responsive even when
+                # every network operation is still blocked on its timeout.
+                done, _not_done = concurrent.futures.wait(
+                    pending,
+                    timeout=0.05,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                if not done:
+                    continue
+                for future in done:
+                    host, port = pending.pop(future)
+                    try:
+                        result = future.result()
+                    except Exception as exc:  # defensive: check_port normally contains errors
+                        result = ScanResult(
+                            host=host,
+                            port=port,
+                            open=False,
+                            service=COMMON_PORTS.get(port, "unknown"),
+                            error=str(exc),
+                        )
+                    results.append(result)
+                    completed += 1
+                    self._notify(on_result, result)
+                    self._notify(on_progress, completed, total)
+                submit_available()
+        finally:
+            cancelled = self._cancel_event.is_set()
+            if cancelled:
+                for future in pending:
+                    future.cancel()
+            # On cancellation, return immediately; only the at-most-N running
+            # socket probes finish in the executor background (bounded by
+            # their own timeout).  A completed scan still joins all workers.
+            executor.shutdown(wait=not cancelled, cancel_futures=cancelled)
 
         return results
 
