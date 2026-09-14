@@ -157,3 +157,53 @@ def test_font_presets_cover_multiple_families():
         "Courier New",
     ):
         assert name in FONT_PRESETS
+
+
+def test_default_download_dir_roundtrip(home):
+    from rdpstudio.core.settings import Settings
+
+    s = Settings()
+    assert s.default_download_dir == ""
+    s.default_download_dir = str(home / "dl")
+    path = home / "settings.json"
+    s.save(path)
+    assert Settings.load(path).default_download_dir == str(home / "dl")
+
+
+def test_resolve_download_start_prefers_existing(tmp_path):
+    from rdpstudio.ui.sftp_dialog import resolve_download_start
+
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    assert resolve_download_start("/nonexistent", str(configured), str(home)) == str(configured)
+    explicit = tmp_path / "explicit"
+    explicit.mkdir()
+    assert resolve_download_start(str(explicit), str(configured), str(home)) == str(explicit)
+    assert resolve_download_start("/nope", "/missing", str(home)) == str(home)
+    assert resolve_download_start("", "", "") == ""
+
+
+def test_debug_ratelimited_emits_once_per_interval():
+    import logging
+    import uuid
+
+    from rdpstudio.core.log import debug_ratelimited
+
+    records = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger(f"test.ratelimit.{uuid.uuid4().hex}")
+    logger.addHandler(_H())
+    logger.setLevel(logging.DEBUG)
+    debug_ratelimited(logger, "k", "boom %s", "x", interval=60)
+    debug_ratelimited(logger, "k", "boom %s", "x", interval=60)
+    assert records == ["boom x"]
+    debug_ratelimited(logger, "other", "boom %s", "x", interval=60)
+    assert records == ["boom x", "boom x"]
+    debug_ratelimited(logger, "k", "boom %s", "x", interval=0)
+    assert len(records) == 3 and "+1 similar suppressed" in records[2]

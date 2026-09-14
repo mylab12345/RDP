@@ -8,7 +8,7 @@ from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import QWidget
 
 from ...core import paths
-from ...core.log import get_logger
+from ...core.log import debug_ratelimited, get_logger
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
@@ -170,6 +170,7 @@ class SshSessionController(SessionController):
             key_path=key_path,
             key_passphrase=passphrase,
             allow_agent=allow_agent,
+            forward_agent=bool(defn.agent_forwarding),
             jump=jump,
         )
 
@@ -298,16 +299,16 @@ class SshSessionController(SessionController):
             try:
                 worker.write_input(bytes(args[0]))
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                debug_ratelimited(log, "direct-write", "direct write failed, queuing: %s", exc)
             # fallback to queued
             self._sigWrite.emit(bytes(args[0]))
         elif method == "resize_pty" and len(args) == 2:
             try:
                 worker.resize_pty(int(args[0]), int(args[1]))
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                debug_ratelimited(log, "direct-resize", "direct resize failed, queuing: %s", exc)
             self._sigResize.emit(int(args[0]), int(args[1]))
         elif method == "start_forward" and args:
             self._sigStartForward.emit(dict(args[0]))

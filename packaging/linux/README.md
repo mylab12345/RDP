@@ -39,7 +39,7 @@ https://github.com/mylab12345/RDP/releases/latest
 bash packaging/linux/build-appimage.sh
 
 # Flatpak (needs flatpak-builder + Flathub remote):
-flatpak-builder --user --install --force-clean _build flatpak/io.github.mylab12345.KBRemote.yaml
+flatpak-builder --user --install --force-clean _build packaging/flatpak/io.github.mylab12345.KBRemote.yaml
 flatpak run io.github.mylab12345.KBRemote
 
 # Snap (needs snapcraft):
@@ -60,7 +60,7 @@ The CI workflow `packaging/ci/release-linux.yml` builds all three on every
 
 1. Fork [flathub/flathub](https://github.com/flathub/flathub).
 2. Create directory `io.github.mylab12345.KBRemote/` containing:
-   - `io.github.mylab12345.KBRemote.yaml` (copy of `flatpak/io.github.mylab12345.KBRemote.yaml`)
+   - `io.github.mylab12345.KBRemote.yaml` (copy of `packaging/flatpak/io.github.mylab12345.KBRemote.yaml`)
    - A `sources/` dir with generated tarball + python sources (use
      `flatpak run org.flatpak.Builder --generate-sources` or `flatpak-pip-generator`).
 3. Add a screenshot link (already in the metainfo).

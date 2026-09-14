@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.log import debug_ratelimited, get_logger
 from ..core.models import (
     AUTH_AGENT,
     AUTH_KEY,
@@ -41,6 +42,8 @@ from ..core.shares import MAX_SHARES, Share, sanitize_share_name, share_name_fro
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
 _RDP_STEP = 8
+
+log = get_logger("ui.session_dialog")
 
 
 def _display_mode_of(session: Session):
@@ -491,8 +494,8 @@ class SessionDialog(QDialog):
                 if cred.username:
                     label += f" ({cred.username})"
                 combo.addItem(label, cred.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            debug_ratelimited(log, "vault-list", "vault unavailable, credential list empty: %s", exc)
         if current:
             idx = combo.findData(current)
             if idx >= 0:
@@ -552,6 +555,17 @@ class SessionDialog(QDialog):
         check_row.addWidget(self.auto_reconnect)
         check_row.addStretch(1)
         form.addRow(check_row)
+
+        self.agent_forward = self._make_checkbox("Forward SSH agent", self.session.agent_forwarding)
+        self.agent_forward.setToolTip(
+            "Let this host use your local SSH keys while connected (ssh -A). "
+            "Only enable for hosts you trust — a malicious server could use "
+            "your agent to authenticate elsewhere."
+        )
+        agent_row = QHBoxLayout()
+        agent_row.addWidget(self.agent_forward)
+        agent_row.addStretch(1)
+        form.addRow(agent_row)
         layout.addWidget(beh_card)
 
         layout.addStretch(1)
@@ -919,6 +933,7 @@ class SessionDialog(QDialog):
             s.timeout = self.timeout.value()
             s.compression = self.compression.isChecked()
             s.auto_reconnect = self.auto_reconnect.isChecked()
+            s.agent_forwarding = self.agent_forward.isChecked()
         elif s.protocol == PROTOCOL_RDP:
             s.auth = auth_ui["auth"].currentData()
             s.credential_id = auth_ui["credential"].currentData() or ""

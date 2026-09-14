@@ -94,6 +94,41 @@ class SessionStore:
         with self._lock:
             return self._sessions.get(session_id)
 
+    def get_copy(self, session_id: str) -> Session | None:
+        """Return a detached copy; mutating it never touches store state."""
+        with self._lock:
+            current = self._sessions.get(session_id)
+            return copy.deepcopy(current) if current is not None else None
+
+    def update(self, session_id: str, mutator) -> Session | None:
+        """Atomically mutate one session with snapshot → save → commit semantics.
+
+        The mutator receives a detached copy. If it raises, or if the
+        subsequent save fails, in-memory state is left untouched (unlike
+        mutating ``get()`` results in place and then calling ``upsert()``).
+        Returns a detached copy of the committed session, or None if the id
+        is unknown. The session id cannot be changed by the mutator.
+        """
+        with self._lock:
+            current = self._sessions.get(session_id)
+            if current is None:
+                return None
+            candidate = copy.deepcopy(current)
+            mutator(candidate)  # raises ⇒ no state change
+            candidate.id = session_id
+            candidate.updated_at = time.time()
+            snapshot_groups = list(self._groups)
+            self._sessions[session_id] = candidate
+            if candidate.group and candidate.group not in self._groups:
+                self._groups.append(candidate.group)
+            try:
+                self.save()
+            except Exception:
+                self._sessions[session_id] = current
+                self._groups = snapshot_groups
+                raise
+            return copy.deepcopy(candidate)
+
     def upsert(self, session: Session) -> None:
         with self._lock:
             session.updated_at = time.time()

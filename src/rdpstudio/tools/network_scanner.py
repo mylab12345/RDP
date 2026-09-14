@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import ipaddress
+import json
 import socket
 import threading
 import time
@@ -244,6 +245,8 @@ class PortScanner:
         self.max_workers = max(1, workers)
         self._cancelled = False  # compatibility/introspection flag
         self._cancel_event = threading.Event()
+        # Set by the last scan(): True when max_results stopped it early.
+        self.truncated = False
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -266,12 +269,49 @@ class PortScanner:
         grab_banner: bool = True,
         on_result: Callable[[ScanResult], None] | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        max_results: int = 0,
+        export_path: str | None = None,
     ) -> list[ScanResult]:
+        """Probe every target×port, returning one ScanResult per completed probe.
+
+        ``max_results`` (> 0) caps retained results: once reached, pending
+        probes are cancelled and the scan stops early (``self.truncated`` is
+        set). ``export_path`` streams each result as one JSON object per line
+        as probes complete, so huge scans never need the full list in memory
+        to produce a file.
+        """
         self._cancelled = False
         self._cancel_event.clear()
+        self.truncated = False
+        try:
+            cap = max(0, int(max_results or 0))
+        except (TypeError, ValueError, OverflowError):
+            cap = 0
         total = len(targets) * len(ports)
         if total == 0:
             return []
+
+        stream = None
+        if export_path:
+            try:
+                stream = open(export_path, "w", encoding="utf-8")
+            except OSError as exc:
+                log.warning("scan export unavailable (%s): %s", export_path, exc)
+                stream = None
+
+        def emit(result: ScanResult) -> None:
+            nonlocal stream
+            if stream is not None:
+                try:
+                    stream.write(json.dumps(result.to_dict()) + "\n")
+                except OSError as exc:
+                    log.warning("scan export failed, continuing in memory: %s", exc)
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+                    stream = None
+            self._notify(on_result, result)
 
         task_iter = ((host, port) for host in targets for port in ports)
         completed = 0
@@ -322,8 +362,13 @@ class PortScanner:
                         )
                     results.append(result)
                     completed += 1
-                    self._notify(on_result, result)
+                    emit(result)
                     self._notify(on_progress, completed, total)
+                    if 0 < cap <= len(results) and (pending or not exhausted):
+                        # Result cap reached with probes still outstanding:
+                        # stop scheduling, drop pending.
+                        self.truncated = True
+                        self._cancel_event.set()
                 submit_available()
         finally:
             cancelled = self._cancel_event.is_set()
@@ -334,6 +379,11 @@ class PortScanner:
             # socket probes finish in the executor background (bounded by
             # their own timeout).  A completed scan still joins all workers.
             executor.shutdown(wait=not cancelled, cancel_futures=cancelled)
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
 
         return results
 

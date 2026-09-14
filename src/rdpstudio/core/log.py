@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import threading
+import time
 from pathlib import Path
 
 _LOCK = threading.Lock()
@@ -21,6 +22,10 @@ _MASK = "***REDACTED***"
 
 
 _MAX_SECRETS = 256
+
+# Rate-limited debug records (OBS-01): hot teardown paths must not spam.
+_RATE_LIMITS: dict[tuple[int, str], list] = {}
+_MAX_RATE_KEYS = 512
 
 
 def redact_secret(value: str | None) -> None:
@@ -54,6 +59,34 @@ class _RedactingFilter(logging.Filter):
 
 def get_logger(name: str | None = None) -> logging.Logger:
     return logging.getLogger(f"{_LOGGER_NAME}.{name}" if name else _LOGGER_NAME)
+
+
+def debug_ratelimited(
+    logger: logging.Logger, key: str, msg: str, *args, interval: float = 60.0
+) -> None:
+    """Debug-log at most once per ``interval`` seconds per ``key``.
+
+    Cleanup/teardown catches (channel close, resize during shutdown) fire on
+    hot paths where an unconditional log would spam; silent ``pass`` hides
+    real breakage. Suppressed repeats are counted and reported with the next
+    emission. All output still passes through the redacting filter.
+    """
+    now = time.monotonic()
+    slot = (id(logger), key)
+    with _LOCK:
+        if len(_RATE_LIMITS) > _MAX_RATE_KEYS:
+            _RATE_LIMITS.clear()
+        state = _RATE_LIMITS.get(slot)
+        if state is None:
+            state = _RATE_LIMITS[slot] = [0.0, 0]
+        last, suppressed = state
+        if now - last < interval:
+            state[1] += 1
+            return
+        state[0] = now
+        state[1] = 0
+    suffix = f" (+{suppressed} similar suppressed)" if suppressed else ""
+    logger.debug(msg + suffix, *args)
 
 
 def setup_logging(log_dir: Path, verbose: bool = False) -> None:

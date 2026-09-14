@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added — wired settings, safer teardown logs, bounded scanner
+- **SSH agent forwarding (opt-in):** `Session.agent_forwarding` is now honored
+  end to end — session editor checkbox with a trust warning, best-effort
+  `AgentRequestHandler` after the shell opens, never fatal to the connection.
+  Off by default.
+- **SFTP download folder:** new *Settings → Connections → Downloads* field;
+  the download dialog now prefers the local pane, then this folder, then home.
+- **Scanner result cap + streaming export:** `PortScanner.scan()` accepts
+  `max_results` (stops early, flags `truncated`) and `export_path` (JSON-lines
+  streamed per probe); the Network Tools dialog exposes both.
+- **Rate-limited debug logging:** `core.log.debug_ratelimited` replaces silent
+  teardown catches in the SSH worker/session and session dialog.
+
+### Changed — simpler layout and look, UI refactors with no behavior change
+- Repo root: `flatpak/` consolidated into `packaging/flatpak/` (CI/docs refs
+  updated; `snap/` stays at root as required by snapcore/action-build).
+- `ui/theme.py` → palettes in `ui/theme_palettes.py`, stylesheets in
+  `ui/theme_qss.py`; `main_window.py` → `ui/command_bar.py`,
+  `ui/main_actions.py`, `ui/dashboard.py` (mixins, compat re-exports kept).
+- Dashboard: removed the duplicated quick-connect card (toolbar strip kept).
+- All 13 palettes now meet WCAG AA (muted text ≥ 4.5, accent buttons ≥ 4.5);
+  keyboard focus rings for the tab bar and tree/list/table views.
+- `SessionStore.update()` / `get_copy()`: transactional single-session edits
+  with save-failure rollback; sidebar move/pin migrated to it.
+
 ### Added — file sharing for Windows / RDP machines (built-in SFTP share server)
 
 Windows boxes reached over RDP have no SSH daemon, so there was no way to hand

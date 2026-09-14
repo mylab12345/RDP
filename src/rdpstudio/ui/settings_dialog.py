@@ -644,9 +644,37 @@ class SettingsDialog(QDialog):
         ))
         lay.addWidget(grp3)
 
+        # -- downloads --
+        grp_dl, grp_dl_lay = _make_group("Downloads", pal)
+        self.download_dir = QLineEdit()
+        self.download_dir.setText(settings.default_download_dir or "")
+        self.download_dir.setPlaceholderText("Empty = last location, else home")
+        self.download_dir.setMinimumHeight(24)
+        self.download_browse = QPushButton("Browse…")
+        self.download_browse.setMinimumHeight(24)
+        self.download_browse.clicked.connect(self._browse_download_dir)
+        dl_row = QHBoxLayout()
+        dl_row.setSpacing(12)
+        dl_row.addWidget(_make_row_label("SFTP download folder", pal))
+        dl_row.addWidget(self.download_dir, 1)
+        dl_row.addWidget(self.download_browse)
+        grp_dl_lay.addLayout(dl_row)
+        grp_dl_lay.addWidget(_make_hint(
+            "Initial folder offered by the SFTP download dialog.",
+            pal,
+        ))
+        lay.addWidget(grp_dl)
+
         lay.addWidget(self._build_file_sharing_group(settings, pal))
 
         lay.addStretch(1)
+
+    def _browse_download_dir(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "SFTP download folder", self.download_dir.text() or os.path.expanduser("~")
+        )
+        if folder:
+            self.download_dir.setText(folder)
 
     # ── File sharing (built-in SFTP share server) ────────────────────────
 
@@ -965,6 +993,7 @@ class SettingsDialog(QDialog):
         s.reconnect_base_delay = self.reconnect_base_delay.value()
         s.reconnect_max_delay = self.reconnect_max_delay.value()
         s.host_key_policy = self.host_key_policy.currentData()
+        s.default_download_dir = self.download_dir.text().strip()
         s.vault_autolock_minutes = self.vault_autolock.value()
         s.kdf_iterations = self.kdf_iterations.value()
         s.rdp_client = self.rdp_client.currentData()

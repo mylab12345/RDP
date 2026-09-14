@@ -416,16 +416,15 @@ class SessionTree(QWidget):
         s = self.store.get(session_id)
         if s is None or s.group == group:
             return
-        s.group = group
-        self.store.upsert(s)  # upsert registers a new group and persists
+        self.store.update(session_id, lambda c: setattr(c, "group", group))
         self.reload()
 
     def _toggle_pin(self, session_id: str) -> None:
-        s = self.store.get(session_id)
-        if s is None:
+        def _flip(s) -> None:
+            s.options["pinned"] = not s.options.get("pinned", False)
+
+        if self.store.update(session_id, _flip) is None:
             return
-        s.options["pinned"] = not s.options.get("pinned", False)
-        self.store.upsert(s)
         self.reload()
 
     def _rename_group(self, group: str) -> None:

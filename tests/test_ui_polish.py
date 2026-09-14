@@ -206,8 +206,9 @@ def test_mobaxterm_is_default_theme() -> None:
     assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm"
     pal = theme.PALETTE["mobaxterm"]
     # MobaXterm signature colours: light gray chrome, Windows blue accent
+    # (accent slightly deepened so white button text meets WCAG AA).
     assert pal["bg"].lower() == "#f0f0f0"
-    assert pal["accent"].lower() == "#0078d7"
+    assert pal["accent"].lower() == "#0075d2"
 
 
 def test_toolbar_icons_are_tinted_per_action(qtapp) -> None:  # noqa: ARG001
@@ -245,3 +246,41 @@ def test_sidebar_has_rail_and_pages(home, qtapp) -> None:
     sb.rail.setCurrentIndex(1)
     assert sb.pages.currentIndex() == 1
     sb.close()
+
+
+def _wcag_ratio(a: str, b: str) -> float:
+    def chan(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    def lum(h: str) -> float:
+        h = h.lstrip("#")
+        r, g, bl = (int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))
+        return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(bl)
+
+    hi, lo = max(lum(a), lum(b)), min(lum(a), lum(b))
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_all_palettes_meet_wcag_aa() -> None:
+    """Round 5: secondary text >= 4.5, accent buttons >= 4.5, accents >= 3:1."""
+    from rdpstudio.ui.theme_palettes import PALETTE
+
+    for tid, pal in sorted(PALETTE.items()):
+        assert _wcag_ratio(pal["fg_muted"], pal["bg3"]) >= 4.5, f"{tid} muted"
+        assert _wcag_ratio(pal["accent_text"], pal["accent"]) >= 4.5, f"{tid} button"
+        assert _wcag_ratio(pal["accent"], pal["bg"]) >= 3.0, f"{tid} accent"
+
+
+def test_keyboard_focus_rings_in_stylesheet(qtapp) -> None:  # noqa: ARG001
+    """Round 5: every focusable chrome family has a visible focus rule."""
+    from rdpstudio.ui import theme
+
+    for tid in ("mobaxterm", "dark", "contrast"):
+        theme.apply_theme(qtapp, tid, animations=False)
+        qss = qtapp.styleSheet()
+        assert "QTabBar:focus" in qss, tid
+        assert "QTreeView:focus" in qss, tid
+        assert "QPushButton:focus" in qss, tid
+        assert "QLineEdit:focus" in qss, tid
+        assert "QToolButton:focus" in qss, tid
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)

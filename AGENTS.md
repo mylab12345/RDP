@@ -9,7 +9,9 @@ KB-Remote (RDP/SSH/local terminal client, PySide6). Source in `src/rdpstudio`.
 - Install is **editable** (`pip install -e .`), so source edits are live on app restart.
 
 ## Workflow rules (user requirement)
-- After every code change: rebuild/reinstall the app so the running install matches the repo:
+- After every code change: clear stale caches, then rebuild/reinstall the app
+  so the running install always picks up the latest changes:
+  `find src tests scripts -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null; rm -rf .pytest_cache .ruff_cache`
   `~/.kb-remote/venv/bin/pip install --quiet --force-reinstall --no-deps -e .`
   Then verify the installed module resolves to the updated code and the app launches.
 - Run checks before finishing any change:

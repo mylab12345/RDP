@@ -39,6 +39,14 @@ TEXT_EXTS = {
 }
 
 
+def resolve_download_start(explicit: str, configured: str, home: str) -> str:
+    """First existing directory wins: local pane → configured default → home."""
+    for candidate in (explicit or "", configured or "", home or ""):
+        if candidate and Path(candidate).is_dir():
+            return candidate
+    return home or ""
+
+
 class _Pane(QWidget):
     """One side of the browser: path bar + list."""
 
@@ -438,7 +446,13 @@ class SftpDialog(QDialog):
                 toast(self, "Select remote files first", "warn")
                 return
             dest = QFileDialog.getExistingDirectory(
-                self, "Download to…", self.local.path.text() or str(Path.home())
+                self,
+                "Download to…",
+                resolve_download_start(
+                    self.local.path.text(),
+                    getattr(self.ctx.settings, "default_download_dir", ""),
+                    str(Path.home()),
+                ),
             )
             if not dest:
                 return

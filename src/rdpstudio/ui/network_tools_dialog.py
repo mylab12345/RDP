@@ -8,6 +8,7 @@ import json
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -48,11 +49,22 @@ class _ScannerThread(QThread):
     progressReady = Signal(int, int)
     finishedScan = Signal(list)
 
-    def __init__(self, targets: list[str], ports: list[int], timeout: float, parent=None) -> None:
+    def __init__(
+        self,
+        targets: list[str],
+        ports: list[int],
+        timeout: float,
+        max_results: int = 0,
+        export_path: str | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.targets = targets
         self.ports = ports
         self.timeout = timeout
+        self.max_results = max_results
+        self.export_path = export_path
+        self.truncated = False
         self.scanner = PortScanner(max_workers=60)
 
     def run(self) -> None:
@@ -69,7 +81,10 @@ class _ScannerThread(QThread):
             grab_banner=True,
             on_result=on_res,
             on_progress=on_prog,
+            max_results=self.max_results,
+            export_path=self.export_path,
         )
+        self.truncated = self.scanner.truncated
         self.finishedScan.emit(results)
 
     def cancel(self) -> None:
@@ -213,6 +228,23 @@ class NetworkToolsDialog(QDialog):
         self.chk_open_only.currentIndexChanged.connect(self._refresh_table)
         r2.addWidget(self.chk_open_only)
 
+        r2.addWidget(QLabel("Max results:"))
+        self.max_results_spin = QSpinBox()
+        self.max_results_spin.setRange(0, 1000000)
+        self.max_results_spin.setValue(50000)
+        self.max_results_spin.setSpecialValueText("Unlimited")
+        self.max_results_spin.setToolTip(
+            "Cap retained results; the scan stops early once reached (0 = unlimited)."
+        )
+        r2.addWidget(self.max_results_spin)
+
+        self.chk_stream = QCheckBox("Stream to file")
+        self.chk_stream.setToolTip(
+            "Write each probe result to a JSON-lines file as it completes, "
+            "so huge scans don't need everything in memory to export."
+        )
+        r2.addWidget(self.chk_stream)
+
         r2.addStretch(1)
 
         self.btn_scan = QPushButton("▶ Start Scan")
@@ -307,7 +339,21 @@ class NetworkToolsDialog(QDialog):
         self.btn_scan.setText("■ Stop Scan")
         self.lbl_scan_stats.setText(f"Scanning {len(targets)} host(s) across {len(ports)} port(s)…")
 
-        self._scan_thread = _ScannerThread(targets, ports, timeout=float(self.timeout_spin.value()))
+        export_path = None
+        if self.chk_stream.isChecked():
+            export_path, _ = QFileDialog.getSaveFileName(
+                self, "Stream scan results", "scan-results.jsonl", "JSON lines (*.jsonl)"
+            )
+            if not export_path:
+                self.chk_stream.setChecked(False)
+
+        self._scan_thread = _ScannerThread(
+            targets,
+            ports,
+            timeout=float(self.timeout_spin.value()),
+            max_results=int(self.max_results_spin.value()),
+            export_path=export_path,
+        )
         self._scan_thread.resultReady.connect(self._on_scan_result)
         self._scan_thread.progressReady.connect(self._on_scan_progress)
         self._scan_thread.finishedScan.connect(self._on_scan_finished)
@@ -327,7 +373,13 @@ class NetworkToolsDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.btn_scan.setText("▶ Start Scan")
         open_count = sum(1 for r in results if r.open)
-        self.lbl_scan_stats.setText(f"Scan complete: {len(results)} probes, {open_count} open port(s) found.")
+        text = f"Scan complete: {len(results)} probes, {open_count} open port(s) found."
+        thread = self._scan_thread
+        if thread is not None and thread.truncated:
+            text += f" Truncated at {len(results)} results (raise Max results to see more)."
+        if thread is not None and thread.export_path:
+            text += f" Streamed to {thread.export_path}."
+        self.lbl_scan_stats.setText(text)
         toast(self, f"Scan finished: {open_count} open port(s)", "good" if open_count else "info")
 
     def _refresh_table(self) -> None:

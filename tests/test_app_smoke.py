@@ -111,3 +111,29 @@ def test_close_tabs_have_no_ctrl_w_shortcut(ctx, qtapp):
     assert "Ctrl+Shift+W" not in sequences
     win.close()
     qtapp.processEvents()
+
+
+def test_session_dialog_saves_agent_forwarding(ctx, qtapp):
+    from rdpstudio.core.models import Session
+    from rdpstudio.ui.session_dialog import SessionDialog
+
+    dlg = SessionDialog(ctx, Session(name="t", protocol="ssh", host="h", port=22), None)
+    assert dlg.agent_forward.isChecked() is False
+    assert "trust" in dlg.agent_forward.toolTip()
+    dlg.agent_forward.setChecked(True)
+    assert dlg._collect_session().agent_forwarding is True
+    dlg.deleteLater()
+
+
+def test_settings_dialog_saves_download_dir(ctx, qtapp, home):
+    from rdpstudio.core import paths
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.settings_dialog import SettingsDialog
+
+    target = home / "dl"
+    target.mkdir()
+    dlg = SettingsDialog(ctx.settings, None)
+    dlg.download_dir.setText(str(target))
+    dlg._save()
+    assert Settings.load(paths.settings_file()).default_download_dir == str(target)
+    dlg.deleteLater()

@@ -72,3 +72,100 @@ def test_duplicate_and_import(tmp_path):
     assert added == 1
     names = [x.display_name() for x in store.sessions()]
     assert any("(imported)" in n for n in names)
+
+
+def test_update_commits_and_persists(tmp_path):
+    store = SessionStore(tmp_path / "sessions.json")
+    s = Session(name="web", host="h", group="A")
+    store.upsert(s)
+    updated = store.update(s.id, lambda c: setattr(c, "group", "B"))
+    assert updated is not None and updated.group == "B"
+    assert store.get(s.id).group == "B"
+    assert "B" in store.groups()
+    reloaded = SessionStore(tmp_path / "sessions.json")
+    assert reloaded.get(s.id).group == "B"
+
+
+def test_update_unknown_id_returns_none(tmp_path):
+    store = SessionStore(tmp_path / "sessions.json")
+    assert store.update("missing", lambda c: None) is None
+
+
+def test_update_mutator_error_leaves_state_untouched(tmp_path):
+    store = SessionStore(tmp_path / "sessions.json")
+    s = Session(name="web", host="h", group="A")
+    store.upsert(s)
+
+    def _boom(candidate):
+        candidate.group = "B"
+        raise RuntimeError("nope")
+
+    try:
+        store.update(s.id, _boom)
+    except RuntimeError:
+        pass
+    assert store.get(s.id).group == "A"
+    assert "B" not in store.groups()
+
+
+def test_update_save_failure_rolls_back_memory(tmp_path, monkeypatch):
+    store = SessionStore(tmp_path / "sessions.json")
+    s = Session(name="web", host="h", group="A")
+    store.upsert(s)
+
+    def _fail(_text):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(store, "_atomic_write", _fail)
+    try:
+        store.update(s.id, lambda c: setattr(c, "group", "B"))
+    except OSError:
+        pass
+    assert store.get(s.id).group == "A"
+    assert "B" not in store.groups()
+
+
+def test_get_copy_is_detached(tmp_path):
+    store = SessionStore(tmp_path / "sessions.json")
+    s = Session(name="web", host="h", group="A")
+    store.upsert(s)
+    dup = store.get_copy(s.id)
+    assert dup is not None
+    dup.group = "B"
+    dup.options["pinned"] = True
+    assert store.get(s.id).group == "A"
+    assert "pinned" not in store.get(s.id).options
+
+
+def test_update_concurrent_readers_and_writers(tmp_path):
+    import threading
+
+    store = SessionStore(tmp_path / "sessions.json")
+    s = Session(name="web", host="h")
+    store.upsert(s)
+    errors: list = []
+
+    def _writer(n):
+        try:
+            for i in range(25):
+                store.update(s.id, lambda c, v=f"w{n}-{i}": c.options.update(tag=v))
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    def _reader():
+        try:
+            for _ in range(50):
+                store.get(s.id)
+                store.get_copy(s.id)
+                store.sessions()
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=_writer, args=(n,)) for n in range(4)]
+    threads += [threading.Thread(target=_reader) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert store.get(s.id) is not None

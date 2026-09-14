@@ -166,3 +166,115 @@ def test_pump_flushes_tail_on_stop(qtapp):
         time.sleep(0.02)
     assert b"FINAL-TAIL" in b"".join(emissions), "tail output was dropped on stop"
     assert disconnected, "disconnected must be emitted"
+
+
+def test_auth_material_forward_agent_defaults_off():
+    from rdpstudio.protocols.ssh.worker import AuthMaterial
+
+    assert AuthMaterial().forward_agent is False
+
+
+class _FakeShellChannel:
+    def get_pty(self, *args, **kwargs):
+        pass
+
+    def invoke_shell(self):
+        pass
+
+
+class _FakeShellTransport:
+    def __init__(self, chan):
+        self._chan = chan
+
+    def set_keepalive(self, *args):
+        pass
+
+    def open_session(self, timeout=None):
+        return self._chan
+
+
+class _FakeShellClient:
+    def __init__(self, chan):
+        self._transport = _FakeShellTransport(chan)
+
+    def get_transport(self):
+        return self._transport
+
+
+def _forwarding_worker(qtapp, monkeypatch, forward_agent):
+    from pathlib import Path
+
+    import paramiko.agent as agent_mod
+
+    from rdpstudio.core import paths
+    from rdpstudio.protocols.ssh.worker import AuthMaterial, SshWorker
+    from rdpstudio.ui.prompter import HeadlessPromptProvider
+
+    calls = []
+    monkeypatch.setattr(agent_mod, "AgentRequestHandler", lambda chan: calls.append(chan))
+    worker = SshWorker(
+        host="fake",
+        port=22,
+        material=AuthMaterial(host="fake", forward_agent=forward_agent),
+        known_hosts_path=Path(paths.known_hosts_file()),
+        host_key_policy="accept-new",
+        prompter=HeadlessPromptProvider(),
+    )
+    chan = _FakeShellChannel()
+    worker._client = _FakeShellClient(chan)
+    return worker, chan, calls
+
+
+def test_open_shell_requests_agent_forwarding(qtapp, monkeypatch):
+    worker, chan, calls = _forwarding_worker(qtapp, monkeypatch, True)
+    worker._open_shell()
+    assert worker._chan is chan
+    assert calls == [chan]
+
+
+def test_open_shell_skips_forwarding_by_default(qtapp, monkeypatch):
+    worker, chan, calls = _forwarding_worker(qtapp, monkeypatch, False)
+    worker._open_shell()
+    assert worker._chan is chan
+    assert calls == []
+
+
+def test_open_shell_forward_failure_keeps_shell(qtapp, monkeypatch):
+    import paramiko.agent as agent_mod
+
+    worker, chan, calls = _forwarding_worker(qtapp, monkeypatch, True)
+
+    def _boom(_chan):
+        raise RuntimeError("refused")
+
+    monkeypatch.setattr(agent_mod, "AgentRequestHandler", _boom)
+    worker._open_shell()  # must not raise: forwarding is best-effort
+    assert worker._chan is chan
+
+
+def _ssh_ctx_for_material(home):
+    from rdpstudio.core.events import EventBus
+    from rdpstudio.core.plugin import SessionContext
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.core.vault import CredentialVault
+    from rdpstudio.ui.prompter import HeadlessPromptProvider
+
+    return SessionContext(
+        settings=Settings(),
+        store=SessionStore(home / "sessions.json"),
+        vault=CredentialVault(home / "vault.bin"),
+        bus=EventBus(),
+        prompter=HeadlessPromptProvider(),
+    )
+
+
+def test_build_material_maps_agent_forwarding(qtapp, home):
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.ssh.session import SshSessionController
+
+    ctx = _ssh_ctx_for_material(home)
+    flagged = Session(name="a", protocol="ssh", host="h", agent_forwarding=True)
+    plain = Session(name="b", protocol="ssh", host="h")
+    assert SshSessionController(flagged, ctx)._build_material(flagged).forward_agent is True
+    assert SshSessionController(plain, ctx)._build_material(plain).forward_agent is False

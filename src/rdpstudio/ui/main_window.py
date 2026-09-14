@@ -6,8 +6,8 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
+from PySide6.QtCore import QEasingCurve, QPoint, QSize, Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -21,12 +21,10 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QSplitter,
     QStatusBar,
     QSystemTrayIcon,
     QTabWidget,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +40,13 @@ from ..core.plugin import (
     registry,
 )
 from . import theme
+from .command_bar import (
+    CommandBar,
+    _HistoryLineEdit,  # noqa: F401  (compat re-export)
+)
 from .command_palette import CommandPaletteDialog
+from .dashboard import DashboardMixin
+from .main_actions import MainActionsMixin
 from .sidebar import SessionTree
 from .theme import icon, palette, protocol_badge
 from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
@@ -54,84 +58,6 @@ _MAX_IMPORT_BYTES = 32 * 1024 * 1024
 _MAIN = None
 
 
-class _HistoryLineEdit(QLineEdit):
-    """QLineEdit with MobaXterm-style Up/Down command-history recall."""
-
-    _HISTORY_MAX = 100
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.history: list[str] = []
-        self._hist_idx = -1
-        self._draft = ""
-
-    def remember(self, text: str) -> None:
-        if not self.history or self.history[-1] != text:
-            self.history.append(text)
-            if len(self.history) > self._HISTORY_MAX:
-                self.history.pop(0)
-        self._hist_idx = -1
-        self._draft = ""
-
-    def keyPressEvent(self, event) -> None:  # noqa: N802
-        if event.key() == Qt.Key.Key_Up and self.history:
-            if self._hist_idx == -1:
-                self._draft = self.text()
-                self._hist_idx = len(self.history) - 1
-            elif self._hist_idx > 0:
-                self._hist_idx -= 1
-            self.setText(self.history[self._hist_idx])
-            self.setCursorPosition(len(self.text()))
-            event.accept()
-            return
-        if event.key() == Qt.Key.Key_Down and self._hist_idx != -1:
-            if self._hist_idx < len(self.history) - 1:
-                self._hist_idx += 1
-                self.setText(self.history[self._hist_idx])
-            else:
-                self._hist_idx = -1
-                self.setText(self._draft)
-            self.setCursorPosition(len(self.text()))
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-
-class CommandBar(QWidget):
-    """Per-tab command line (MobaXterm: plain \"Command:\" strip under the terminal)."""
-
-    commandSent = Signal(str)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("commandBar")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(6)
-
-        prompt = QLabel("Command:")
-        prompt.setObjectName("commandPrompt")
-        layout.addWidget(prompt)
-
-        self.line = _HistoryLineEdit()
-        self.line.setObjectName("commandLine")
-        self.line.setPlaceholderText("Type a command and press Enter  (Up/Down: history)")
-        self.line.setClearButtonEnabled(True)
-        self.line.returnPressed.connect(self._on_return)
-        layout.addWidget(self.line, 1)
-
-    def _on_return(self) -> None:
-        text = self.line.text().strip()
-        if not text:
-            return
-        self.line.remember(text)
-        self.line.clear()
-        self.commandSent.emit(text)
-
-    @property
-    def history(self) -> list[str]:
-        return self.line.history
 
 
 def get_main_window(widget=None) -> MainWindow | None:
@@ -355,7 +281,7 @@ class SessionTab(QWidget):
             self.info.setText(reason)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     def __init__(self, ctx: SessionContext) -> None:
         super().__init__()
         global _MAIN
@@ -417,462 +343,7 @@ class MainWindow(QMainWindow):
                 pass
 
     # ------------------------------------------------------------------
-    def _build_menu(self) -> None:
-        """MobaXterm-style menu layout: File, View, Tools, Tabs, Session, Help."""
-        m_file = self.menuBar().addMenu("&File")
 
-        act = QAction(icon("plus"), "&New session…", self)
-        act.setShortcut(QKeySequence("Ctrl+N"))
-        act.triggered.connect(self.new_session)
-        m_file.addAction(act)
-
-        act = QAction(icon("console"), "New local &terminal", self)
-        act.setShortcut(QKeySequence("Ctrl+Shift+T"))
-        act.setStatusTip("Open a native local shell in a new tab")
-        act.triggered.connect(self.open_local_terminal)
-        m_file.addAction(act)
-
-        m_file.addSeparator()
-
-        imp = m_file.addMenu("&Import")
-        a = QAction("From ~/.ssh/config", self)
-        a.triggered.connect(self._import_ssh_config)
-        imp.addAction(a)
-        a = QAction("From file (JSON)…", self)
-        a.triggered.connect(self._import_json)
-        imp.addAction(a)
-
-        exp = QAction("&Export sessions to file…", self)
-        exp.triggered.connect(self._export_json)
-        m_file.addAction(exp)
-        m_file.addSeparator()
-
-        q = QAction("E&xit", self)
-        q.setShortcut(QKeySequence("Ctrl+Q"))
-        q.triggered.connect(self.close)
-        m_file.addAction(q)
-
-        m_view = self.menuBar().addMenu("&View")
-
-        act = QAction(icon("search"), "Command &Palette / Switcher…", self)
-        act.setShortcut(QKeySequence("Ctrl+P"))
-        act.setStatusTip("Search sessions, tabs, tools and actions")
-        act.triggered.connect(self.open_command_palette)
-        m_view.addAction(act)
-
-        self._act_sidebar_menu = QAction(icon("panel"), "&Toggle Sidebar", self)
-        self._act_sidebar_menu.setShortcut(QKeySequence("Ctrl+B"))
-        self._act_sidebar_menu.setCheckable(True)
-        self._act_sidebar_menu.toggled.connect(self._toggle_sidebar)
-        m_view.addAction(self._act_sidebar_menu)
-
-        m_view.addSeparator()
-
-        m_themes = m_view.addMenu("&Theme")
-        from ..core.settings import THEME_CHOICES
-
-        self._theme_group = QActionGroup(self)
-        self._theme_group.setExclusive(True)
-        self._theme_actions: dict[str, QAction] = {}
-        for tid, label in THEME_CHOICES:
-            act = QAction(label, self)
-            act.setCheckable(True)
-            act.setChecked(self.ctx.settings.theme == tid)
-            act.triggered.connect(lambda checked, t=tid: checked and self.apply_theme_id(t))
-            self._theme_group.addAction(act)
-            m_themes.addAction(act)
-            self._theme_actions[tid] = act
-
-        m_tools = self.menuBar().addMenu("&Tools")
-        a = QAction(icon("server"), "Network Tools & Port &Scanner…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+N"))
-        a.triggered.connect(self.open_network_tools)
-        m_tools.addAction(a)
-
-        a = QAction(icon("key"), "SSH &Key Utility & Converter…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+U"))
-        a.triggered.connect(self.open_key_utility)
-        m_tools.addAction(a)
-
-        a = QAction(icon("transfer"), "&File sharing server…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+S"))
-        a.setStatusTip("Share local folders with remote machines over SFTP")
-        a.triggered.connect(self.open_share_server)
-        m_tools.addAction(a)
-
-        m_tools.addSeparator()
-
-        a = QAction(icon("windows"), "RDP server &manager…", self)
-        a.triggered.connect(self.open_rdp_server_manager)
-        m_tools.addAction(a)
-
-        a = QAction(icon("gear"), "&Settings…", self)
-        a.setShortcut(QKeySequence("Ctrl+,"))
-        a.triggered.connect(self.open_settings)
-        m_tools.addAction(a)
-
-        a = QAction("Open &logs folder", self)
-        a.triggered.connect(lambda: paths.logs_dir() and self._open_path(paths.logs_dir()))
-        m_tools.addAction(a)
-
-        m_tabs = self.menuBar().addMenu("&Tabs")
-
-        act_close = QAction("Close &Tab", self)
-        act_close.triggered.connect(self.close_current_tab)
-        m_tabs.addAction(act_close)
-
-        a = QAction("Close &Other Tabs", self)
-        a.triggered.connect(self._close_others_current)
-        m_tabs.addAction(a)
-
-        a = QAction("Close Tabs &to the Right", self)
-        a.triggered.connect(self._close_right_current)
-        m_tabs.addAction(a)
-
-        a = QAction("Close &All Tabs", self)
-        a.triggered.connect(self._close_all_tabs)
-        m_tabs.addAction(a)
-
-        act_dupl = QAction("&Duplicate Tab", self)
-        act_dupl.setShortcut(QKeySequence("Ctrl+Shift+D"))
-        act_dupl.triggered.connect(self.duplicate_current_tab)
-        m_tabs.addAction(act_dupl)
-
-        a = QAction("&Rename Tab…", self)
-        a.triggered.connect(self._rename_current_tab)
-        m_tabs.addAction(a)
-
-        a = QAction("&Reconnect Session", self)
-        a.triggered.connect(self._reconnect_current)
-        m_tabs.addAction(a)
-
-        m_tabs.addSeparator()
-
-        a = QAction("&Next Tab", self)
-        a.setShortcut(QKeySequence("Ctrl+Tab"))
-        a.triggered.connect(self.next_tab)
-        m_tabs.addAction(a)
-
-        a = QAction("Pre&vious Tab", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+Backtab"))
-        a.triggered.connect(self.prev_tab)
-        m_tabs.addAction(a)
-
-        m_session = self.menuBar().addMenu("&Session")
-
-        act = QAction(icon("plus"), "&New session…", self)
-        act.setShortcut(QKeySequence("Ctrl+N"))
-        act.triggered.connect(self.new_session)
-        m_session.addAction(act)
-
-        act_log = QAction("Start / Stop Session &Logging…", self)
-        act_log.setShortcut(QKeySequence("Ctrl+Shift+L"))
-        act_log.triggered.connect(self.toggle_session_logging)
-        m_session.addAction(act_log)
-
-        m_session.addSeparator()
-
-        a = QAction(icon("folder"), "Browse &Files (SFTP)…", self)
-        a.triggered.connect(self._sftp_current)
-        m_session.addAction(a)
-
-        m_help = self.menuBar().addMenu("&Help")
-        a = QAction("&Keyboard shortcuts…", self)
-        a.triggered.connect(self.open_shortcuts)
-        m_help.addAction(a)
-        a = QAction("&About", self)
-        a.triggered.connect(self._about)
-        m_help.addAction(a)
-
-    def _build_toolbar(self) -> None:
-        """MobaXterm-style toolbar: large coloured icons with labels below.
-
-        Same actions and wiring as before — only the look changed (icon size,
-        text-under-icon layout, per-action colour tints, grouping).
-        """
-        bar = QToolBar()
-        bar.setObjectName("moxaToolbar")
-        bar.setMovable(False)
-        bar.setFloatable(False)
-        bar.setIconSize(QSize(24, 24))
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self._toolbar = bar
-        self._themed_actions: list[tuple[QAction, str]] = []
-
-        def themed_action(icon_name: str, text: str) -> QAction:
-            act = bar.addAction(theme.toolbar_icon(icon_name), text)
-            self._themed_actions.append((act, icon_name))
-            return act
-
-        a = themed_action("plus", "Session")
-        a.setToolTip("Create a new saved session (Ctrl+N)")
-        a.triggered.connect(self.new_session)
-
-        a = themed_action("console", "Terminal")
-        a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
-        a.triggered.connect(self.open_local_terminal)
-
-        act_sidebar = themed_action("panel", "Sessions")
-        act_sidebar.setToolTip("Show / hide the Sessions side panel (Ctrl+B)")
-        act_sidebar.setCheckable(True)
-        act_sidebar.toggled.connect(self._toggle_sidebar)
-        self._act_sidebar_toolbar = act_sidebar
-
-        bar.addSeparator()
-
-        def add_tool(icon_name, text, tip, cb):
-            act = themed_action(icon_name, text)
-            act.setToolTip(tip)
-            act.triggered.connect(cb)
-            return act
-
-        add_tool("search", "Commands", "Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)", self.open_command_palette)
-        add_tool("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
-        add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
-        add_tool("transfer", "Tunneling", "SSH tunnels / port forwarding for the active session", self.open_tunnels_dialog)
-        add_tool("folder", "Sharing", "Serve local folders to remote machines (Ctrl+Shift+S)", self.open_share_server)
-
-        bar.addSeparator()
-
-        # Quick connect — MobaXterm's "Quick connect" strip: white input +
-        # blue Connect button, sitting in the toolbar after the tool groups.
-        quick_wrap = QWidget()
-        quick_wrap.setObjectName("quickConnect")
-        ql = QHBoxLayout(quick_wrap)
-        ql.setContentsMargins(1, 1, 1, 1)
-        ql.setSpacing(0)
-
-        self.quick = QLineEdit()
-        self.quick.setPlaceholderText("Quick connect:  user@host[:port]")
-        self.quick.setFixedWidth(220)
-        self.quick.setObjectName("quickInput")
-        self.quick.returnPressed.connect(self.quick_connect)
-        ql.addWidget(self.quick, 1)
-
-        qc_btn = QPushButton("Connect")
-        qc_btn.setObjectName("primary")
-        qc_btn.setToolTip("Connect now (Enter)")
-        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        qc_btn.clicked.connect(self.quick_connect)
-        qc_btn.setFixedWidth(72)
-        ql.addWidget(qc_btn, 0)
-        quick_wrap.setFixedHeight(24)
-        quick_wrap.setFixedWidth(220 + 72 + 2)
-        quick_holder = QWidget()
-        qhl = QVBoxLayout(quick_holder)
-        qhl.setContentsMargins(6, 0, 6, 0)
-        qhl.addStretch(1)
-        qhl.addWidget(quick_wrap)
-        qhl.addStretch(1)
-        bar.addWidget(quick_holder)
-
-        # Right-aligned group (Settings · Help · Close all) like MobaXterm's
-        # "X server / Exit" cluster.
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        bar.addWidget(spacer)
-
-        bar.addSeparator()
-        add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
-        add_tool("shield", "Help", "Keyboard shortcuts & help", self.open_shortcuts)
-
-        # Close all tabs button
-        self._close_all_btn = themed_action("close", "Close all")
-        self._close_all_btn.setToolTip("Close all open session tabs")
-        self._close_all_btn.triggered.connect(self._close_all_tabs)
-        self._close_all_btn.setVisible(False)
-
-        self.addToolBar(bar)
-        self._apply_ui_prefs()
-
-    def _build_dashboard(self) -> QWidget:
-        """MobaXterm-style welcome page shown when no tabs are open.
-
-        A white document page with the app title, a one-line quick connect,
-        a row of flat action tiles and the recent-sessions list. Styling
-        lives in the global QSS (object-name selectors).
-        """
-        w = QWidget()
-        w.setObjectName("dashboard")
-        el = QVBoxLayout(w)
-        el.setAlignment(Qt.AlignmentFlag.AlignTop)
-        el.setSpacing(12)
-        el.setContentsMargins(28, 22, 28, 20)
-
-        # Header: logo mark + name + version — MobaXterm's "Start local terminal" page header
-        header_row = QHBoxLayout()
-        header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        header_row.setSpacing(10)
-        logo = QLabel()
-        logo.setPixmap(icon("logo").pixmap(28, 28))
-        header_row.addWidget(logo)
-        title = QLabel(APP_NAME)
-        title.setObjectName("dashTitle")
-        self._dash_header_label = title  # density-dependent font size
-        header_row.addWidget(title)
-        version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP · local terminal")
-        version.setObjectName("dashVersion")
-        header_row.addWidget(version, 0, Qt.AlignmentFlag.AlignBottom)
-        header_row.addStretch(1)
-        el.addLayout(header_row)
-
-        rule = QFrame()
-        rule.setObjectName("hairline")
-        rule.setFixedHeight(1)
-        el.addWidget(rule)
-
-        # Quick connect — one line, label + white input + blue Connect button
-        qc_card = QWidget()
-        qc_card.setObjectName("card")
-        qc_lay = QHBoxLayout(qc_card)
-        qc_lay.setContentsMargins(10, 8, 10, 8)
-        qc_lay.setSpacing(8)
-        qc_title = QLabel("Quick connect")
-        qc_title.setObjectName("quickTitle")
-        qc_lay.addWidget(qc_title)
-        self._dash_quick = QLineEdit()
-        self._dash_quick.setPlaceholderText("user@host[:port]   (port 3389 = RDP)")
-        self._dash_quick.setObjectName("search")
-        self._dash_quick.setFixedHeight(24)
-        self._dash_quick.returnPressed.connect(self._dash_quick_connect)
-        qc_lay.addWidget(self._dash_quick, 1)
-        qc_btn = QPushButton("Connect")
-        qc_btn.setObjectName("primary")
-        qc_btn.setFixedHeight(24)
-        qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        qc_btn.clicked.connect(self._dash_quick_connect)
-        qc_lay.addWidget(qc_btn)
-        # Minimum keeps the row usable in narrow windows; no maximum so the
-        # card extends into freed space (e.g. when the Sessions panel hides).
-        qc_card.setMinimumWidth(640)
-        el.addWidget(qc_card)
-
-        # Action tiles — MobaXterm's big flat launcher buttons
-        actions_row = QHBoxLayout()
-        actions_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        actions_row.setSpacing(8)
-        self._dash_action_icons: list[tuple[QLabel, str]] = []
-
-        def _action_card(icon_name: str, label: str, caption: str, tooltip: str, callback) -> QWidget:
-            card = QFrame()
-            card.setObjectName("card_hover")
-            card.setCursor(Qt.CursorShape.PointingHandCursor)
-            card.setToolTip(tooltip)
-            card.setFixedSize(150, 92)
-            lay = QVBoxLayout(card)
-            lay.setContentsMargins(10, 10, 10, 8)
-            lay.setSpacing(4)
-            lay.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            ic = QLabel()
-            ic.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(28, 28)))
-            ic.setFixedSize(28, 28)
-            ic.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._dash_action_icons.append((ic, icon_name))
-            lay.addWidget(ic, 0, Qt.AlignmentFlag.AlignHCenter)
-            lbl = QLabel(label)
-            lbl.setObjectName("cardTitle")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lay.addWidget(lbl)
-            sub = QLabel(caption)
-            sub.setObjectName("cardSub")
-            sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lay.addWidget(sub)
-            card.mousePressEvent = lambda _, c=callback: c()
-            return card
-
-        actions_row.addWidget(_action_card("plus", "New session", "SSH · RDP · more", "Create a new connection (Ctrl+N)", self.new_session))
-        actions_row.addWidget(_action_card("console", "Local terminal", "Start a shell", "Open a local terminal (Ctrl+Shift+T)", self.open_local_terminal))
-        actions_row.addWidget(_action_card("search", "Commands", "Palette · switcher", "Search commands & sessions (Ctrl+K)", self.open_command_palette))
-        actions_row.addWidget(_action_card("gear", "Settings", "Themes · fonts · keys", "Configure KB-Remote (Ctrl+,)", self.open_settings))
-        el.addLayout(actions_row)
-
-        # Recent connections — protocol badges, pinned first
-        self._build_recent_card(el)
-
-        el.addStretch(1)
-
-        # Keyboard shortcut chips
-        chips = QHBoxLayout()
-        chips.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        chips.setSpacing(14)
-        for combo, what in (
-            ("Ctrl+N", "new session"),
-            ("Ctrl+Shift+T", "local terminal"),
-            ("Ctrl+K", "commands"),
-            ("Ctrl+B", "sessions panel"),
-            ("Ctrl+,", "settings"),
-        ):
-            pair = QHBoxLayout()
-            pair.setContentsMargins(0, 0, 0, 0)
-            pair.setSpacing(5)
-            key = QLabel(combo)
-            key.setObjectName("kbd")
-            pair.addWidget(key)
-            cap = QLabel(what)
-            cap.setObjectName("caption")
-            pair.addWidget(cap)
-            wrap = QWidget()
-            wrap.setLayout(pair)
-            chips.addWidget(wrap)
-        el.addLayout(chips)
-        return w
-
-    def _build_recent_card(self, el: QVBoxLayout) -> None:
-        """Fill the 'Recent Connections' card into dashboard layout ``el``."""
-        sessions = sorted(
-            self.ctx.store.sessions(),
-            key=lambda s: (not s.options.get("pinned", False), s.name),
-        )[:6]
-        if not sessions:
-            return
-        recent_card = QWidget()
-        recent_card.setObjectName("card")
-        recent_card.setMinimumWidth(640)
-        rc_lay = QVBoxLayout(recent_card)
-        rc_lay.setContentsMargins(10, 8, 10, 8)
-        rc_lay.setSpacing(2)
-        rc_header = QLabel("Recent sessions")
-        rc_header.setObjectName("h2")
-        rc_lay.addWidget(rc_header)
-
-        self._dash_recent_rows: list[tuple[QLabel, str, object]] = []
-        for sess in sessions[:5]:
-            item = QFrame()
-            item.setCursor(Qt.CursorShape.PointingHandCursor)
-            item.setObjectName("card_hover")
-            item.mousePressEvent = lambda _, s=sess: self.connect_session(s.id)
-            il = QHBoxLayout(item)
-            il.setContentsMargins(8, 5, 8, 5)
-            il.setSpacing(8)
-            pi = QLabel()
-            pi.setPixmap(protocol_badge(sess.protocol, self._proto_icon(sess.protocol)).pixmap(QSize(18, 18)))
-            pi.setFixedSize(18, 18)
-            self._dash_recent_rows.append((pi, "proto", sess.protocol))
-            il.addWidget(pi)
-            if sess.options.get("pinned", False):
-                star = QLabel()
-                star.setPixmap(icon("star", palette()["warn"]).pixmap(QSize(13, 13)))
-                star.setFixedSize(13, 13)
-                star.setToolTip("Pinned session")
-                self._dash_recent_rows.append((star, "icon", ("star", "warn")))
-                il.addWidget(star)
-            name_lbl = QLabel(sess.display_name())
-            name_lbl.setObjectName("cardTitle")
-            il.addWidget(name_lbl)
-            il.addStretch(1)
-            target = QLabel(sess.target())
-            target.setObjectName("cardSub")
-            il.addWidget(target)
-            proto = QLabel(sess.protocol.upper())
-            proto.setObjectName("protoChip")
-            il.addWidget(proto)
-            rc_lay.addWidget(item)
-        el.addWidget(recent_card)
-
-    @staticmethod
-    def _proto_icon(protocol: str) -> str:
-        return {"rdp": "windows", "ssh": "terminal"}.get((protocol or "").lower(), "console")
 
     def _build_body(self) -> None:
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -1158,10 +629,9 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self, lambda idx=i-1: self.switch_to_tab(idx))
 
     def _focus_quick_connect(self) -> None:
-        """Ctrl+Shift+K — jump to the visible quick-connect input."""
-        target = self._dash_quick if self._empty.isVisible() else self.quick
-        target.setFocus()
-        target.selectAll()
+        """Ctrl+Shift+K — jump to the toolbar quick-connect input."""
+        self.quick.setFocus()
+        self.quick.selectAll()
 
     def _update_empty_state(self) -> None:
         has_tabs = self.tabs.count() > 0
@@ -1598,9 +1068,6 @@ class MainWindow(QMainWindow):
 
     def quick_connect(self) -> None:
         self._quick_connect_from(self.quick)
-
-    def _dash_quick_connect(self) -> None:
-        self._quick_connect_from(self._dash_quick)
 
     def _quick_connect_from(self, source: QLineEdit) -> None:
         text = source.text().strip()

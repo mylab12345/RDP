@@ -24,7 +24,7 @@ from pathlib import Path
 import paramiko
 from PySide6.QtCore import QObject, Signal, Slot
 
-from ...core.log import get_logger, redact_secret
+from ...core.log import debug_ratelimited, get_logger, redact_secret
 from ...core.models import Forward
 from .forwarding import TunnelError, TunnelManager
 from .knownhosts import KnownHostsVerifier
@@ -55,6 +55,7 @@ class AuthMaterial:
         key_path: str = "",
         key_passphrase: str | None = None,
         allow_agent: bool = True,
+        forward_agent: bool = False,
         jump: AuthMaterial | None = None,
     ) -> None:
         self.host = host
@@ -64,6 +65,10 @@ class AuthMaterial:
         self.key_path = key_path
         self.key_passphrase = key_passphrase
         self.allow_agent = allow_agent
+        # ssh -A style forwarding of the *local* agent to the remote host.
+        # Explicit opt-in only (Session.agent_forwarding): a compromised or
+        # malicious server could otherwise use the client's keys.
+        self.forward_agent = forward_agent
         self.jump = jump
 
 
@@ -211,8 +216,8 @@ class SshWorker(QObject):
         if chan is not None:
             try:
                 chan.resize_pty(cols, rows)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 — channel may be closing
+                debug_ratelimited(log, "resize-pty", "resize during teardown: %s", exc)
 
     @Slot(int, int)
     def resize_pty_slot(self, cols: int, rows: int) -> None:
@@ -239,8 +244,8 @@ class SshWorker(QObject):
         if chan is not None:
             try:
                 chan.close()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 — already closing is fine
+                debug_ratelimited(log, "shutdown-close", "channel close: %s", exc)
         # Give pump thread a moment to exit gracefully
         pt = self._pump_thread
         if pt is not None and pt is not threading.current_thread():
@@ -255,8 +260,8 @@ class SshWorker(QObject):
         if chan is not None:
             try:
                 chan.close()  # unblocks the pump immediately
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 — already closing is fine
+                debug_ratelimited(log, "stop-close", "channel close: %s", exc)
 
     # ------------------------------------------------------------------
     # internals
@@ -409,8 +414,27 @@ class SshWorker(QObject):
         chan.invoke_shell()
         self._chan = chan
         self._shell_requested = True
+        if self.material.forward_agent:
+            self._request_agent_forwarding(chan)
         if self.startup_command:
             self.write_input(self.startup_command.encode("utf-8") + b"\n")
+
+    def _request_agent_forwarding(self, chan) -> None:
+        """Best-effort ssh -A: forward the local agent over the shell channel.
+
+        Never fatal — a server may refuse ``auth-agent-req``. A refused
+        forward must not break the shell the user just opened.
+        """
+        try:
+            from paramiko.agent import AgentRequestHandler
+
+            AgentRequestHandler(chan)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("agent forwarding unavailable for %s: %s", self.host, exc)
+            try:
+                self.stateInfo.emit("agent forwarding unavailable")
+            except RuntimeError:
+                pass
 
     def _pump(self) -> None:
         """select() loop: channel -> output signal, queued writes -> channel.
@@ -525,29 +549,29 @@ class SshWorker(QObject):
         if self._tunnels is not None:
             try:
                 self._tunnels.stop_all()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                debug_ratelimited(log, "tunnels-stop", "tunnel stop: %s", exc)
             self._tunnels = None
         for closer, obj in ((lambda c: c.close(), self._chan),):
             if obj is not None:
                 try:
                     closer(obj)
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    debug_ratelimited(log, "chan-close", "channel close: %s", exc)
         self._chan = None
         for sock in (self._wake_r, self._wake_w):
             if sock is not None:
                 try:
                     sock.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    debug_ratelimited(log, "wake-close", "wake pipe close: %s", exc)
         self._wake_r = self._wake_w = None
         for client in [*self._hop_clients, self._client]:
             if client is not None:
                 try:
                     client.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    debug_ratelimited(log, "client-close", "client close: %s", exc)
         self._hop_clients = []
         self._client = None
         self._pump_thread = None
