@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed — theme overhaul: 5 curated themes, AA contrast, focus + table polish
+- Five themes, one per nature: MobaXterm (default), Midnight (navy night),
+  Dracula (violet night), Ocean (deep teal), Contrast (accessibility).
+  Removed ids fall back to MobaXterm on load; theme toggle flips MobaXterm ↔
+  Midnight.
+- All palettes meet WCAG AA (muted text ≥ 4.5, accent buttons ≥ 4.5).
+- Keyboard focus rings for tab bar and tree/list/table views; sidebar
+  selection gains an accent bar; data tables use alternating rows with calm
+  gridlines; splitter shows pressed feedback.
+
 ### Added — wired settings, safer teardown logs, bounded scanner
 - **SSH agent forwarding (opt-in):** `Session.agent_forwarding` is now honored
   end to end — session editor checkbox with a trust warning, best-effort

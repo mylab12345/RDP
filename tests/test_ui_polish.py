@@ -82,7 +82,7 @@ def test_icon_tint_recolors_svg(qtapp) -> None:  # noqa: ARG001
 
     from rdpstudio.ui import theme
 
-    theme.apply_theme(qtapp, "dark", animations=False)
+    theme.apply_theme(qtapp, "midnight", animations=False)
     default = _average_opaque_color(theme.icon("server").pixmap(QSize(24, 24)))
     red = _average_opaque_color(theme.icon("server", tint="#ff0000").pixmap(QSize(24, 24)))
     white = _average_opaque_color(theme.icon("stop", tint="#ffffff").pixmap(QSize(24, 24)))
@@ -99,7 +99,7 @@ def test_badge_icon_renders(qtapp) -> None:  # noqa: ARG001
 
     from rdpstudio.ui import theme
 
-    theme.apply_theme(qtapp, "dark", animations=False)
+    theme.apply_theme(qtapp, "midnight", animations=False)
     badge = theme.badge_icon("terminal")
     assert not badge.isNull()
     pm = badge.pixmap(QSize(16, 16))
@@ -160,13 +160,13 @@ def test_contrast_palette_applies_without_keyerror(qtapp) -> None:  # noqa: ARG0
 def test_density_switches_compact_qss(qtapp) -> None:  # noqa: ARG001
     from rdpstudio.ui import theme
 
-    theme.apply_theme(qtapp, "dark", density="comfortable", animations=False)
+    theme.apply_theme(qtapp, "midnight", density="comfortable", animations=False)
     comfy_qss = qtapp.styleSheet()
-    theme.apply_theme(qtapp, "dark", density="compact", animations=False)
+    theme.apply_theme(qtapp, "midnight", density="compact", animations=False)
     compact_qss = qtapp.styleSheet()
     assert theme.current_density() == "compact"
     assert len(compact_qss) > len(comfy_qss)  # compact block appended
-    theme.apply_theme(qtapp, "dark", density="comfortable", animations=False)
+    theme.apply_theme(qtapp, "midnight", density="comfortable", animations=False)
 
 
 def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
@@ -176,7 +176,7 @@ def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
     from rdpstudio.ui.widgets import animate_in, pulse, soft_shadow
 
     label = QLabel("x")
-    theme.apply_theme(qtapp, "dark", animations=False)
+    theme.apply_theme(qtapp, "midnight", animations=False)
     assert theme.MOTIONS_ENABLED is False
     animate_in(label)
     pulse(label)
@@ -185,7 +185,7 @@ def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
     assert label.graphicsEffect() is not None  # shadows are not motion
     label.setGraphicsEffect(None)
 
-    theme.apply_theme(qtapp, "dark", animations=True)
+    theme.apply_theme(qtapp, "midnight", animations=True)
     assert theme.MOTIONS_ENABLED is True
     label2 = QLabel("y")
     animate_in(label2)
@@ -275,7 +275,7 @@ def test_keyboard_focus_rings_in_stylesheet(qtapp) -> None:  # noqa: ARG001
     """Round 5: every focusable chrome family has a visible focus rule."""
     from rdpstudio.ui import theme
 
-    for tid in ("mobaxterm", "dark", "contrast"):
+    for tid in ("mobaxterm", "midnight", "contrast"):
         theme.apply_theme(qtapp, tid, animations=False)
         qss = qtapp.styleSheet()
         assert "QTabBar:focus" in qss, tid
@@ -283,4 +283,57 @@ def test_keyboard_focus_rings_in_stylesheet(qtapp) -> None:  # noqa: ARG001
         assert "QPushButton:focus" in qss, tid
         assert "QLineEdit:focus" in qss, tid
         assert "QToolButton:focus" in qss, tid
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+
+
+def test_data_tables_use_alternating_rows(home, qtapp) -> None:  # noqa: ARG001
+    """Round 6: readability striping on data tables (display-only)."""
+    from rdpstudio.core.events import EventBus
+    from rdpstudio.core.plugin import SessionContext
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.core.vault import CredentialVault
+    from rdpstudio.ui.cluster_dialog import ClusterDialog
+    from rdpstudio.ui.network_tools_dialog import NetworkToolsDialog
+    from rdpstudio.ui.sftp_dialog import _Pane
+
+    assert _Pane("LOCAL", False).list.alternatingRowColors()
+    assert NetworkToolsDialog(main_window=None).table.alternatingRowColors()
+    ctx = SessionContext(
+        settings=Settings(),
+        store=SessionStore(home / "sessions.json"),
+        vault=CredentialVault(home / "vault.bin"),
+        bus=EventBus(),
+        prompter=None,
+    )
+    cluster = ClusterDialog(ctx)
+    assert cluster.host_tree.alternatingRowColors()
+    assert cluster.results_table.alternatingRowColors()
+    cluster.close()
+
+
+def test_table_grid_and_splitter_pressed_in_stylesheet(qtapp) -> None:  # noqa: ARG001
+    """Round 6: calm gridlines + pressed splitter feedback in every theme."""
+    from rdpstudio.ui import theme
+
+    for tid in ("mobaxterm", "midnight", "contrast"):
+        theme.apply_theme(qtapp, tid, animations=False)
+        qss = qtapp.styleSheet()
+        assert "gridline-color" in qss, tid
+        assert "alternate-background-color" in qss, tid
+        assert "QSplitter::handle:pressed" in qss, tid
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+
+
+def test_midnight_theme_registered_and_distinct(qtapp) -> None:  # noqa: ARG001
+    """New theme ships registered, dark-classified, and visually distinct."""
+    from rdpstudio.core.settings import DARK_THEMES, THEME_IDS, Settings
+    from rdpstudio.ui import theme
+
+    assert "midnight" in THEME_IDS and "midnight" in DARK_THEMES
+    assert Settings().theme == "mobaxterm"  # default unchanged
+    assert len(theme.PALETTE["midnight"]) == 30  # full key set, no fallback gaps
+    theme.apply_theme(qtapp, "midnight", animations=False)
+    assert qtapp.styleSheet()
+    assert theme.PALETTE["midnight"]["bg"] != theme.PALETTE["mobaxterm"]["bg"]
     theme.apply_theme(qtapp, "mobaxterm", animations=False)

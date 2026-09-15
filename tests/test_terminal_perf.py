@@ -186,7 +186,7 @@ def test_theme_change_invalidates_caches(qtapp):
     gen = tv._palette_gen
     assert tv._palette_gen == gen
 
-    tv.settings.theme = "light" if tv.settings.theme == "dark" else "dark"
+    tv.settings.theme = "mobaxterm" if tv.settings.theme == "midnight" else "midnight"
     tv.update()
     _settle(qtapp)
     assert tv._palette_gen == gen + 1, "palette bump must invalidate caches"

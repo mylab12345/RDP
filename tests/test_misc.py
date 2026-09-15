@@ -135,10 +135,10 @@ def test_settings_roundtrip(tmp_path):
 
     s = Settings()
     s.font_size = 12
-    s.theme = "light"
+    s.theme = "ocean"
     s.save(tmp_path / "settings.json")
     loaded = Settings.load(tmp_path / "settings.json")
-    assert loaded.font_size == 12 and loaded.theme == "light"
+    assert loaded.font_size == 12 and loaded.theme == "ocean"
 
 
 def test_font_presets_cover_multiple_families():

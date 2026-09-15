@@ -1199,7 +1199,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
 
     def _toggle_theme(self, dark: bool) -> None:
         """Legacy dark/light flip used by older callers."""
-        self.apply_theme_id("dark" if dark else "mobaxterm")
+        self.apply_theme_id("midnight" if dark else "mobaxterm")
 
     def _sync_theme_actions(self) -> None:
         current = self.ctx.settings.theme

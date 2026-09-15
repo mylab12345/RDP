@@ -256,7 +256,7 @@ def test_ssh_terminal_keeps_native_console_palette(qtapp, home):
     from rdpstudio.protocols.ssh.session import SshSessionController
     from rdpstudio.ui.prompter import HeadlessPromptProvider
 
-    settings = Settings(theme="light", font_family="Courier New", font_size=14)
+    settings = Settings(theme="mobaxterm", font_family="Courier New", font_size=14)
     ctx = SessionContext(
         settings=settings,
         store=SessionStore(home / "sessions.json"),
@@ -269,7 +269,7 @@ def test_ssh_terminal_keeps_native_console_palette(qtapp, home):
     pal = ctrl.term._build_palette()
     assert pal["bg"].name().lower() == "#000000"
     assert pal["fg"].name().lower() == "#aaaaaa"
-    settings.theme = "forest"
+    settings.theme = "ocean"
     pal2 = ctrl.term._build_palette()
     assert pal2["bg"].name().lower() == "#000000"
     assert pal2["16"][1].name().lower() == "#aa0000"
@@ -279,13 +279,13 @@ def test_ssh_terminal_keeps_native_console_palette(qtapp, home):
 def test_palette_follows_applied_theme(qtapp):
     from rdpstudio.ui import theme
 
-    theme.apply_theme(qtapp, "light")
+    theme.apply_theme(qtapp, "mobaxterm")
     try:
-        assert theme.palette()["bg"] == theme.PALETTE["light"]["bg"]
-        assert theme.current_theme() == "light"
+        assert theme.palette()["bg"] == theme.PALETTE["mobaxterm"]["bg"]
+        assert theme.current_theme() == "mobaxterm"
     finally:
-        theme.apply_theme(qtapp, "dark")
-    assert theme.palette()["bg"] == theme.PALETTE["dark"]["bg"]
+        theme.apply_theme(qtapp, "midnight")
+    assert theme.palette()["bg"] == theme.PALETTE["midnight"]["bg"]
 
 
 # --- settings: garbage values must not crash ----------------------------------

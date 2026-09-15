@@ -313,13 +313,9 @@ class NativeTerminalView(QWidget):
         try:
             # Linux is the closest equivalent to SSH Pilot's native VTE
             # default.  The remote host's SGR colors still win per cell.
+            # (No surviving theme selects otherwise — kept unconditional so
+            # the native palette never depends on removed theme ids.)
             scheme = "Linux"
-            if not self.native_colors and str(self.settings.theme) in {
-                "light",
-                "meadow",
-                "desert",
-            }:
-                scheme = "BlackOnWhite"
             native.setColorScheme(scheme)
         except Exception:
             pass
@@ -639,12 +635,6 @@ class NativeTerminalView(QWidget):
         """Refresh the native palette without restarting the session."""
         try:
             scheme = "Linux"
-            if not self.native_colors and str(self.settings.theme) in {
-                "light",
-                "meadow",
-                "desert",
-            }:
-                scheme = "BlackOnWhite"
             self._native.setColorScheme(scheme)
         except Exception:
             pass

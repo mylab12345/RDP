@@ -11,26 +11,18 @@ from .crypto import MAX_KDF_ITERATIONS
 from .persistence import atomic_write_text
 
 # Theme ids accepted in settings.json. MobaXterm look is the default.
+# Five themes, one per nature: signature light, navy night, violet night,
+# deep teal, and high-contrast accessibility. Unknown ids fall back to
+# "mobaxterm" on load, so removing a theme never breaks existing configs.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
     ("mobaxterm", "MobaXterm — light gray chrome · Windows blue (default)"),
-    ("dark", "MobaXterm Dark — charcoal chrome · Windows blue"),
-    ("graphite", "Graphite — warm gray · blue accent"),
-    ("nord", "Nord — arctic · polar night & frost"),
+    ("midnight", "Midnight — deep navy night · sky accent"),
     ("dracula", "Dracula — violet night · pink & cyan"),
-    ("light", "Light — paper white · forest green"),
-    ("forest", "Forest — deep pine · moss & leaf"),
     ("ocean", "Ocean — deep teal · cyan"),
-    ("sunset", "Sunset — dusk · warm coral & amber"),
-    ("aurora", "Aurora — deep teal · mint & lavender"),
-    ("meadow", "Meadow — sage & cream · airy light"),
-    ("desert", "Desert — sand & clay · warm"),
     ("contrast", "High contrast — pure black & white · accessibility"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
-DARK_THEMES = {
-    "dark", "graphite", "nord", "dracula", "forest", "ocean", "sunset",
-    "aurora", "contrast",
-}
+DARK_THEMES = {"midnight", "dracula", "ocean", "contrast"}
 
 # Curated terminal typefaces (system-installed only; nothing is bundled).
 FONT_PRESETS: tuple[str, ...] = (

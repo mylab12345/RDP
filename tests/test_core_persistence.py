@@ -71,7 +71,7 @@ def test_application_state_stores_roundtrip_through_shared_writer(tmp_path):
     from rdpstudio.tools.snippets import Snippet, SnippetStore
 
     settings_path = tmp_path / "settings.json"
-    settings = Settings(theme="nord", copy_on_select=False)
+    settings = Settings(theme="ocean", copy_on_select=False)
     settings.save(settings_path)
 
     sessions_path = tmp_path / "sessions.json"

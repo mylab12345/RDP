@@ -158,10 +158,13 @@ def test_import_sessions_skips_non_sessions(tmp_path):
 def test_nature_theme_ids_roundtrip():
     from rdpstudio.core.settings import THEME_IDS, Settings
 
-    nature = {"forest", "ocean", "sunset", "aurora", "meadow", "desert"}
-    assert nature <= THEME_IDS
-    for tid in nature:
+    assert THEME_IDS == {"mobaxterm", "midnight", "dracula", "ocean", "contrast"}
+    for tid in sorted(THEME_IDS):
         assert Settings.from_dict({"theme": tid}).theme == tid
+    # Removed themes fall back to the default instead of breaking configs.
+    for tid in ("dark", "light", "nord", "forest", "sunset", "aurora", "meadow",
+                "desert", "graphite", "neon"):
+        assert Settings.from_dict({"theme": tid}).theme == "mobaxterm"
 
 
 def test_settings_coerce_enums_and_floats():

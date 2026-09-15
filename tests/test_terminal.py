@@ -118,11 +118,11 @@ def test_native_palette_is_vga_and_ignores_theme(qtapp):
     from rdpstudio.core.settings import Settings
     from rdpstudio.ui.terminal import TerminalView
 
-    settings = Settings(theme="light")
+    settings = Settings(theme="mobaxterm")
     term = TerminalView(settings, native_colors=True)
     pal = term._palette()
     assert pal["bg"].name().lower() == "#000000"
-    settings.theme = "sunset"
+    settings.theme = "ocean"
     pal2 = term._palette()
     assert pal2 is pal  # cache key is "native", not the workbench theme
     term.deleteLater()

@@ -83,6 +83,7 @@ class _Pane(QWidget):
         self.list = QTreeWidget()
         self.list.setHeaderLabels(["Name", "Size", "Modified"])
         self.list.setRootIsDecorated(False)
+        self.list.setAlternatingRowColors(True)
         self.list.setSortingEnabled(True)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.sortItems(0, Qt.SortOrder.AscendingOrder)

@@ -262,6 +262,7 @@ class NetworkToolsDialog(QDialog):
 
         # Results table
         self.table = QTableWidget(0, 6)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(["Target", "Port", "Service", "State", "Latency", "Banner / Info"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

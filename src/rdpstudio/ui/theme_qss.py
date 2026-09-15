@@ -574,6 +574,9 @@ QTableView QTableCornerButton::section {{
     background: {bg2};
     border: 1px solid {border};
 }}
+QTableView {{
+    gridline-color: {border_subtle};
+}}
 
 /* ================= Splitter ================= */
 QSplitter::handle {{
@@ -583,6 +586,9 @@ QSplitter::handle {{
 }}
 QSplitter::handle:hover {{
     background: {accent_subtle};
+}}
+QSplitter::handle:pressed {{
+    background: {accent};
 }}
 QSplitter::handle:vertical {{
     height: 4px;
@@ -827,7 +833,8 @@ QTreeView#sessionTree::item:hover {{
 QTreeView#sessionTree::item:selected {{
     background: {accent_subtle};
     color: {fg};
-    border-color: {accent}99;
+    border: 1px solid transparent;
+    border-left: 2px solid {accent};
 }}
 QTreeView#sessionTree::item:selected:!active {{
     background: {bg3};

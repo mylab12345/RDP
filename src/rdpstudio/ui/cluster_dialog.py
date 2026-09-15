@@ -174,6 +174,7 @@ class ClusterDialog(QDialog):
         self.host_tree = QTreeWidget()
         self.host_tree.setHeaderHidden(True)
         self.host_tree.setRootIsDecorated(True)
+        self.host_tree.setAlternatingRowColors(True)
         hl.addWidget(self.host_tree, 1)
 
         splitter.addWidget(host_pane)
@@ -185,6 +186,7 @@ class ClusterDialog(QDialog):
         rl.setSpacing(8)
 
         self.results_table = QTableWidget(0, 5)
+        self.results_table.setAlternatingRowColors(True)
         self.results_table.setHorizontalHeaderLabels(["Host", "Status", "Exit Code", "Duration", "Output Preview"])
         self.results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)

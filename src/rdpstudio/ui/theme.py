@@ -347,7 +347,7 @@ def _shade(hex_color: str, factor: float) -> str:
 
 def apply_theme(
     app: QApplication,
-    theme: str = "dark",
+    theme: str = "mobaxterm",
     density: str = "comfortable",
     animations: bool = True,
 ) -> None:
