@@ -114,9 +114,14 @@ SessionTree double-click → MainWindow.open_session(defn)
              resolve jump chain (nested clients, direct-tcpip sock)
              KnownHostsVerifier → (prompt via thread-safe bridge)
              auth: agent → key → vault password → prompt (≤3 rounds)
+                 ↳ every authenticated transport is tuned to OpenSSH-sized
+                   flow control (2 MiB window / 32 KiB packets) before any
+                   channel opens on it — shell, SFTP, tunnels and jump
+                   forwards all inherit it
              open_session → get_pty → invoke_shell
              start enabled forwards (TunnelManager)
-             pump loop: select(chan) → output(bytes) → GUI → TerminalView.feed
+             pump loop: select(chan) → drain burst → coalesce →
+                 output(bytes) → GUI → TerminalView.feed
 ```
 
 ### Reconnect

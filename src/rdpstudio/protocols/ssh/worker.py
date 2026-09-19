@@ -37,6 +37,15 @@ _MAX_PENDING_WRITES = 8 * 1024 * 1024  # cap buffered user input
 # chatty sessions without adding perceptible latency.
 _MAX_OUT_CHUNK = 65536
 _OUT_EMIT_DELAY = 0.008
+# Flow-control sizes every channel on a transport inherits (shell, SFTP,
+# jump forwards, user tunnels). These match OpenSSH's own defaults: a 2 MiB
+# window keeps the pipe full on high-latency links, and 32 KiB packets cut
+# per-packet framing/crypto/Python overhead ~8x versus the 4 KiB default of
+# paramiko 3.x/4.x. paramiko >= 5 already ships these values, so the tuning
+# is a no-op there; exotic or mocked transports without the attributes are
+# simply skipped.
+SSH_WINDOW_SIZE = 2 * 1024 * 1024
+SSH_MAX_PACKET_SIZE = 32 * 1024
 
 
 class AuthMaterial:
@@ -70,6 +79,27 @@ class AuthMaterial:
         # malicious server could otherwise use the client's keys.
         self.forward_agent = forward_agent
         self.jump = jump
+
+
+def _tune_transport(transport: paramiko.Transport) -> None:
+    """Raise transport-level channel defaults to OpenSSH-sized flow control.
+
+    Every channel opened on this transport afterwards — the interactive
+    shell, SFTP, jump ``direct-tcpip`` forwards and user tunnels — inherits
+    ``default_window_size`` / ``default_max_packet_size``.  paramiko 3.x/4.x
+    default to 4 KiB packets, which multiplies per-packet framing, crypto
+    and Python-loop overhead roughly 8x on bulk output and downloads;
+    paramiko >= 5 already defaults to the values used here (no-op).  Best
+    effort: a mocked or exotic transport without these attributes keeps
+    working untouched.
+    """
+    try:
+        if int(getattr(transport, "default_max_packet_size", 0) or 0) < SSH_MAX_PACKET_SIZE:
+            transport.default_max_packet_size = SSH_MAX_PACKET_SIZE
+        if int(getattr(transport, "default_window_size", 0) or 0) < SSH_WINDOW_SIZE:
+            transport.default_window_size = SSH_WINDOW_SIZE
+    except Exception as exc:  # noqa: BLE001 — tuning must never break a session
+        debug_ratelimited(log, "tune-transport", "transport tuning skipped: %s", exc)
 
 
 class SshWorker(QObject):
@@ -117,7 +147,10 @@ class SshWorker(QObject):
         self._pty_size = term_size
         self._pump_thread: threading.Thread | None = None
         self._disconnected_emitted = False
-        self._out_buf = b""
+        # bytearray (not bytes): coalesced output is appended per recv and
+        # the immutable-bytes rebuild per append re-copied the whole buffer
+        # on bulk transfers.
+        self._out_buf = bytearray()
         # Self-pipe so queued keystrokes wake the pump immediately instead
         # of waiting for the next select() expiry (this is what made typing
         # on idle Linux VMs feel laggy).
@@ -395,6 +428,10 @@ class SshWorker(QObject):
     def _announce(self, client: paramiko.SSHClient) -> None:
         transport = client.get_transport()
         assert transport is not None
+        # Tune before any channel is opened on this transport (shell, SFTP,
+        # tunnels and — for jump hops — the direct-tcpip forward all inherit
+        # these defaults).
+        _tune_transport(transport)
         info = {
             "host": f"{self.host}:{self.port}",
             "username": transport.get_username() or "",
@@ -439,15 +476,21 @@ class SshWorker(QObject):
     def _pump(self) -> None:
         """select() loop: channel -> output signal, queued writes -> channel.
 
-        Two performance fixes live here:
+        Three performance fixes live here:
 
         * **input latency** — the select also watches a self-pipe that
           :meth:`write_input` pings, so a keystroke is sent within a few ms
           even when the remote host is otherwise idle (previously the loop
           slept up to 150 ms between write flushes).
-        * **output coalescing** — received chunks are batched and emitted
-          in larger, less frequent signals, which cuts cross-thread event
-          overhead (and pyte entry points) on chatty sessions.
+        * **burst draining** — when the channel is readable, everything the
+          transport has already buffered is drained in one pass (bounded by
+          the coalescing cap) instead of paying a select() round trip per
+          64 KiB chunk; bulk output like ``cat bigfile`` needs a fraction of
+          the loop iterations.
+        * **output coalescing** — received chunks are batched into a
+          bytearray and emitted in larger, less frequent signals, which
+          cuts cross-thread event overhead (and pyte entry points) on
+          chatty sessions without re-copying the buffer per append.
         """
         chan = self._chan
         if chan is None:
@@ -456,6 +499,8 @@ class SshWorker(QObject):
         wake = self._wake_r
         last_emit = time.monotonic()
         last_alive = last_emit
+        # Defensive: test doubles / exotic channels may lack recv_ready().
+        recv_ready = getattr(chan, "recv_ready", None)
         while not self._stop.is_set():
             self._flush_writes(chan)
             # Short timeout while coalesced output is pending, so a small
@@ -472,22 +517,33 @@ class SshWorker(QObject):
                 self._drain_wake()
                 self._flush_writes(chan)
             if chan in rlist:
+                eof = False
                 try:
-                    data = chan.recv(65536)
+                    while True:
+                        data = chan.recv(65536)
+                        if not data:
+                            eof = True
+                            break
+                        self._out_buf += data
+                        # Stop draining at the coalescing cap so the GUI
+                        # keeps receiving its regular frames (and stays
+                        # interleaved with typing) under sustained load.
+                        if len(self._out_buf) >= _MAX_OUT_CHUNK:
+                            break
+                        if recv_ready is None or not recv_ready():
+                            break
                 except Exception as exc:  # noqa: BLE001
                     self._end(str(exc))
                     return
-                if data:
-                    self._out_buf += data
-                else:
+                if eof:
                     self._end("connection closed by remote host")
                     return
             now = time.monotonic()
             if self._out_buf and (
                 len(self._out_buf) >= _MAX_OUT_CHUNK or now - last_emit >= _OUT_EMIT_DELAY
             ):
-                self.output.emit(self._out_buf)
-                self._out_buf = b""
+                self.output.emit(bytes(self._out_buf))
+                self._out_buf.clear()
                 last_emit = now
             if not chan.active:
                 transport = self._client.get_transport() if self._client else None
@@ -505,8 +561,8 @@ class SshWorker(QObject):
     def _flush_output(self) -> None:
         """Emit any coalesced tail so no terminal output is dropped."""
         if self._out_buf:
-            self.output.emit(self._out_buf)
-            self._out_buf = b""
+            self.output.emit(bytes(self._out_buf))
+            self._out_buf.clear()
 
     def _emit_disconnected(self, reason: str) -> None:
         """Emit ``disconnected`` exactly once — the pump thread and the

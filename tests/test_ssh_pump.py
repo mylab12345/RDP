@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import select
 import socket
 import threading
 import time
@@ -42,7 +43,15 @@ class FakeChannel:
             pass
 
 
-def _worker_with_fake_channel():
+class BurstChannel(FakeChannel):
+    """FakeChannel with paramiko's ``recv_ready()`` — exercises the pump's
+    burst-drain path (multiple recvs coalesced per select() round trip)."""
+
+    def recv_ready(self) -> bool:
+        return bool(select.select([self._sock], [], [], 0)[0])
+
+
+def _worker_with_fake_channel(chan_cls=FakeChannel):
     from pathlib import Path
 
     from rdpstudio.core import paths
@@ -59,7 +68,7 @@ def _worker_with_fake_channel():
         host_key_policy="accept-new",
         prompter=HeadlessPromptProvider(),
     )
-    worker._chan = FakeChannel(r)
+    worker._chan = chan_cls(r)
     wake_r, wake_w = socket.socketpair()
     worker._wake_r, worker._wake_w = wake_r, wake_w
     worker._wake_r.setblocking(False)
@@ -278,3 +287,170 @@ def test_build_material_maps_agent_forwarding(qtapp, home):
     plain = Session(name="b", protocol="ssh", host="h")
     assert SshSessionController(flagged, ctx)._build_material(flagged).forward_agent is True
     assert SshSessionController(plain, ctx)._build_material(plain).forward_agent is False
+
+
+def test_pump_drains_bulk_output_in_order(qtapp):
+    """A 1 MiB burst arrives complete and coalesced (drain loop + caps)."""
+    worker, remote = _worker_with_fake_channel(BurstChannel)
+    emissions: list[bytes] = []
+    worker.output.connect(lambda d: emissions.append(bytes(d)))
+
+    pump = threading.Thread(target=worker._pump, daemon=True)
+    pump.start()
+    time.sleep(0.05)
+
+    payload = bytes(range(256)) * 4096  # 1 MiB — far more than one recv
+    sender = threading.Thread(target=lambda: remote.sendall(payload), daemon=True)
+    sender.start()
+
+    deadline = time.time() + 10
+    received = b""
+    while time.time() < deadline:
+        qtapp.processEvents()
+        received = b"".join(emissions)
+        if len(received) >= len(payload):
+            break
+        time.sleep(0.01)
+    sender.join(timeout=5)
+    assert received == payload, f"lost output: {len(received)}/{len(payload)}"
+    # Coalescing still bounds the cross-thread signal rate: the drain loop
+    # must not regress into one emission per socket read.
+    assert len(emissions) <= len(payload) // 65536 + 8, (
+        f"{len(emissions)} emissions for 1 MiB — coalescing regressed"
+    )
+
+    worker._stop.set()
+    worker.request_stop()
+    pump.join(timeout=3)
+    assert not pump.is_alive()
+    assert b"".join(emissions) == payload  # nothing lost at shutdown
+
+
+def test_pump_ends_on_remote_eof(qtapp):
+    """Drain loop must still detect EOF exactly once and flush the tail."""
+    worker, remote = _worker_with_fake_channel(BurstChannel)
+    emissions: list[bytes] = []
+    disconnected: list[str] = []
+    worker.output.connect(lambda d: emissions.append(bytes(d)))
+    worker.disconnected.connect(disconnected.append)
+
+    pump = threading.Thread(target=worker._pump, daemon=True)
+    pump.start()
+    time.sleep(0.05)
+    remote.send(b"bye")
+    time.sleep(0.05)
+    remote.close()  # orderly EOF on the socketpair
+
+    pump.join(timeout=3)
+    assert not pump.is_alive()
+    deadline = time.time() + 2
+    while time.time() < deadline and not disconnected:
+        qtapp.processEvents()
+        time.sleep(0.02)
+    assert disconnected == ["connection closed by remote host"]
+    assert b"bye" in b"".join(emissions), "tail output was dropped at EOF"
+
+
+def _plain_worker():
+    from pathlib import Path
+
+    from rdpstudio.core import paths
+    from rdpstudio.protocols.ssh.worker import AuthMaterial, SshWorker
+    from rdpstudio.ui.prompter import HeadlessPromptProvider
+
+    return SshWorker(
+        host="fake",
+        port=22,
+        material=AuthMaterial(host="fake"),
+        known_hosts_path=Path(paths.known_hosts_file()),
+        host_key_policy="accept-new",
+        prompter=HeadlessPromptProvider(),
+    )
+
+
+def test_announce_tunes_transport_flow_control(qtapp):
+    """Shell/SFTP/tunnel/jump channels inherit OpenSSH-sized flow control.
+
+    paramiko 3.x/4.x default to 4 KiB max packets, which taxes bulk
+    throughput ~8x; ``_announce`` runs for every authenticated transport
+    (including each jump hop) before any channel is opened on it.
+    """
+    from rdpstudio.protocols.ssh.worker import SSH_MAX_PACKET_SIZE, SSH_WINDOW_SIZE
+
+    class LegacyTransport:  # paramiko 3.x-style class-level defaults
+        default_window_size = 2 ** 15 * 32
+        default_max_packet_size = 2 ** 12
+        local_cipher = "aes256-ctr"
+        remote_version = "SSH-2.0-legacy"
+
+        def get_username(self):
+            return "tester"
+
+        def get_banner(self):
+            return ""
+
+    class LegacyClient:
+        def __init__(self, transport):
+            self._transport = transport
+
+        def get_transport(self):
+            return self._transport
+
+    worker = _plain_worker()
+    infos: list[dict] = []
+    worker.connected.connect(infos.append)
+    transport = LegacyTransport()
+    worker._announce(LegacyClient(transport))
+    assert transport.default_max_packet_size == SSH_MAX_PACKET_SIZE
+    assert transport.default_window_size == SSH_WINDOW_SIZE
+    assert infos and infos[0]["cipher"] == "aes256-ctr"
+
+
+def test_announce_keeps_larger_existing_defaults(qtapp):
+    """Never shrink a transport that was already configured bigger."""
+
+    class BigTransport:
+        default_window_size = 4 * 1024 * 1024
+        default_max_packet_size = 64 * 1024
+        local_cipher = "chacha20-poly1305@openssh.com"
+        remote_version = "SSH-2.0-big"
+
+        def get_username(self):
+            return "tester"
+
+        def get_banner(self):
+            return ""
+
+    class BigClient:
+        def __init__(self, transport):
+            self._transport = transport
+
+        def get_transport(self):
+            return self._transport
+
+    worker = _plain_worker()
+    worker.connected.connect(lambda info: None)
+    transport = BigTransport()
+    worker._announce(BigClient(transport))
+    assert transport.default_max_packet_size == 64 * 1024
+    assert transport.default_window_size == 4 * 1024 * 1024
+
+
+def test_announce_tolerates_transport_without_tunables(qtapp):
+    """Exotic/mocked transports missing the attributes must not break auth."""
+
+    class BareTransport:
+        local_cipher = ""
+        remote_version = ""
+
+        def get_username(self):
+            return ""
+
+        def get_banner(self):
+            return ""
+
+    worker = _plain_worker()
+    infos: list[dict] = []
+    worker.connected.connect(infos.append)
+    worker._announce(type("C", (), {"get_transport": lambda self: BareTransport()})())
+    assert infos, "connected must still be emitted"
