@@ -369,6 +369,26 @@ def _osc_color_reply(code: int, r: int, g: int, b: int) -> bytes:
     )
 
 
+def middle_click_text() -> str:
+    """The text a middle-click should paste.
+
+    Follows the X11/Wayland convention: the PRIMARY selection (whatever the
+    user highlighted last, in this app or any other) wins; the regular
+    clipboard is the fallback — and the only source on Windows/macOS, where
+    no selection clipboard exists.  Platforms without selection support
+    (offscreen test runs) never touch the Selection mode, so Qt stays quiet.
+    """
+    cb = QGuiApplication.clipboard()
+    try:
+        if cb.supportsSelection():
+            selected = cb.text(QClipboard.Mode.Selection)
+            if selected:
+                return selected
+    except Exception:  # noqa: BLE001 — exotic QPA without selection support
+        pass
+    return cb.text(QClipboard.Mode.Clipboard)
+
+
 def _seq_complete(window: bytes) -> bool:
     """Heuristic: does this escape-sequence-looking window look complete?"""
     if not window.startswith(b"\x1b"):
@@ -640,6 +660,11 @@ class TerminalView(QWidget):
         """)
         self.vbar.rangeChanged.connect(self._sync_scrollbar)
         self.vbar.valueChanged.connect(self._on_scrollbar)
+        # Middle-click paste must cover the *whole* terminal surface. The
+        # scrollbar strip is a child widget that accepts (and drops) mouse
+        # buttons, so middle-clicks there never reach mousePressEvent —
+        # filter the scrollbar and paste from here instead.
+        self.vbar.installEventFilter(self)
 
         # In-terminal search bar overlay
         self.search_bar = TerminalSearchBar(self)
@@ -1176,7 +1201,26 @@ class TerminalView(QWidget):
             self.update()
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self.settings.paste_on_middle_click:
-                self.paste_clipboard(confirm=False)
+                self.paste_middle_click()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        # Middle-click paste on every pixel of the terminal surface: the
+        # scrollbar strip swallows mouse buttons without propagating them
+        # to the viewport, so paste from the filter instead. Press *and*
+        # release are consumed so the slider never sees a half gesture.
+        if obj is getattr(self, "vbar", None) and event.type() in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonRelease,
+        ):
+            if event.button() == Qt.MouseButton.MiddleButton:
+                if (
+                    event.type() == QEvent.Type.MouseButtonPress
+                    and self.settings.paste_on_middle_click
+                ):
+                    self.setFocus(Qt.FocusReason.MouseFocusReason)
+                    self.paste_middle_click()
+                return True
+        return super().eventFilter(obj, event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._dragging:
@@ -1211,6 +1255,18 @@ class TerminalView(QWidget):
         if not text:
             return
         self.paste_text(text, confirm=confirm)
+
+    def paste_middle_click(self) -> None:
+        """Middle-click paste: PRIMARY-selection-first, never confirmed.
+
+        Middle-click is an explicit paste gesture, so the multi-line guard
+        stays off here (it still protects Ctrl+Shift+V and the context
+        menu). The text source follows the platform convention — see
+        :func:`middle_click_text`.
+        """
+        text = middle_click_text()
+        if text:
+            self.paste_text(text, confirm=False)
 
     def paste_text(self, text: str, confirm: bool = True) -> None:
         if confirm and self.settings.confirm_multiline_paste and ("\n" in text or len(text) > 200):

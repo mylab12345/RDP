@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Changed — SSH throughput + middle-click paste on the whole terminal screen
+- **SSH performance (no behavior change):** every authenticated transport —
+  including each ProxyJump hop — is tuned to OpenSSH-sized flow control
+  (2 MiB window, 32 KiB max packets) before any channel opens on it, so the
+  shell, SFTP, tunnels and jump forwards all inherit it. On paramiko 3.x/4.x
+  (4 KiB packet default) this cuts per-packet framing/crypto/Python overhead
+  ~8× on bulk output and downloads; paramiko ≥ 5 already ships these values,
+  and mocked/exotic transports without the attributes are skipped.
+- **Output pump:** readable bursts are drained in one pass (bounded by the
+  64 KiB coalescing cap) instead of paying a `select()` round trip per recv,
+  and the coalescing buffer is a `bytearray`, so bulk streams no longer
+  re-copy the pending output on every append. Emission cadence, ordering,
+  EOF handling and the ≤8 ms small-chunk latency are unchanged.
+- **Native terminal (QTermWidget):** plain-text bulk output (no ESC byte and
+  nothing pending) skips the escape-sequence shim entirely — fewer regex
+  passes per chunk on `cat bigfile`-style streams.
+- **Middle-click paste everywhere:** middle-click now pastes on every pixel
+  of a terminal tab — the pyte viewport *and* its scrollbar strip (which
+  used to swallow the button), the native QTermWidget display, its internal
+  scrollbar, the container margins, and any lazily created internals
+  (`ChildAdded` rescans keep the surface complete). The gesture follows the
+  X11 convention: PRIMARY selection first, clipboard fallback (identical to
+  before on Windows/macOS). Interactive widgets (native search field,
+  buttons) keep their own middle-click behavior, and the
+  `paste_on_middle_click` setting still gates everything.
+- **Copy-on-select round-trip (native tabs):** the selection is now also
+  mirrored into the PRIMARY clipboard (where one exists), so
+  select-here → middle-click-here behaves like the pyte tabs always did.
+
 ### Changed — theme overhaul: 5 curated themes, AA contrast, focus + table polish
 - Five themes, one per nature: MobaXterm (default), Midnight (navy night),
   Dracula (violet night), Ocean (deep teal), Contrast (accessibility).

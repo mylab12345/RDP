@@ -28,9 +28,18 @@ from typing import Any
 
 from PySide6.QtCore import QEvent, QSocketNotifier, Qt, QTimer, Signal
 from PySide6.QtGui import QClipboard, QFont, QFontMetrics, QGuiApplication
-from PySide6.QtWidgets import QHBoxLayout, QMenu, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QAbstractSpinBox,
+    QHBoxLayout,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QTextEdit,
+    QWidget,
+)
 
-from .terminal import encode_key_event
+from .terminal import encode_key_event, middle_click_text
 
 # QTermWidget's public API is intentionally small.  Keep the import lazy and
 # behind a function: the optional wheel is built against a particular Qt ABI
@@ -56,6 +65,11 @@ _CONTROL_PREFIXES = (
     b"\x1b]10;?",
     b"\x1b]11;?",
 )
+# Widgets that keep their own middle-click semantics (paste into the field,
+# button activation): the paste-to-remote gesture must not hijack those —
+# e.g. QTermWidget's built-in search bar contains a QLineEdit whose
+# middle-click belongs to the search text, not to the remote host.
+_INTERACTIVE_WIDGETS = (QLineEdit, QTextEdit, QAbstractSpinBox, QAbstractButton)
 
 
 def _load_qtermwidget():
@@ -225,6 +239,11 @@ class NativeTerminalView(QWidget):
             )
             if w is not None
         ]
+        # Surface-wide mouse targets: the key targets plus every descendant
+        # of the native widget (terminal display, internal scrollbar, any
+        # lazily created search bar).  Qt deduplicates repeated installs of
+        # the same filter, so the rescans below stay idempotent.
+        self._filter_targets: set = set(self._key_targets)
         for target in self._key_targets:
             target.installEventFilter(self)
         try:
@@ -235,6 +254,12 @@ class NativeTerminalView(QWidget):
             raise RuntimeError(f"could not start native terminal emulator: {exc}") from exc
         if self._pty_fd < 0:
             raise RuntimeError("native terminal emulator returned an invalid PTY")
+        # QTermWidget builds its real input surface (display widget,
+        # scrollbar) around startTerminalTeletype; cover the whole child
+        # tree now — and again once the event loop settles — so middle-click
+        # paste and Ctrl+wheel zoom reach every pixel from the first frame.
+        self._rescan_child_filters()
+        QTimer.singleShot(0, self._rescan_child_filters)
 
         # The fd is only the input side of QTermWidget's empty PTY.  Making it
         # non-blocking lets a noisy VM queue briefly without freezing the GUI;
@@ -353,16 +378,85 @@ class NativeTerminalView(QWidget):
         except Exception:  # noqa: BLE001 - defensive
             return True
 
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
-        """Encode key events for the host before QTermWidget handles them.
+    def _rescan_child_filters(self) -> None:
+        """Install this view's event filter across the whole native child tree.
 
-        See the note in ``__init__``: on bindings where ``sendData`` cannot
-        cross into Python, this shim is the only working keyboard path.
+        QTermWidget spreads its surface over internal children (the terminal
+        display, its scrollbar, a lazily created search bar).  Middle-click
+        paste and Ctrl+wheel zoom must work on *all* of them, not just the
+        focus proxy, so the filter follows the child tree — including
+        children created after startup (``ChildAdded`` triggers a rescan).
+        Qt ignores duplicate installs of the same filter, making this
+        idempotent and cheap enough to run on every child addition.
         """
-        targets = getattr(self, "_key_targets", ())
-        if obj not in targets or self._closed:
+        if self._closed:
+            return
+        native = getattr(self, "_native", None)
+        if native is None:
+            return
+        try:
+            children = native.findChildren(QWidget)
+        except RuntimeError:  # C++ object already deleted
+            return
+        targets = set(self._key_targets)
+        for child in children:
+            try:
+                child.installEventFilter(self)
+            except RuntimeError:  # C++ object already deleted
+                continue
+            targets.add(child)
+        self._filter_targets = targets
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        """Keyboard shim + surface-wide middle-click paste / Ctrl+wheel zoom.
+
+        Key encoding stays limited to the native widget and its focus proxy
+        — the only objects that ever receive key events (see the note in
+        ``__init__``: on bindings where ``sendData`` cannot cross into
+        Python, this shim is the only working keyboard path).  Mouse
+        handling covers the whole filtered child tree instead, so gestures
+        work on every pixel of the terminal surface except on interactive
+        widgets, which keep their own middle-click behavior.
+        """
+        if self._closed:
             return super().eventFilter(obj, event)
         etype = event.type()
+        if etype == QEvent.Type.ChildAdded:
+            # Internals created later (native search bar, …) join the
+            # filtered surface as soon as they appear.
+            self._rescan_child_filters()
+            return False
+        targets = getattr(self, "_filter_targets", None)
+        if targets is None or obj not in targets:
+            return super().eventFilter(obj, event)
+        if etype in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+            if event.button() == Qt.MouseButton.MiddleButton:
+                if isinstance(obj, _INTERACTIVE_WIDGETS):
+                    return False
+                # Middle-click pastes directly, no confirmation. Consume
+                # press *and* release so the underlying widget (display,
+                # scrollbar) can't double handle a half gesture — this
+                # binding's native middle-click is unreliable.
+                if (
+                    etype == QEvent.Type.MouseButtonPress
+                    and bool(getattr(self.settings, "paste_on_middle_click", True))
+                ):
+                    self.paste_middle_click()
+                return True
+            return False
+        if etype == QEvent.Type.Wheel:
+            # Ctrl + mouse wheel zooms the terminal font (same as the pyte
+            # view), anywhere on the surface. Without Ctrl the wheel belongs
+            # to the native scroller.
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta:
+                    steps = abs(delta) // 120 or 1
+                    self._zoom_font(steps if delta > 0 else -steps)
+                return True
+            return False
+        if obj not in self._key_targets:
+            return False
         if etype == QEvent.Type.ShortcutOverride:
             # QActions/QShortcuts are resolved before KeyPress.  Claim all
             # encodable terminal keys so window commands never steal native
@@ -407,30 +501,10 @@ class NativeTerminalView(QWidget):
             # Not an encodable terminal key (shortcuts, modifiers…): let the
             # native widget / Qt handle it.
             return False
-        if etype == QEvent.Type.Wheel:
-            # Ctrl + mouse wheel zooms the terminal font (same as the pyte
-            # view).  Without Ctrl the wheel belongs to the native scroller.
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                delta = event.angleDelta().y()
-                if delta:
-                    steps = abs(delta) // 120 or 1
-                    self._zoom_font(steps if delta > 0 else -steps)
-                return True
-            return False
         if etype == QEvent.Type.InputMethod:
             commit = event.commitString()
             if commit:
                 self.write_user(commit.encode("utf-8"))
-                return True
-            return False
-        if etype == QEvent.Type.MouseButtonPress:
-            # Middle-click pastes the clipboard directly, no confirmation.
-            # Consume the event so the underlying QTermWidget can't double
-            # handle (or ignore) it — this binding's native middle-click is
-            # unreliable.
-            if event.button() == Qt.MouseButton.MiddleButton:
-                if bool(getattr(self.settings, "paste_on_middle_click", True)):
-                    self.paste_clipboard(confirm=False)
                 return True
             return False
         return False
@@ -535,6 +609,12 @@ class NativeTerminalView(QWidget):
         # protocol shim so existing clipboard/theme behavior does not regress;
         # it does not parse screen cells or paint anything.  The small tail and
         # OSC-52 state make sequences split across PTY frames behave correctly.
+        # Cheap gate: plain-text bulk output (cat bigfile, yes, scp progress…)
+        # carries no ESC byte and can never start a shimmed sequence — skip
+        # the regex battery entirely unless an escape is present or a
+        # sequence from an earlier chunk is still pending.
+        if not (self._control_tail or self._osc52_pending or b"\x1b" in data):
+            return
         self._consume_osc52(data)
         window = self._control_tail + data
         for match in _BPASTE_RE.finditer(window):
@@ -704,11 +784,51 @@ class NativeTerminalView(QWidget):
             text = self.selection()
             if text:
                 QGuiApplication.clipboard().setText(text, QClipboard.Mode.Clipboard)
+        # X11 round-trip: middle-click paste prefers the PRIMARY selection,
+        # so mirror copy-on-select into it (a guarded no-op where no
+        # selection clipboard exists — Windows/macOS/offscreen).
+        try:
+            cb = QGuiApplication.clipboard()
+            if cb.supportsSelection():
+                text = self.selection()
+                if text:
+                    cb.setText(text, QClipboard.Mode.Selection)
+        except Exception:  # noqa: BLE001 - clipboard access is best effort
+            pass
 
     def paste_clipboard(self, confirm: bool = True) -> None:
         text = QGuiApplication.clipboard().text()
         if text:
             self.paste_text(text, confirm=confirm)
+
+    def paste_middle_click(self) -> None:
+        """Middle-click paste: PRIMARY-selection-first, never confirmed.
+
+        Middle-click is an explicit paste gesture, so the multi-line guard
+        stays off here (it still protects Ctrl+Shift+V and the context
+        menu). The text source follows the platform convention — see
+        :func:`rdpstudio.ui.terminal.middle_click_text`.
+        """
+        text = middle_click_text()
+        if text:
+            self.paste_text(text, confirm=False)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        # Fallback for clicks landing on the container itself (layout
+        # margins, teardown gaps): middle-click paste covers the whole
+        # session surface, not just the native child widget.
+        if event.button() == Qt.MouseButton.MiddleButton:
+            if bool(getattr(self.settings, "paste_on_middle_click", True)):
+                self.paste_middle_click()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def paste_text(self, text: str, confirm: bool = True) -> None:
         if not text:

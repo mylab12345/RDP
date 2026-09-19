@@ -258,3 +258,115 @@ def test_terminal_input_claims_window_shortcuts(qtapp):
     assert triggered == []
     assert emitted == [b"\x02", b"\x0b", b"\x10", b"\x17", b"\x1b[H"]
     win.close()
+
+
+def _clickable_view(qtapp):
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.terminal import TerminalView
+
+    term = TerminalView(Settings())
+    term.resize(600, 400)
+    term.show()
+    qtapp.processEvents()
+    term._blink_timer.stop()
+    emitted: list[bytes] = []
+    term.dataWritten.connect(emitted.append)
+    return term, emitted
+
+
+def test_middle_click_pastes_on_viewport(qtapp):
+    """Middle-click paste on the main terminal surface."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtTest import QTest
+
+    term, emitted = _clickable_view(qtapp)
+    QGuiApplication.clipboard().setText("paste-viewport")
+    QTest.mouseClick(term, Qt.MouseButton.MiddleButton, pos=QPoint(50, 50))
+    qtapp.processEvents()
+    assert emitted == [b"paste-viewport"]
+    term.close()
+    term.deleteLater()
+
+
+def test_middle_click_pastes_on_scrollbar_strip(qtapp):
+    """The scrollbar strip is part of the terminal screen: QScrollBar
+    swallows mouse buttons without propagating, so the view filters it and
+    middle-click paste must still reach the session there."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtTest import QTest
+
+    term, emitted = _clickable_view(qtapp)
+    QGuiApplication.clipboard().setText("paste-scrollbar")
+    QTest.mouseClick(term.vbar, Qt.MouseButton.MiddleButton, pos=QPoint(3, 30))
+    qtapp.processEvents()
+    assert emitted == [b"paste-scrollbar"]
+    term.close()
+    term.deleteLater()
+
+
+def test_middle_click_disabled_by_setting(qtapp):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtTest import QTest
+
+    term, emitted = _clickable_view(qtapp)
+    term.settings.paste_on_middle_click = False
+    QGuiApplication.clipboard().setText("no-paste")
+    QTest.mouseClick(term, Qt.MouseButton.MiddleButton, pos=QPoint(50, 50))
+    QTest.mouseClick(term.vbar, Qt.MouseButton.MiddleButton, pos=QPoint(3, 30))
+    qtapp.processEvents()
+    assert emitted == []
+    term.close()
+    term.deleteLater()
+
+
+def test_middle_click_wraps_bracketed_paste(qtapp):
+    """A shell in bracketed-paste mode (readline, vim, …) receives the
+    200~/201~ guards even for middle-click pastes."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtTest import QTest
+
+    term, emitted = _clickable_view(qtapp)
+    term.feed(b"\x1b[?2004h")
+    QGuiApplication.clipboard().setText("ls -la")
+    QTest.mouseClick(term, Qt.MouseButton.MiddleButton, pos=QPoint(50, 50))
+    qtapp.processEvents()
+    assert emitted == [b"\x1b[200~ls -la\x1b[201~"]
+    term.close()
+    term.deleteLater()
+
+
+def test_paste_middle_click_uses_platform_helper(qtapp, monkeypatch):
+    """The gesture pastes via middle_click_text() — PRIMARY selection first
+    on X11/Wayland (helper is unit-tested below; wiring tested here)."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    import rdpstudio.ui.terminal as terminal_mod
+
+    term, emitted = _clickable_view(qtapp)
+    monkeypatch.setattr(terminal_mod, "middle_click_text", lambda: "from-primary")
+    QTest.mouseClick(term, Qt.MouseButton.MiddleButton, pos=QPoint(50, 50))
+    qtapp.processEvents()
+    assert emitted == [b"from-primary"]
+    term.close()
+    term.deleteLater()
+
+
+def test_middle_click_text_falls_back_to_clipboard(qtapp):
+    """Without selection support (offscreen/Windows/macOS) or with an empty
+    PRIMARY selection, the regular clipboard is pasted."""
+    from PySide6.QtGui import QGuiApplication
+
+    from rdpstudio.ui.terminal import middle_click_text
+
+    cb = QGuiApplication.clipboard()
+    cb.setText("clip-fallback")
+    assert middle_click_text() == "clip-fallback"
+    if not cb.supportsSelection():
+        # Offscreen QPA: selection mode is unavailable — helper must not
+        # touch it (Qt warns on unsupported-mode writes) and must not fail.
+        assert cb.text(cb.Mode.Selection) in ("", None)
