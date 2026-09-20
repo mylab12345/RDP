@@ -29,7 +29,7 @@ from ..core.downloads import resolve_download_start
 from ..core.plugin import SessionContext
 from ..protocols.ssh.sftp import SftpEngine
 from .file_editor_dialog import FileEditorDialog
-from .theme import palette
+from .theme import icon, palette
 from .widgets import ShimmerProgressBar, format_bytes, toast
 
 # Text / config file extensions for direct editor opening
@@ -164,9 +164,11 @@ class SftpDialog(QDialog):
 
         # Transfer buttons
         actions = QHBoxLayout()
-        download = QPushButton("⇩ Download Selected")
+        download = QPushButton("Download Selected")
+        download.setIcon(icon("transfer"))
         download.setObjectName("primary")
-        upload = QPushButton("⇧ Upload Selected")
+        upload = QPushButton("Upload Selected")
+        upload.setIcon(icon("transfer"))
         upload.setObjectName("primary")
         actions.addWidget(download)
         actions.addWidget(upload)
@@ -283,11 +285,12 @@ class SftpDialog(QDialog):
                 continue
             item = QTreeWidgetItem(
                 [
-                    ("📁 " if e["is_dir"] else "📄 ") + e["name"],
+                    e["name"],
                     "" if e["is_dir"] else format_bytes(e["size"]),
                     time.strftime("%Y-%m-%d %H:%M", time.localtime(e["mtime"])) if e["mtime"] else "",
                 ]
             )
+            item.setIcon(0, icon("folder" if e["is_dir"] else "file"))
             item.setData(0, Qt.ItemDataRole.UserRole, e)
             self.remote.list.addTopLevelItem(item)
 
@@ -304,11 +307,12 @@ class SftpDialog(QDialog):
                 continue
             item = QTreeWidgetItem(
                 [
-                    ("📁 " if e["is_dir"] else "📄 ") + e["name"],
+                    e["name"],
                     "" if e["is_dir"] else format_bytes(e["size"]),
                     time.strftime("%Y-%m-%d %H:%M", time.localtime(e["mtime"])) if e["mtime"] else "",
                 ]
             )
+            item.setIcon(0, icon("folder" if e["is_dir"] else "file"))
             item.setData(0, Qt.ItemDataRole.UserRole, e)
             self.local.list.addTopLevelItem(item)
 

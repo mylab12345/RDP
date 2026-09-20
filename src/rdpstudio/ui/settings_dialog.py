@@ -123,16 +123,16 @@ def _make_group(title: str, pal: dict[str, str]) -> tuple[QFrame, QVBoxLayout]:
     card = QWidget()
     card.setObjectName("card")
     card.setStyleSheet(
-        f"QWidget#card {{ background: {pal['bg']}; border: 1px solid {pal['border_strong']}; border-radius: 3px; }}"
+        f"QWidget#card {{ background: {pal['bg2']}; border: 1px solid {pal['border']}; border-radius: 8px; }}"
     )
     v = QVBoxLayout(card)
-    v.setContentsMargins(12, 10, 12, 10)
+    v.setContentsMargins(14, 12, 14, 12)
     v.setSpacing(8)
 
-    # Group caption in Windows-blue, like a classic group-box title
+    # Group title — semibold, calm secondary colour
     title_lbl = QLabel(title)
     title_lbl.setStyleSheet(
-        f"color: {pal['accent']}; font-size: 12px; font-weight: 400; padding-bottom: 2px;"
+        f"color: {pal['fg']}; font-size: 13px; font-weight: 600; padding-bottom: 2px;"
     )
     v.addWidget(title_lbl)
     return card, v
@@ -140,7 +140,7 @@ def _make_group(title: str, pal: dict[str, str]) -> tuple[QFrame, QVBoxLayout]:
 
 def _make_row_label(text: str, pal: dict[str, str]) -> QLabel:
     lbl = QLabel(text)
-    lbl.setStyleSheet(f"color: {pal['fg']}; font-size: 12px; font-weight: 400;")
+    lbl.setStyleSheet(f"color: {pal['fg']}; font-size: 12.5px; font-weight: 500;")
     return lbl
 
 
@@ -176,7 +176,7 @@ class _ThemeCard(QFrame):
             _ThemeCard {{
                 background: {bg};
                 border: {border};
-                border-radius: 2px;
+                border-radius: 8px;
             }}
             _ThemeCard:hover {{
                 border: 2px solid {accent};
@@ -198,7 +198,7 @@ class _ThemeCard(QFrame):
 
         name = QLabel(label.split("—")[0].strip() if "—" in label else label.split("·")[0].strip())
         name.setStyleSheet(
-            f"color: {fg}; font-size: 11.5px; font-weight: 700; background: transparent; border: none;"
+            f"color: {fg}; font-size: 12px; font-weight: 600; background: transparent; border: none;"
         )
         top.addWidget(name)
         top.addStretch(1)
@@ -246,7 +246,6 @@ class SettingsDialog(QDialog):
         header_row.setSpacing(10)
         title = QLabel("Settings")
         title.setObjectName("h1")
-        title.setStyleSheet("font-size: 15px; font-weight: 400;")
         header_row.addWidget(title)
         header_row.addStretch(1)
 
@@ -254,7 +253,7 @@ class SettingsDialog(QDialog):
         self._settings_search.setPlaceholderText("Search settings…")
         self._settings_search.setClearButtonEnabled(True)
         self._settings_search.setFixedWidth(220)
-        self._settings_search.setMinimumHeight(24)
+        self._settings_search.setMinimumHeight(28)
         search_act = self._settings_search.addAction(
             icon("search"), QLineEdit.ActionPosition.LeadingPosition
         )
@@ -409,8 +408,8 @@ class SettingsDialog(QDialog):
             background: {pal['term_bg']};
             color: {pal['term_fg']};
             border: 1px solid {pal['border_strong']};
-            border-radius: 2px;
-            padding: 8px 10px;
+            border-radius: 6px;
+            padding: 10px 12px;
             font-size: 12px;
             """
         )
@@ -889,7 +888,7 @@ class SettingsDialog(QDialog):
                 _ThemeCard {{
                     background: {pal_data['bg']};
                     border: {border};
-                    border-radius: 3px;
+                    border-radius: 8px;
                 }}
                 _ThemeCard:hover {{
                     border: 2px solid {pal_data['accent']};

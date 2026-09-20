@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Fixed — UI: 8-digit hex colour bug, dark-theme glyph contrast, clipped controls
+- **Translucent colours in stylesheets were mangled** (Qt reads `#RRGGBBAA`
+  as `#AARRGGBB`): checked toolbar buttons showed a wrong solid green on dark
+  themes, status chips / pill badges / toast tiles were brownish instead of
+  their semantic colour, and floating drop shadows were fully transparent.
+  New `theme.palette_color()` / `theme.solid_on()` / `theme.tint()` helpers
+  pre-blend every alpha colour into a solid `#rrggbb` before it reaches QSS
+  or `QColor`; all 40+ usage sites converted.
+- **Dark-theme toolbar glyphs** are lifted ×1.9 (charcoal → theme `fg`) so
+  every icon keeps its hue and legibility in Midnight, Dracula, Ocean and
+  Contrast themes.
+- **SFTP rows** use theme SVG folder/file icons instead of emoji (tofu without
+  a colour-emoji font); SFTP Download/Upload buttons carry the transfer glyph.
+- **Network tools** controls row fits the 700 px minimum dialog width; *Start
+  Scan* no longer truncates. Tab labels with a bare `&` (QTabBar mnemonic)
+  escaped — *Ping & Latency*, *DNS & IP Lookup*, *Key Inspector & Randomart*
+  now render the ampersand.
+- **Cluster dialog** All/None ghost buttons no longer collapse to zero width
+  (`#ghost` min-width 60 px).
+- **Credential dialog** inputs adopt the shared 6 px radius / border / hover /
+  focus treatment.
+- **Motion helpers** (`animate_in`, `pulse`) no longer `deleteLater()` their
+  animation: an orphaned widget's GC could free the animation's C++ parent
+  before the deferred deletion ran (use-after-free, seen as a bus error in
+  tests). Animations are now children of the widget and released with it.
+- Sessions sidebar gains proper empty states (*No saved sessions* with a
+  **New session** action; separate *No matches* state for dead filters), and
+  the dashboard gets a hero **Quick connect** field sharing the toolbar's code
+  path, tinted protocol badges and kbd-chip shortcuts footer.
+- Test suite: obsolete flat-geometry QSS test replaced by a design-scale
+  contract test; added contract tests for focus rings, pill chips/badges,
+  the dashboard hero quick-connect, sidebar empty-state toggling and tinted
+  protocol badges. All five palettes re-audited for WCAG AA — 0 failures.
+
 ### Changed — SSH throughput + middle-click paste on the whole terminal screen
 - **SSH performance (no behavior change):** every authenticated transport —
   including each ProxyJump hop — is tuned to OpenSSH-sized flow control

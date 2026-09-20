@@ -1,4 +1,11 @@
-"""Small reusable UI pieces: status chips, toasts, section headers — MobaXterm-flat styling."""
+"""Small reusable UI pieces — the shared component kit.
+
+Design tokens match the global QSS (theme_qss.py): 6 px control radius,
+8 px card radius, 999 px pills, 2 px accent focus rings, layered neutral
+surfaces. Components bake their palette into inline stylesheets and
+re-style themselves on ``StyleChange`` so a live theme switch re-tints
+them without touching session state.
+"""
 
 from __future__ import annotations
 
@@ -19,13 +26,13 @@ from PySide6.QtWidgets import (
 )
 
 from .theme import icon as theme_icon
-from .theme import is_dark_theme, palette
+from .theme import is_dark_theme, palette, palette_color, solid_on, tint
 
-_FONT = '"Segoe UI", "Tahoma", "Noto Sans", "DejaVu Sans", sans-serif'
+_FONT = '"Segoe UI", "Inter", "Noto Sans", "DejaVu Sans", "Liberation Sans", sans-serif'
 
 
 class StateChip(QLabel):
-    """Modern pill with dot — bento style, soft glow, natural.
+    """Status pill — soft tinted background, dot + label, fully rounded.
 
     The palette is baked into an inline stylesheet, so the chip re-styles
     itself on :meth:`event` ``StyleChange`` — a live theme switch re-tints
@@ -43,26 +50,28 @@ class StateChip(QLabel):
         pal = palette()
         hexcolor = pal.get(color, color)
 
-        # Background mapping with subtle alpha for natural depth
+        # Background mapping with subtle tint for natural depth. The tints
+        # are pre-blended into solid colours — Qt's QSS parser mangles
+        # 8-digit hex values (alpha byte order).
         bg_map = {
-            "good": f"{hexcolor}22",
-            "warn": f"{hexcolor}22",
-            "bad": f"{hexcolor}1E",
-            "info": f"{hexcolor}20",
+            "good": tint(hexcolor, 0x1F),
+            "warn": tint(hexcolor, 0x1F),
+            "bad": tint(hexcolor, 0x1A),
+            "info": tint(hexcolor, 0x1C),
             "fg_dim": pal["bg3"],
-            "accent": pal["accent_subtle"],
+            "accent": solid_on(pal["accent_subtle"], pal["bg2"]),
         }
-        bg = bg_map.get(color, f"{hexcolor}18")
+        bg = bg_map.get(color, tint(hexcolor, 0x18))
 
         border_map = {
-            "good": f"{hexcolor}40",
-            "warn": f"{hexcolor}40",
-            "bad": f"{hexcolor}40",
-            "info": f"{hexcolor}40",
+            "good": tint(hexcolor, 0x4D),
+            "warn": tint(hexcolor, 0x4D),
+            "bad": tint(hexcolor, 0x4D),
+            "info": tint(hexcolor, 0x4D),
             "fg_dim": pal["border"],
-            "accent": f"{pal['accent']}35",
+            "accent": tint(pal["accent"], 0x40),
         }
-        border = border_map.get(color, f"{hexcolor}30")
+        border = border_map.get(color, tint(hexcolor, 0x30))
 
         text_color = {
             "good": pal.get("good", hexcolor),
@@ -78,12 +87,12 @@ class StateChip(QLabel):
                 background: {bg};
                 color: {text_color};
                 border: 1px solid {border};
-                border-radius: 2px;
-                padding: 1px 8px 1px 7px;
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.2px;
-                font-family: "Segoe UI", "Tahoma", "Noto Sans", "DejaVu Sans", sans-serif;
+                border-radius: 999px;
+                padding: 2px 10px 2px 8px;
+                font-size: 10.5px;
+                font-weight: 600;
+                letter-spacing: 0.3px;
+                font-family: {_FONT};
             }}
             """
 
@@ -190,7 +199,7 @@ class Sparkline(QWidget):
 
 
 class Toast(QWidget):
-    """Modern transient notification — bento card with icon, soft shadow, auto-dismiss."""
+    """Transient notification — white card, tinted icon tile, soft shadow."""
 
     def __init__(self, parent: QWidget, text: str, kind: str = "info") -> None:
         super().__init__(parent)
@@ -198,10 +207,10 @@ class Toast(QWidget):
         border_map = {"info": "info", "good": "good", "bad": "bad", "warn": "warn"}
         border_key = border_map.get(kind, "info")
         border = pal.get(border_key, pal["info"])
-        bg = pal["bg2"]
 
         icons = {"info": "✦", "good": "✓", "bad": "✕", "warn": "⚠"}
         icon_char = icons.get(kind, "✦")
+        icon_bg = tint(border, 0x1F, pal["bg2"])
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.ToolTip)
@@ -210,24 +219,24 @@ class Toast(QWidget):
         self.setStyleSheet(
             f"""
             QWidget#toastCard {{
-                background: {bg};
-                border: 1px solid {pal['border']};
-                border-radius: 3px;
-                padding: 2px;
+                background: {pal['bg2']};
+                border: 1px solid {pal['border_strong']};
+                border-radius: 8px;
+                padding: 0px;
             }}
             QLabel#toastIcon {{
-                background: {border}18;
+                background: {icon_bg};
                 color: {border};
-                border-radius: 2px;
-                padding: 8px;
-                font-weight: 800;
-                font-size: 14px;
-                min-width: 22px;
-                min-height: 22px;
+                border-radius: 6px;
+                padding: 7px;
+                font-weight: 700;
+                font-size: 13px;
+                min-width: 20px;
+                min-height: 20px;
             }}
             QLabel#toastText {{
                 color: {pal['fg']};
-                font-size: 13px;
+                font-size: 12.5px;
                 font-weight: 500;
                 line-height: 1.4;
             }}
@@ -235,9 +244,9 @@ class Toast(QWidget):
         )
 
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(pal["shadow"] or "#00000066"))
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 8)
+        shadow.setColor(palette_color(pal["shadow"] or "#10182838"))
         self.setGraphicsEffect(shadow)
 
         outer = QVBoxLayout(self)
@@ -247,8 +256,8 @@ class Toast(QWidget):
         outer.addWidget(card)
 
         lay = QHBoxLayout(card)
-        lay.setContentsMargins(14, 12, 16, 12)
-        lay.setSpacing(12)
+        lay.setContentsMargins(12, 10, 14, 10)
+        lay.setSpacing(10)
 
         icon_label = QLabel(icon_char)
         icon_label.setObjectName("toastIcon")
@@ -258,8 +267,8 @@ class Toast(QWidget):
         label = QLabel(text)
         label.setObjectName("toastText")
         label.setWordWrap(True)
-        label.setMinimumWidth(220)
-        label.setMaximumWidth(400)
+        label.setMinimumWidth(200)
+        label.setMaximumWidth(380)
         lay.addWidget(label, 1)
 
         self.adjustSize()
@@ -288,7 +297,7 @@ def toast(parent: QWidget, text: str, kind: str = "info") -> None:
 
 
 class ModernCard(QWidget):
-    """Reusable bento card container with natural styling."""
+    """Reusable surface card container (8 px radius, 1 px border)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -299,7 +308,7 @@ class ModernCard(QWidget):
             QWidget#card {{
                 background: {pal['bg2']};
                 border: 1px solid {pal['border']};
-                border-radius: 3px;
+                border-radius: 8px;
             }}
             QWidget#card:hover {{
                 border-color: {pal['border_strong']};
@@ -321,11 +330,12 @@ class PillBadge(QLabel):
 
     def _apply_kind(self, kind: str) -> None:
         pal = palette()
+        # Pre-blended solid tints — Qt's QSS parser mangles 8-digit hex.
         bg = {
             "default": pal["bg3"],
-            "accent": pal["accent_subtle"],
-            "good": f"{pal['good']}20",
-            "warn": f"{pal['warn']}20",
+            "accent": solid_on(pal["accent_subtle"], pal["bg2"]),
+            "good": tint(pal["good"], 0x1F),
+            "warn": tint(pal["warn"], 0x1F),
         }.get(kind, pal["bg3"])
         fg = {
             "default": pal["fg_dim"],
@@ -335,9 +345,9 @@ class PillBadge(QLabel):
         }.get(kind, pal["fg_dim"])
         border = {
             "default": pal["border"],
-            "accent": f"{pal['accent']}30",
-            "good": f"{pal['good']}30",
-            "warn": f"{pal['warn']}30",
+            "accent": tint(pal["accent"], 0x40),
+            "good": tint(pal["good"], 0x40),
+            "warn": tint(pal["warn"], 0x40),
         }.get(kind, pal["border"])
 
         desired = f"""
@@ -345,10 +355,11 @@ class PillBadge(QLabel):
                 background: {bg};
                 color: {fg};
                 border: 1px solid {border};
-                border-radius: 4px;
-                padding: 1px 8px;
+                border-radius: 999px;
+                padding: 1px 9px;
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 600;
+                letter-spacing: 0.2px;
             }}
             """
         if desired != self.styleSheet():
@@ -368,7 +379,7 @@ class PillBadge(QLabel):
 
 
 # ───────────────────────────────────────────────────────────────
-# Reusable UI components — natural 2026 design system
+# Reusable UI components — ops-console design system
 # ───────────────────────────────────────────────────────────────
 
 
@@ -395,9 +406,9 @@ class ModernButton(QPushButton):
         v = self._variant
 
         size_map = {
-            "sm": ("11px", "5px 14px", "28px"),
-            "md": ("13px", "8px 20px", "36px"),
-            "lg": ("14px", "10px 26px", "44px"),
+            "sm": ("11.5px", "4px 12px", "26px"),
+            "md": ("12.5px", "7px 16px", "32px"),
+            "lg": ("13.5px", "9px 20px", "40px"),
         }
         font_size, padding, min_h = size_map.get(self._size, size_map["md"])
 
@@ -405,27 +416,32 @@ class ModernButton(QPushButton):
             bg, fg, border = pal["accent"], pal["accent_text"], pal["accent"]
             bg_h, bg_p = pal["accent_hover"], pal["accent_active"]
             bd_h, bd_p = bg_h, bg_p
-            fw = "700"
+            fw = "600"
         elif v == "ghost":
             bg, fg, border = "transparent", pal["fg_dim"], "transparent"
             bg_h, bg_p = pal["bg3"], pal["panel2"]
-            bd_h, bd_p = pal["border"], pal["border_strong"]
-            fw = "600"
+            bd_h, bd_p = "transparent", "transparent"
+            fw = "500"
         elif v == "subtle":
-            bg, fg, border = pal["bg3"], pal["fg_dim"], pal["border"]
-            bg_h, bg_p = pal["panel2"], pal["panel3"]
-            bd_h, bd_p = pal["border_strong"], pal["border_strong"]
-            fw = "600"
+            bg, fg, border = pal["bg2"], pal["fg"], pal["border_strong"]
+            bg_h, bg_p = pal["panel"], solid_on(pal["accent_subtle"], pal["panel"])
+            bd_h, bd_p = pal["accent"], pal["accent"]
+            fw = "500"
         elif v == "danger":
-            bg, fg, border = pal["bad"], "#ffffff", pal["bad"]
+            bg, fg, border = "transparent", pal["bad"], tint(pal["bad"], 0x55)
             bg_h, bg_p = pal["bad"], pal["bad"]
             bd_h, bd_p = pal["bad"], pal["bad"]
-            fw = "700"
+            fg = pal["bad"]
+            fw = "500"
         else:
-            bg, fg, border = pal["bg2"], pal["fg"], pal["border"]
-            bg_h, bg_p = pal["bg3"], pal["panel2"]
-            bd_h, bd_p = pal["border_strong"], pal["border_strong"]
-            fw = "600"
+            bg, fg, border = pal["bg2"], pal["fg"], pal["border_strong"]
+            bg_h, bg_p = pal["panel"], solid_on(pal["accent_subtle"], pal["panel"])
+            bd_h, bd_p = pal["accent"], pal["accent"]
+            fw = "500"
+
+        # Danger variant: hover flips to solid red with white text.
+        hover_fg = pal["bad_text"] if v == "danger" else fg
+        pressed_fg = pal["bad_text"] if v == "danger" else fg
 
         self.setStyleSheet(
             f"""
@@ -433,7 +449,7 @@ class ModernButton(QPushButton):
                 background: {bg};
                 color: {fg};
                 border: 1px solid {border};
-                border-radius: 2px;
+                border-radius: 6px;
                 padding: {padding};
                 font-size: {font_size};
                 font-weight: {fw};
@@ -443,18 +459,20 @@ class ModernButton(QPushButton):
             QPushButton:hover {{
                 background: {bg_h};
                 border-color: {bd_h};
+                color: {hover_fg};
             }}
             QPushButton:pressed {{
                 background: {bg_p};
                 border-color: {bd_p};
+                color: {pressed_fg};
             }}
             QPushButton:focus {{
-                border: 1px solid {pal['accent']};
-                outline: none;
+                outline: 2px solid {pal['accent']};
+                outline-offset: -2px;
             }}
             QPushButton:disabled {{
                 color: {pal['fg_muted']};
-                background: {pal['bg']};
+                background: {pal['bg3']};
                 border-color: {pal['border_subtle']};
             }}
             """
@@ -478,34 +496,34 @@ class ModernLineEdit(QLineEdit):
         if password:
             self.setEchoMode(QLineEdit.EchoMode.Password)
         if prefix_icon:
-            self.setTextMargins(28, 0, 0, 0)
+            self.setTextMargins(34, 0, 0, 0)
         self._apply_style()
 
     def _apply_style(self) -> None:
         pal = palette()
-        left_pad = "28px" if self._prefix_icon else "14px"
+        left_pad = "34px" if self._prefix_icon else "12px"
         self.setStyleSheet(
             f"""
             QLineEdit {{
                 background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 2px;
-                padding: 8px 14px 8px {left_pad};
+                border: 1px solid {pal['border_strong']};
+                border-radius: 6px;
+                padding: 7px 12px 7px {left_pad};
                 color: {pal['fg']};
-                font-size: 13px;
+                font-size: 12.5px;
                 font-family: {_FONT};
                 min-height: 20px;
                 selection-background-color: {pal['accent']};
                 selection-color: {pal['accent_text']};
             }}
             QLineEdit:hover {{
-                border-color: {pal['border_strong']};
+                border-color: {pal['fg_muted']};
             }}
             QLineEdit:focus {{
                 border: 1px solid {pal['accent']};
             }}
             QLineEdit:disabled {{
-                background: {pal['bg']};
+                background: {pal['bg3']};
                 color: {pal['fg_muted']};
                 border-color: {pal['border_subtle']};
             }}
@@ -520,7 +538,7 @@ class ModernLineEdit(QLineEdit):
             painter = QPainter(self)
             painter.setPen(QColor(palette()["fg_dim"]))
             painter.drawText(
-                8, 0, 22, self.height(),
+                10, 0, 22, self.height(),
                 int(Qt.AlignmentFlag.AlignCenter), self._prefix_icon,
             )
             painter.end()
@@ -539,47 +557,48 @@ class ModernComboBox(QComboBox):
             f"""
             QComboBox {{
                 background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 2px;
-                padding: 8px 36px 8px 14px;
+                border: 1px solid {pal['border_strong']};
+                border-radius: 6px;
+                padding: 7px 32px 7px 12px;
                 color: {pal['fg']};
-                font-size: 13px;
+                font-size: 12.5px;
                 font-family: {_FONT};
                 min-height: 20px;
             }}
             QComboBox:hover {{
-                border-color: {pal['border_strong']};
+                border-color: {pal['fg_muted']};
             }}
             QComboBox:focus {{
                 border: 1px solid {pal['accent']};
             }}
             QComboBox::drop-down {{
                 border: none;
-                width: 32px;
-                border-top-right-radius: 11px;
-                border-bottom-right-radius: 11px;
+                width: 28px;
+                border-left: 1px solid {pal['border_subtle']};
+                border-top-right-radius: 5px;
+                border-bottom-right-radius: 5px;
             }}
             QComboBox::down-arrow {{
                 image: none;
                 width: 0; height: 0;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid {pal['fg_dim']};
-                margin-right: 12px;
-                margin-top: 2px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {pal['fg_dim']};
+                margin-right: 10px;
+                margin-top: 1px;
             }}
             QComboBox QAbstractItemView {{
                 background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 2px;
-                padding: 6px;
-                selection-background-color: {pal['accent_subtle']};
+                border: 1px solid {pal['border_strong']};
+                border-radius: 8px;
+                padding: 4px;
+                selection-background-color: {solid_on(pal['accent_subtle'], pal['bg2'])};
                 selection-color: {pal['fg']};
                 outline: none;
                 font-family: {_FONT};
             }}
             QComboBox:disabled {{
-                background: {pal['bg']};
+                background: {pal['bg3']};
                 color: {pal['fg_muted']};
                 border-color: {pal['border_subtle']};
             }}
@@ -614,7 +633,7 @@ class SectionHeader(QWidget):
             f"""
             QLabel {{
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 600;
                 color: {pal['fg_muted']};
                 letter-spacing: 0.6px;
                 font-family: {_FONT};
@@ -649,7 +668,7 @@ class SectionHeader(QWidget):
         row.addStretch()
         layout.addLayout(row)
 
-        # Accent underline
+        # Hairline underline
         underline = QFrame()
         underline.setFixedHeight(1)
         underline.setStyleSheet(
@@ -669,7 +688,7 @@ class StatusIndicator(QWidget):
     }
 
     def __init__(
-        self, status: str = "disconnected", parent: QWidget | None = None,
+        self, status: str = "disconnected", parent=None,
     ) -> None:
         super().__init__(parent)
         self._status = status
@@ -765,7 +784,7 @@ class StatusIndicator(QWidget):
 
 
 class EmptyState(QWidget):
-    """Centered empty state with icon, title, subtitle, and optional action."""
+    """Centered empty state with icon tile, title, subtitle, and action."""
 
     def __init__(
         self,
@@ -781,15 +800,22 @@ class EmptyState(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         if icon_name:
-            ic = theme_icon(icon_name)
-            icon_label = QLabel()
-            icon_label.setPixmap(ic.pixmap(48, 48))
-            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon_label.setStyleSheet("background: transparent;")
-            layout.addWidget(icon_label)
+            tile = QLabel()
+            tile.setFixedSize(56, 56)
+            tile.setStyleSheet(
+                f"background: {pal['bg3']}; border: 1px solid {pal['border']}; "
+                f"border-radius: 14px;"
+            )
+            tile.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inner = QLabel()
+            inner.setPixmap(theme_icon(icon_name, pal["fg_dim"]).pixmap(28, 28))
+            tile.layout = QHBoxLayout(tile)
+            tile.layout.setContentsMargins(0, 0, 0, 0)
+            tile.layout.addWidget(inner)
+            layout.addWidget(tile, 0, Qt.AlignmentFlag.AlignCenter)
 
         if title:
             title_label = QLabel(title)
@@ -798,8 +824,8 @@ class EmptyState(QWidget):
                 f"""
                 QLabel {{
                     color: {pal['fg']};
-                    font-size: 16px;
-                    font-weight: 700;
+                    font-size: 15px;
+                    font-weight: 600;
                     font-family: {_FONT};
                     background: transparent;
                 }}
@@ -814,11 +840,11 @@ class EmptyState(QWidget):
             subtitle_label.setStyleSheet(
                 f"""
                 QLabel {{
-                    color: {pal['fg_dim']};
-                    font-size: 13px;
+                    color: {pal['fg_muted']};
+                    font-size: 12px;
                     font-family: {_FONT};
                     background: transparent;
-                    max-width: 360px;
+                    max-width: 340px;
                 }}
                 """
             )
@@ -926,20 +952,19 @@ class SearchInput(QWidget):
         self._edit.setStyleSheet(
             f"""
             QLineEdit {{
-                background: {pal['bg3']};
-                border: 1px solid {pal['border_subtle']};
-                border-radius: 2px;
-                padding: 8px 36px 8px 4px;
+                background: {pal['bg2']};
+                border: 1px solid {pal['border_strong']};
+                border-radius: 6px;
+                padding: 7px 34px 7px 4px;
                 color: {pal['fg']};
-                font-size: 13px;
+                font-size: 12.5px;
                 font-family: {_FONT};
                 min-height: 20px;
             }}
             QLineEdit:hover {{
-                border-color: {pal['border']};
+                border-color: {pal['fg_muted']};
             }}
             QLineEdit:focus {{
-                background: {pal['bg2']};
                 border-color: {pal['accent']};
             }}
             """
@@ -956,7 +981,7 @@ class SearchInput(QWidget):
                 background: transparent;
                 color: {pal['fg_dim']};
                 border: none;
-                border-radius: 2px;
+                border-radius: 6px;
                 font-size: 12px;
                 font-weight: 700;
             }}
@@ -1013,7 +1038,7 @@ class CollapsibleCard(QWidget):
             QWidget#card {{
                 background: {pal['bg2']};
                 border: 1px solid {pal['border']};
-                border-radius: 3px;
+                border-radius: 8px;
             }}
             """
         )
@@ -1028,8 +1053,8 @@ class CollapsibleCard(QWidget):
             f"""
             QWidget {{
                 background: transparent;
-                border-top-left-radius: 2px;
-                border-top-right-radius: 2px;
+                border-top-left-radius: 7px;
+                border-top-right-radius: 7px;
             }}
             QWidget:hover {{
                 background: {pal['bg3']};
@@ -1037,7 +1062,7 @@ class CollapsibleCard(QWidget):
             """
         )
         header_layout = QHBoxLayout(self._header)
-        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setContentsMargins(14, 10, 14, 10)
 
         self._title_label = QLabel(title)
         self._title_label.setStyleSheet(
@@ -1071,7 +1096,7 @@ class CollapsibleCard(QWidget):
         self._content_container.setMaximumHeight(0)
         self._content_container.setStyleSheet("background: transparent;")
         content_layout = QVBoxLayout(self._content_container)
-        content_layout.setContentsMargins(16, 0, 16, 16)
+        content_layout.setContentsMargins(14, 0, 14, 14)
         content_layout.addWidget(content_widget)
 
         card_layout.addWidget(self._header)
@@ -1204,7 +1229,7 @@ class ConnectionStatusBar(QWidget):
 
 
 # ----------------------------------------------------------------------
-# Motion, shadows and shimmer — 2026 polish layer (all optional via
+# Motion, shadows and shimmer — polish layer (all optional via
 # Settings → UI; see theme.MOTIONS_ENABLED)
 # ----------------------------------------------------------------------
 def _motion_on() -> bool:
@@ -1217,6 +1242,11 @@ def animate_in(widget: QWidget, duration: int = 140) -> None:
     """Fade a dialog/panel in (opacity 0.55 → 1, ease-out).
 
     Skipped entirely when animations are disabled in Settings.
+
+    Lifetime: the animation is a child of ``widget`` and is *not*
+    deleteLater()'d — a deferred deletion of an animation whose parent was
+    already torn down by the Python GC is a use-after-free. It simply stops
+    when done and is released with the widget.
     """
     if not _motion_on():
         return
@@ -1231,16 +1261,24 @@ def animate_in(widget: QWidget, duration: int = 140) -> None:
     widget._kb_anim = anim  # keep a reference so the loop owns it
 
     def _cleanup() -> None:
+        try:
+            anim.disconnect(_cleanup)
+        except (TypeError, RuntimeError):
+            pass
         if widget.graphicsEffect() is effect:
             widget.setGraphicsEffect(None)
-        anim.deleteLater()
+        widget._kb_anim = None
 
     anim.finished.connect(_cleanup)
     anim.start()
 
 
 def pulse(widget: QWidget, duration: int = 320) -> None:
-    """One soft opacity pulse — used when a session connects."""
+    """One soft opacity pulse — used when a session connects.
+
+    Lifetime rules match :func:`animate_in` (child animation, no
+    deleteLater).
+    """
     if not _motion_on():
         return
     effect = QGraphicsOpacityEffect(widget)
@@ -1254,16 +1292,20 @@ def pulse(widget: QWidget, duration: int = 320) -> None:
     widget._kb_anim = anim
 
     def _cleanup() -> None:
+        try:
+            anim.disconnect(_cleanup)
+        except (TypeError, RuntimeError):
+            pass
         if widget.graphicsEffect() is effect:
             widget.setGraphicsEffect(None)
-        anim.deleteLater()
+        widget._kb_anim = None
 
     anim.finished.connect(_cleanup)
     anim.start()
 
 
 def soft_shadow(widget: QWidget, blur: int = 14, dy: int = 3, alpha: int = 90) -> None:
-    """Bento-style soft drop shadow on floating surfaces (menus, cards)."""
+    """Soft drop shadow on floating surfaces (menus, cards)."""
     shadow = QGraphicsDropShadowEffect(widget)
     shadow.setBlurRadius(blur)
     shadow.setOffset(0, dy)

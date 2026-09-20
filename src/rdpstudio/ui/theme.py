@@ -145,22 +145,26 @@ def _tinted_svg(path: Path, color: str) -> QIcon:
 
 
 def badge_icon(name: str, size: int = 16, tint: str | None = None) -> QIcon:
-    """Icon on a rounded surface tile — protocol marks for tabs and rows."""
+    """Icon on a rounded surface tile — protocol marks for tabs and rows.
+
+    Modern treatment: a soft tile in the tint's own hue (14 % alpha) with
+    the glyph in full tint, so the protocol reads as a colour mark.
+    """
     pal = palette()
-    key = (f"badge:{name}:{size}", tint or "")
+    tint = tint or pal["fg_dim"]
+    key = (f"badge:{name}:{size}", tint)
     cached = _icon_cache.get(key)
     if cached is not None:
         return cached
+    radius = max(3, int(size * 0.28))
     pix = QPixmap(size, size)
     pix.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(pal["bg3"]))
-    painter.drawRoundedRect(0, 0, size, size, 4, 4)
-    inner = icon(name, tint or pal["fg_dim"]).pixmap(
-        QSize(int(size * 0.72), int(size * 0.72))
-    )
+    painter.setBrush(palette_color(tint + "24"))  # 14 % tint fill
+    painter.drawRoundedRect(0, 0, size, size, radius, radius)
+    inner = icon(name, tint).pixmap(QSize(int(size * 0.68), int(size * 0.68)))
     painter.drawPixmap((size - inner.width()) // 2, (size - inner.height()) // 2, inner)
     painter.end()
     ic = QIcon(pix)
@@ -256,13 +260,19 @@ def palette(theme: str | None = None) -> dict[str, str]:
 
 
 def toolbar_icon(name: str) -> QIcon:
-    """Coloured MobaXterm-style toolbar glyph (falls back to the theme tint)."""
+    """Coloured MobaXterm-style toolbar glyph (falls back to the theme tint).
+
+    The tints are tuned for light chrome; on dark themes they are lifted
+    well past 1:1 so every glyph keeps its hue AND its legibility.
+    """
     tint = TOOLBAR_ICON_TINTS.get(name)
     if tint and not is_dark_theme(None):
         return icon(name, tint)
     if tint:
-        # Lift the tint a little on dark chrome so it stays legible.
-        return icon(name, _shade(tint, 1.35) if tint != "#3a3a3a" else palette()["fg"])
+        # Charcoal glyphs read as "off" on dark chrome — use the theme fg.
+        if tint in ("#3a3a3a",):
+            return icon(name, palette()["fg"])
+        return icon(name, _shade(tint, 1.9))
     return icon(name)
 
 # ----------------------------------------------------------------------
@@ -335,6 +345,52 @@ def _indicator_image_urls(pal: dict[str, str]) -> dict[str, str]:
 
 
 
+def palette_color(value: str) -> QColor:
+    """Parse a palette hex value (CSS RRGGBBAA order) into a QColor.
+
+    Qt's string parser expects ``#AARRGGBB`` for 8-digit values, so the
+    alpha byte must be moved into place manually — otherwise a
+    ``"#2e9e4424"`` (14 % green) comes out as opaque brownish red.
+    """
+    h = value.lstrip("#")
+    if len(h) == 8:
+        r, g, b, a = (int(h[i : i + 2], 16) for i in (0, 2, 4, 6))
+        return QColor(r, g, b, a)
+    return QColor(value)
+
+
+def solid_on(hex_fg: str, base: str) -> str:
+    """Pre-blend an 8-digit RRGGBBAA colour over ``base`` → opaque #rrggbb.
+
+    Qt's *stylesheet* parser mangles 8-digit hex (it reads ``#AARRGGBB``),
+    so anything that ends up in QSS must be a solid 6-digit value first.
+    """
+    h = hex_fg.lstrip("#")
+    if len(h) != 8:
+        return hex_fg
+    fg = palette_color(hex_fg)
+    bg = QColor(base)
+    a = fg.alphaF()
+    out = QColor(
+        int(round(bg.red() + (fg.red() - bg.red()) * a)),
+        int(round(bg.green() + (fg.green() - bg.green()) * a)),
+        int(round(bg.blue() + (fg.blue() - bg.blue()) * a)),
+    )
+    return out.name()
+
+
+def tint(hex_color: str, alpha: int, over: str | None = None) -> str:
+    """``hex_color`` at ``alpha`` (0-255) as a QSS-safe solid colour.
+
+    Pre-blends over ``over`` (default: the theme's ``bg2`` card surface).
+    """
+    base = over or palette()["bg2"]
+    fg = QColor(hex_color)
+    fg.setAlpha(max(0, min(255, int(alpha))))
+    h = f"#{fg.red():02x}{fg.green():02x}{fg.blue():02x}{fg.alpha():02x}"
+    return solid_on(h, base)
+
+
 def _shade(hex_color: str, factor: float) -> str:
     """Darken (<1) or lighten (>1) a #rrggbb colour, clamped to 0-255."""
     h = hex_color.lstrip("#")
@@ -364,10 +420,22 @@ def apply_theme(
         "bad_hover": _shade(pal["bad"], 1.18),
         "bad_active": _shade(pal["bad"], 0.82),
         "bad_text": "#ffffff",
+        # QSS cannot parse 8-digit hex (Qt mangles the alpha byte order),
+        # so every translucent danger tint is pre-blended into a solid
+        # colour over the card surface.
+        "bad_border": tint(pal["bad"], 0x55, pal["bg2"]),
+        "bad_soft": tint(pal["bad"], 0x22, pal["bg2"]),
+        "bad_soft2": tint(pal["bad"], 0x33, pal["bg2"]),
+        "bad_faint": tint(pal["bad"], 0x1A, pal["bg2"]),
         "ui_sans": _UI_SANS,
         "ui_mono": _UI_MONO,
         "ui_display": _UI_DISPLAY,
     }
+    # QSS cannot parse 8-digit hex (Qt mangles the alpha byte order), so
+    # semi-transparent tints are pre-blended into solid colours over the
+    # base surface.
+    if len(pal["accent_subtle"].lstrip("#")) == 8:
+        fmt["accent_subtle"] = solid_on(pal["accent_subtle"], pal["bg"])
     qss = _QSS.format(**fmt)
     if _density == "compact":
         qss += _QSS_COMPACT.format(**fmt)
