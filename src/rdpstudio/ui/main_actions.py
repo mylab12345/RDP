@@ -74,6 +74,39 @@ class MainActionsMixin:
         self._act_sidebar_menu.toggled.connect(self._toggle_sidebar)
         m_view.addAction(self._act_sidebar_menu)
 
+        # Docking (mouse-first): grab a grip and shove it at an edge, or use
+        # these entries. The label flips as the panel moves (see
+        # _sync_sidebar_actions).
+        self._act_flip_sidebar = QAction(icon("panel"), "Move Sessions Panel to the &Right", self)
+        self._act_flip_sidebar.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self._act_flip_sidebar.setStatusTip(
+            "Dock the Sessions panel to the other edge of the window"
+        )
+        self._act_flip_sidebar.triggered.connect(self.flip_sidebar_side)
+        m_view.addAction(self._act_flip_sidebar)
+
+        m_tabs_pos = m_view.addMenu(icon("panel"), "Session &Tabs Position")
+        m_tabs_pos.setStatusTip("Where the open-session tab strip lives")
+        self._tabs_pos_group = QActionGroup(self)
+        self._tabs_pos_group.setExclusive(True)
+        self._tabs_pos_actions: dict[str, QAction] = {}
+        for key, label in (
+            ("top", "&Top — horizontal strip"),
+            ("left", "&Left — vertical rail"),
+            ("right", "R&ight — vertical rail"),
+        ):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.triggered.connect(lambda checked, k=key: checked and self.set_tabs_position(k))
+            self._tabs_pos_group.addAction(act)
+            m_tabs_pos.addAction(act)
+            self._tabs_pos_actions[key] = act
+        act = QAction("&Cycle tab strip position", self)
+        act.setShortcut(QKeySequence("Ctrl+Shift+J"))
+        act.triggered.connect(self.cycle_tabs_position)
+        m_tabs_pos.addSeparator()
+        m_tabs_pos.addAction(act)
+
         m_view.addSeparator()
 
         m_themes = m_view.addMenu("&Theme")

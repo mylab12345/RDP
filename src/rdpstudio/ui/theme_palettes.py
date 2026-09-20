@@ -17,7 +17,45 @@ from __future__ import annotations
 #                < bg2 (content surface) — borders separate the layers.
 # ----------------------------------------------------------------------
 PALETTE = {
-    # MobaXterm — light neutral chrome (default). Signature values kept:
+    # MobaXterm Dark (default) — the same neutral, square MobaXterm chrome
+    # with the lights off: charcoal window chrome, Microsoft-blue accent.
+    # The light palette's layer order is inverted (raised surfaces get
+    # *lighter*, not darker) while every signature relationship holds:
+    # bg < panel < bg3 < bg2 in luminance terms, accent #1670c6 with white
+    # button text (5.0:1) and muted secondary text at 6.1:1 on bg3.
+    "mobaxterm_dark": {
+        "bg": "#1c1c1f",
+        "bg2": "#232327",
+        "bg3": "#2c2c31",
+        "panel": "#202024",
+        "panel2": "#292930",
+        "panel3": "#3a3a42",
+        "border": "#33333a",
+        "border_strong": "#4a4a54",
+        "border_subtle": "#2a2a2f",
+        "fg": "#e9edf2",
+        "fg_dim": "#b7bdc7",
+        "fg_muted": "#a6adb8",
+        "accent": "#1670c6",
+        "accent_hover": "#2a86dd",
+        "accent_active": "#0f5aa3",
+        "accent_text": "#ffffff",
+        "accent_subtle": "#1670c629",
+        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a86dd, stop:1 #0f5aa3)",
+        "good": "#4ec96b",
+        "warn": "#e3a63c",
+        "bad": "#ef6f74",
+        "info": "#4da3f0",
+        "term_bg": "#141416",
+        "term_fg": "#dfe3e8",
+        "sel": "#26456b",
+        "sel_hover": "#2e2e34",
+        "shadow": "#00000088",
+        "shadow_soft": "#00000044",
+        "overlay": "#1c1c1fe6",
+        "card_shadow": "#00000055",
+    },
+    # MobaXterm — light neutral chrome (legacy default, still selectable). Signature values kept:
     # window chrome #f0f0f0, Microsoft-blue accent #0075d2 (white button
     # text at 4.7:1). Everything else is a cool, calm neutral family.
     "mobaxterm": {

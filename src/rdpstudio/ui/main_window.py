@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -47,6 +47,7 @@ from .command_bar import (
 )
 from .command_palette import CommandPaletteDialog
 from .dashboard import DashboardMixin
+from .docking import DockDragFilter
 from .main_actions import MainActionsMixin
 from .sidebar import SessionTree
 from .theme import icon, palette, protocol_badge
@@ -55,6 +56,19 @@ from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
 log = get_logger("ui.main")
 
 _MAX_IMPORT_BYTES = 32 * 1024 * 1024
+
+# Session tab strip edges: "top" is the classic horizontal strip, "left" and
+# "right" turn it into a vertical rail like MobaXterm's side panels.
+_TAB_STRIP_POSITIONS = {
+    "top": QTabWidget.TabPosition.North,
+    "left": QTabWidget.TabPosition.West,
+    "right": QTabWidget.TabPosition.East,
+}
+_TAB_STRIP_LABELS = {
+    "top": "Tabs on top",
+    "left": "Tabs on the left edge",
+    "right": "Tabs on the right edge",
+}
 
 _MAIN = None
 
@@ -367,6 +381,12 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.tabs.setMovable(True)
         # Classic framed tabs (MobaXterm), not document-mode underline tabs
         self.tabs.setDocumentMode(False)
+        # Content-sized tabs (MobaXterm), not stretched to fill the strip:
+        # besides looking right, the leftover strip space is what you grab to
+        # drag the whole tab strip to another edge (see _setup_docking).
+        # NB: setDocumentMode() above re-enables expanding, so this must stay
+        # *after* it.
+        self.tabs.tabBar().setExpanding(False)
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
         # Protocol badges render on a 16px tile
         self.tabs.setIconSize(QSize(16, 16))
@@ -400,6 +420,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             b.setIcon(icon(icon_name))
             self._themed_corner_buttons.append((b, icon_name))
             b.setObjectName("ghost")
+            b.setProperty("iconOnly", True)  # square variant: no min-width
             b.setToolTip(tip)
             b.setFixedSize(26, 26)
             b.setIconSize(QSize(16, 16))
@@ -409,6 +430,33 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         cl.addWidget(corner_button("plus", "New session (Ctrl+N)", self.new_session))
         cl.addWidget(corner_button("console", "Local terminal (Ctrl+Shift+T)", self.open_local_terminal))
         cl.addWidget(corner_button("gear", "Settings (Ctrl+,)", self.open_settings))
+
+        # Dock grip for the session tab strip — drag it to the top, left or
+        # right edge (main_window wires the drag). The empty part of the tab
+        # bar works too.
+        self._tabs_grip = QPushButton()
+        self._tabs_grip.setObjectName("dockGrip")
+        self._tabs_grip.setIcon(icon("grip"))
+        self._tabs_grip.setIconSize(QSize(14, 14))
+        self._tabs_grip.setFixedSize(20, 20)
+        self._tabs_grip.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._tabs_grip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._tabs_grip.setToolTip(
+            "Drag to move the session tab strip to the top, left or right edge"
+        )
+        cl.addWidget(self._tabs_grip)
+
+        # The corner widget is the session counter + quick action buttons.
+        # QTabWidget only paints a corner for a horizontal strip, so when the
+        # strip docks to a side the same widget moves onto a one-row bar above
+        # it (see _relayout_tab_corner) instead of disappearing.
+        self._tab_corner = corner
+        self._corner_row = QWidget()
+        self._corner_row.setObjectName("tabCornerBar")
+        self._corner_layout = QHBoxLayout(self._corner_row)
+        self._corner_layout.setContentsMargins(4, 2, 4, 2)
+        self._corner_layout.setSpacing(2)
+        self._corner_row.setVisible(False)
 
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
@@ -421,6 +469,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._tabs_container = QWidget()
         tcl = QVBoxLayout(self._tabs_container)
         tcl.setContentsMargins(0, 0, 0, 0)
+        tcl.setSpacing(0)
+        tcl.addWidget(self._corner_row, 0)
         tcl.addWidget(self.tabs, 1)
 
         self._center_stack = QWidget()
@@ -463,23 +513,43 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if isinstance(saved_w, int) and 150 <= saved_w <= 480:
             self._last_sidebar_width = saved_w
         self._sidebar_collapsed = bool(self.ctx.settings.geometry.get("sidebar_collapsed", False))
+        self._sidebar_side = (
+            "right"
+            if str(self.ctx.settings.geometry.get("sidebar_side", "left")).lower().startswith("r")
+            else "left"
+        )
         self.main_splitter.setSizes(
             [0 if self._sidebar_collapsed else self._last_sidebar_width, 1200]
         )
         self._sync_sidebar_actions()
 
+        # Mouse-driven docking (edges + grips) and the saved tab strip edge.
+        self._setup_docking()
+
+    def _sidebar_index(self) -> int:
+        """Splitter slot the Sessions panel currently occupies (0 or 1).
+
+        The panel can be docked to the right edge, in which case the *work
+        area* is the leading widget — every width calculation has to ask
+        rather than assume slot 0.
+        """
+        if not hasattr(self, "main_splitter") or not hasattr(self, "sidebar"):
+            return 0
+        return max(0, self.main_splitter.indexOf(self.sidebar))
+
     def _sidebar_width(self) -> int:
         if not hasattr(self, "main_splitter"):
             return 240
-        return self.main_splitter.sizes()[0]
+        sizes = self.main_splitter.sizes()
+        index = self._sidebar_index()
+        return sizes[index] if index < len(sizes) else 240
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
         """Record the sidebar width after the user drags the splitter handle."""
-        if index == 0:
-            w = self.main_splitter.sizes()[0]
-            self._sidebar_collapsed = w <= 0
-            if w > 0:
-                self._last_sidebar_width = w
+        w = self._sidebar_width()
+        self._sidebar_collapsed = w <= 0
+        if w > 0:
+            self._last_sidebar_width = w
 
     def _set_sidebar_width(self, width: int) -> None:
         # Never record the width here: this runs on every tween frame, so a
@@ -488,10 +558,207 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # programmatic setSizes never emits splitterMoved).
         sizes = self.main_splitter.sizes()
         total = sum(sizes)
+        index = self._sidebar_index()
         self._sidebar_collapsed = width <= 0
-        if sizes and sizes[0] == width:
+        if index < len(sizes) and sizes[index] == width:
             return  # nothing to do — skip the layout pass entirely
-        self.main_splitter.setSizes([width, max(320, total - width)])
+        other = max(320, total - width)
+        self.main_splitter.setSizes([width, other] if index == 0 else [other, width])
+
+    # ------------------------------------------------------------------
+    # Docking — every edge of the window is a valid home
+    # ------------------------------------------------------------------
+    def _setup_docking(self) -> None:
+        """Wire the drag gestures, the splitter handle and the saved layout."""
+        # Sessions panel: ⠿ grip drags it to either side edge, and the splitter
+        # handle flips it on a double-click (dragging the handle still resizes).
+        self._sidebar_drag = DockDragFilter(
+            self.sidebar.dock_grip,
+            self,
+            ("left", "right"),
+            {
+                "left": "Sessions panel → left edge",
+                "right": "Sessions panel → right edge",
+            },
+        )
+        self._sidebar_drag.dockRequested.connect(self.move_sidebar)
+        self.sidebar.sideFlipRequested.connect(self.flip_sidebar_side)
+
+        # Session tab strip: drag it by any empty part of the tab bar — a
+        # press on a tab itself still means "reorder this tab".
+        self._tab_drag = DockDragFilter(
+            self.tabs.tabBar(),
+            self,
+            ("top", "left", "right"),
+            _TAB_STRIP_LABELS,
+            can_start=lambda pos: pos is not None and self.tabs.tabBar().tabAt(pos) < 0,
+        )
+        self._tab_drag.dockRequested.connect(self.set_tabs_position)
+
+        # ...and the corner-bar grip does the same, for when the strip is full
+        # of tabs and has no empty space left to press on.
+        self._tabs_grip_drag = DockDragFilter(
+            self._tabs_grip, self, ("top", "left", "right"), _TAB_STRIP_LABELS
+        )
+        self._tabs_grip_drag.dockRequested.connect(self.set_tabs_position)
+
+        # The leftover strip space past the last tab belongs to the QTabWidget
+        # itself (the bar only spans its own size hint), so that surface needs
+        # its own filter — restricted to the strip row, never the session pane.
+        self._tabs_row_drag = DockDragFilter(
+            self.tabs,
+            self,
+            ("top", "left", "right"),
+            _TAB_STRIP_LABELS,
+            can_start=self._in_tab_strip_band,
+        )
+        self._tabs_row_drag.dockRequested.connect(self.set_tabs_position)
+
+        self._apply_sidebar_side()
+        self.set_tabs_position(
+            str(self.ctx.settings.geometry.get("tabs_position", "top")).lower()
+        )
+        self._bind_splitter_handle()
+
+    def _bind_splitter_handle(self) -> None:
+        """Double-clicking the divider moves the panel to the other side."""
+        handle = self.main_splitter.handle(1)
+        if handle is None:
+            return
+        self._splitter_handle = handle
+        handle.installEventFilter(self)
+        handle.setToolTip(
+            "Drag to resize the Sessions panel\n"
+            "Double-click to move it to the other side"
+        )
+
+    def sidebar_side(self) -> str:
+        """``"left"`` or ``"right"`` — edge the Sessions panel is docked to."""
+        return getattr(self, "_sidebar_side", "left")
+
+    def _apply_sidebar_side(self) -> None:
+        """Put the panel in the splitter slot its side asks for.
+
+        ``QSplitter.insertWidget`` *moves* a widget that is already a child, so
+        this only reorders — it never duplicates the panel or its state.
+        """
+        side = self.sidebar_side()
+        index = 0 if side == "left" else 1
+        self.main_splitter.insertWidget(index, self.sidebar)
+        self.main_splitter.setStretchFactor(0, 0 if side == "left" else 1)
+        self.main_splitter.setStretchFactor(1, 1 if side == "left" else 0)
+        self.sidebar.set_side(side)
+        width = 0 if getattr(self, "_sidebar_collapsed", False) else max(220, self._last_sidebar_width)
+        self._set_sidebar_width(width)
+
+    def move_sidebar(self, side: str) -> None:
+        """Dock the Sessions panel to ``side`` — drag, menu or command palette."""
+        side = "right" if str(side).strip().lower().startswith("r") else "left"
+        if side == self.sidebar_side():
+            return
+        # Reordering resizes every open tab once; an embedded desktop (RDP)
+        # must not read that as the user dragging the splitter.
+        self._set_ui_layout_busy(True)
+        try:
+            self._sidebar_side = side
+            self._apply_sidebar_side()
+            self._bind_splitter_handle()
+        finally:
+            self._set_ui_layout_busy(False)
+        self.ctx.settings.geometry["sidebar_side"] = side
+        self._sync_sidebar_actions()
+        toast(self, f"Sessions panel docked {side}")
+
+    def flip_sidebar_side(self) -> None:
+        """Move the Sessions panel to the opposite edge (Ctrl+Shift+B)."""
+        self.move_sidebar("right" if self.sidebar_side() == "left" else "left")
+
+    # -- session tab strip ---------------------------------------------
+    def _in_tab_strip_band(self, pos) -> bool:
+        """Is ``pos`` (tab-widget coords) in the tab strip's own row/column?
+
+        Keeps the strip drag off the session pane: only the thin band the tabs
+        actually live in starts a dock drag.
+        """
+        if pos is None:
+            return False
+        bar = self.tabs.tabBar()
+        # isHidden(), not isVisible(): Qt hides the bar when no session is
+        # open, and that is the only case with no strip to grab — a window
+        # that simply has not been shown yet must still count as draggable.
+        if bar.isHidden():
+            return False
+        rect = bar.geometry()
+        key = self.tabs_position()
+        if key == "left":
+            return 0 <= pos.x() <= rect.right()
+        if key == "right":
+            return rect.left() <= pos.x() < self.tabs.width()
+        return 0 <= pos.y() <= rect.bottom()
+
+    def tabs_position(self) -> str:
+        """``"top"``, ``"left"`` or ``"right"`` — where the session tabs live."""
+        return getattr(self, "_tabs_dock", "top")
+
+    def set_tabs_position(self, position: str) -> None:
+        """Dock the session tab strip to the top, left or right edge."""
+        key = str(position or "").strip().lower()
+        if key not in _TAB_STRIP_POSITIONS:
+            key = "top"
+        self._set_ui_layout_busy(True)
+        try:
+            self._tabs_dock = key
+            vertical = key in ("left", "right")
+            self.tabs.setTabPosition(_TAB_STRIP_POSITIONS[key])
+            # Right-elide in both orientations: a middle-elided *rotated*
+            # label ("ro-apo…@prod") reads as noise, while "root@prod-web-01…"
+            # stays recognisable.
+            self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+            for widget in (self.tabs, self.tabs.tabBar()):
+                widget.setProperty("dock", key)
+                style = widget.style()
+                style.unpolish(widget)
+                style.polish(widget)
+            self._relayout_tab_corner(vertical)
+        finally:
+            self._set_ui_layout_busy(False)
+        self.ctx.settings.geometry["tabs_position"] = key
+        self._sync_tabs_position_actions()
+
+    def _relayout_tab_corner(self, vertical: bool) -> None:
+        """Keep the session counter and quick buttons with the tab strip."""
+        if not hasattr(self, "_corner_row"):
+            return
+        if vertical:
+            self.tabs.setCornerWidget(None, Qt.Corner.TopRightCorner)
+            self._corner_layout.addWidget(self._tab_corner)
+            self._tab_corner.show()
+            self._corner_row.setVisible(True)
+        else:
+            self._corner_row.setVisible(False)
+            self.tabs.setCornerWidget(self._tab_corner, Qt.Corner.TopRightCorner)
+            self._tab_corner.show()
+
+    def _sync_tabs_position_actions(self) -> None:
+        current = self.tabs_position()
+        for key, act in getattr(self, "_tabs_pos_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(key == current)
+            act.blockSignals(False)
+
+    def cycle_tabs_position(self) -> None:
+        """Walk top → left → right → top (View menu / keyboard)."""
+        order = ("top", "left", "right")
+        current = self.tabs_position()
+        nxt = order[(order.index(current) + 1) % len(order)] if current in order else "top"
+        self.set_tabs_position(nxt)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt naming
+        """Double-clicking the splitter divider flips the Sessions panel."""
+        if obj is getattr(self, "_splitter_handle", None) and event.type() == QEvent.Type.MouseButtonDblClick:
+            self.flip_sidebar_side()
+            return True
+        return super().eventFilter(obj, event)
 
     def _toggle_sidebar(self, checked: bool = None) -> None:
         """checked=True shows the sidebar, checked=False collapses it.
@@ -564,6 +831,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     def _sync_sidebar_actions(self, visible: bool = None) -> None:
         if visible is None:
             visible = not self._sidebar_collapsed
+        flip = getattr(self, "_act_flip_sidebar", None)
+        if flip is not None:
+            other = "left" if self.sidebar_side() == "right" else "right"
+            flip.setText(f"Move Sessions Panel to the &{other.capitalize()}")
         for act in (
             getattr(self, "_act_sidebar_toolbar", None),
             getattr(self, "_act_sidebar_menu", None),
@@ -602,6 +873,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             sidebar.refresh_theme()
         for btn, icon_name in getattr(self, "_themed_corner_buttons", []):
             btn.setIcon(icon(icon_name))
+        tabs_grip = getattr(self, "_tabs_grip", None)
+        if tabs_grip is not None:
+            tabs_grip.setIcon(icon("grip"))
         for lbl, icon_name in getattr(self, "_dash_action_icons", []):
             lbl.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(20, 20)))
         logo_tile = getattr(self, "_dash_logo_tile", None)
@@ -1367,6 +1641,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             "maximized": self.isMaximized(),
             "sidebar_collapsed": self._sidebar_collapsed,
             "sidebar_width": self._last_sidebar_width,
+            "sidebar_side": self.sidebar_side(),
+            "tabs_position": self.tabs_position(),
         }
         settings.save(paths.settings_file())
         service = getattr(self.ctx, "share_service", None)

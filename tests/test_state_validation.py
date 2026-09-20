@@ -33,7 +33,7 @@ def test_settings_rejects_non_object_and_structured_scalars(tmp_path):
             "default_auto_reconnect": "off",
         }
     )
-    assert settings.theme == "mobaxterm"
+    assert settings.theme == "mobaxterm_dark"
     assert settings.font_family == ""
     assert settings.default_download_dir == ""
     assert settings.toolbar_labels is False

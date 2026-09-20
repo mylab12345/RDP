@@ -197,18 +197,23 @@ def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
 # ----------------------------------------------------------------------
 # MobaXterm look — default theme, coloured toolbar glyphs, sidebar rail
 # ----------------------------------------------------------------------
-def test_mobaxterm_is_default_theme() -> None:
-    from rdpstudio.core.settings import THEME_IDS, Settings
+def test_mobaxterm_dark_is_default_theme() -> None:
+    from rdpstudio.core.settings import DARK_THEMES, THEME_IDS, Settings
     from rdpstudio.ui import theme
 
-    assert "mobaxterm" in THEME_IDS
-    assert Settings().theme == "mobaxterm"
-    assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm"
-    pal = theme.PALETTE["mobaxterm"]
-    # MobaXterm signature colours: light gray chrome, Windows blue accent
-    # (accent slightly deepened so white button text meets WCAG AA).
-    assert pal["bg"].lower() == "#f0f0f0"
-    assert pal["accent"].lower() == "#0075d2"
+    assert "mobaxterm_dark" in THEME_IDS and "mobaxterm" in THEME_IDS
+    assert DARK_THEMES == {"mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
+    assert Settings().theme == "mobaxterm_dark"
+    assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm_dark"
+    pal = theme.PALETTE["mobaxterm_dark"]
+    # MobaXterm signature colours, lights off: charcoal chrome, Windows blue
+    # accent (deepened so white button text meets WCAG AA).
+    assert pal["bg"].lower() == "#1c1c1f"
+    assert pal["accent"].lower() == "#1670c6"
+    # The classic light chrome is still shipped and still MobaXterm.
+    light = theme.PALETTE["mobaxterm"]
+    assert light["bg"].lower() == "#f0f0f0"
+    assert light["accent"].lower() == "#0075d2"
 
 
 def test_toolbar_icons_are_tinted_per_action(qtapp) -> None:  # noqa: ARG001
@@ -337,7 +342,7 @@ def test_midnight_theme_registered_and_distinct(qtapp) -> None:  # noqa: ARG001
     from rdpstudio.ui import theme
 
     assert "midnight" in THEME_IDS and "midnight" in DARK_THEMES
-    assert Settings().theme == "mobaxterm"  # default unchanged
+    assert Settings().theme == "mobaxterm_dark"  # default (MobaXterm Dark)
     assert len(theme.PALETTE["midnight"]) == 30  # full key set, no fallback gaps
     theme.apply_theme(qtapp, "midnight", animations=False)
     assert qtapp.styleSheet()

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added — MobaXterm Dark theme (new default) + mouse-driven docking
+- **MobaXterm Dark** palette (charcoal chrome `#1c1c1f`, Windows-blue accent
+  `#1670c6`, white-on-accent 5.0:1, muted text 6.1:1) joins the registry and
+  becomes the shipped default; the classic light MobaXterm chrome stays
+  selectable, so existing installs keep whatever they saved. Dark-classified
+  for terminal colouring and the icon-lift path, whose glyphs are now clamped
+  (peak channel 205) instead of scaled ×1.9 — the session green no longer
+  reads neon on neutral charcoal.
+- **Dock anything with the mouse.** The Sessions panel drags to either side
+  edge by its ⠿ grip (or double-click the grip / splitter divider; Ctrl+Shift+B
+  flips it), and the session tab strip drags to the top, left or right edge
+  from its grip or the empty stretch of the strip. A translucent drop
+  indicator highlights the candidate edge, Escape cancels, a press that never
+  moves stays a click, and the chosen layout (side, width, strip edge) is
+  restored on the next run. New `View → Session Tabs Position` submenu
+  (top/left/right, Ctrl+Shift+J to cycle) and a state-aware *Move Sessions
+  Panel to the Left/Right* entry.
+- Session tabs are now content-sized (MobaXterm) rather than stretched, the
+  tab strip keeps its session counter and quick buttons when docked vertically
+  (the corner widget moves onto its own strip row), and the Sessions panel's
+  minimum width drops 391 px → 189 px so the splitter can actually be dragged
+  narrow — square icon buttons (`#ghost[iconOnly="true"]`) no longer inherit
+  the labelled ghost button's 60 px `min-width`.
+
 ### Fixed — UI: 8-digit hex colour bug, dark-theme glyph contrast, clipped controls
 - **Translucent colours in stylesheets were mangled** (Qt reads `#RRGGBBAA`
   as `#AARRGGBB`): checked toolbar buttons showed a wrong solid green on dark
