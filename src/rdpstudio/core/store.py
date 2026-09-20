@@ -87,18 +87,20 @@ class SessionStore:
 
     # ------------------------------------------------------------------
     def sessions(self) -> list[Session]:
+        """Return detached session copies sorted for presentation."""
         with self._lock:
-            return sorted(self._sessions.values(), key=lambda s: s.display_name().lower())
+            ordered = sorted(self._sessions.values(), key=lambda s: s.display_name().lower())
+            return [copy.deepcopy(session) for session in ordered]
 
     def get(self, session_id: str) -> Session | None:
-        with self._lock:
-            return self._sessions.get(session_id)
-
-    def get_copy(self, session_id: str) -> Session | None:
-        """Return a detached copy; mutating it never touches store state."""
+        """Return a detached session copy owned by the caller."""
         with self._lock:
             current = self._sessions.get(session_id)
             return copy.deepcopy(current) if current is not None else None
+
+    def get_copy(self, session_id: str) -> Session | None:
+        """Compatibility alias for :meth:`get`."""
+        return self.get(session_id)
 
     def update(self, session_id: str, mutator) -> Session | None:
         """Atomically mutate one session with snapshot → save → commit semantics.
@@ -131,10 +133,11 @@ class SessionStore:
 
     def upsert(self, session: Session) -> None:
         with self._lock:
-            session.updated_at = time.time()
-            self._sessions[session.id] = session
-            if session.group and session.group not in self._groups:
-                self._groups.append(session.group)
+            owned = copy.deepcopy(session)
+            owned.updated_at = time.time()
+            self._sessions[owned.id] = owned
+            if owned.group and owned.group not in self._groups:
+                self._groups.append(owned.group)
             self.save()
 
     def delete(self, session_id: str) -> None:

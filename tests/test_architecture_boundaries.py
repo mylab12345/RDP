@@ -51,12 +51,38 @@ assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.gui
-def test_registry_explicitly_loads_every_builtin_after_reset():
-    from rdpstudio.core.plugin import registry, reset_registry
+def test_extracted_headless_helpers_do_not_import_qt():
+    script = r"""
+import sys
+import rdpstudio.core.downloads
+import rdpstudio.core.fuzzy
+import rdpstudio.protocols.ssh.target
+assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.modules)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
-    reset_registry()
-    try:
-        assert {plugin.id for plugin in registry().all()} >= {"ssh", "rdp", "local"}
-    finally:
-        reset_registry()
+
+def test_registry_explicitly_loads_every_builtin_headlessly():
+    script = r"""
+import sys
+from rdpstudio.core.plugin import registry, reset_registry
+reset_registry()
+plugins = registry().all()
+assert {plugin.id for plugin in plugins} >= {"ssh", "rdp", "local"}
+assert not any(name.startswith("PySide6.QtWidgets") for name in sys.modules)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

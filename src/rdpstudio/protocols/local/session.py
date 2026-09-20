@@ -26,12 +26,12 @@ from ...core.log import get_logger
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
-    ProtocolPlugin,
     SessionContext,
     SessionController,
     SessionState,
 )
 from ..base_caps import capability_set
+from .plugin import LocalShellPlugin
 
 log = get_logger("local.session")
 
@@ -380,14 +380,6 @@ class LocalShellController(SessionController):
         self.start()
 
 
-class LocalShellPlugin(ProtocolPlugin):
-    id = "local"
-    title = "Local shell"
-    description = "Interactive local terminal (bash/PowerShell) in a tab."
-    default_port = 0
-    icon_name = "console"
-    can_edit = True
-    tags = ["local", "shell"]
 
-    def create_session(self, definition: Session, ctx: SessionContext) -> SessionController:
-        return LocalShellController(definition, ctx)
+
+__all__ = ['LocalShellController', 'LocalShellPlugin']

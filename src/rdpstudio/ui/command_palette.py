@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import paths
+from ..core.fuzzy import fuzzy_score
 from .theme import icon, palette
 
 
@@ -36,33 +37,6 @@ class PaletteItem:
     shortcut: str = ""
 
 
-def fuzzy_score(needle: str, text: str) -> int:
-    """Subsequence fuzzy matcher — higher is better, 0 means no match.
-
-    Rewards early hits, consecutive runs and word-boundary matches, so
-    "nw" ranks "Network Tools" above "New Session". Pure function (tested).
-    """
-    needle = needle.lower()
-    text = text.lower()
-    if not needle:
-        return 1
-    if len(needle) > len(text):
-        return 0
-    score = 0
-    ti = 0
-    prev = -2
-    for ch in needle:
-        found = text.find(ch, ti)
-        if found < 0:
-            return 0
-        score += max(0, 10 - found // 2)  # prefer matches near the start
-        if found == prev + 1:
-            score += 6  # consecutive run bonus
-        if found == 0 or text[found - 1] in " \t·/_&-:(":
-            score += 5  # word-boundary bonus
-        prev = found
-        ti = found + 1
-    return score
 
 
 class _PalettePreview(QFrame):

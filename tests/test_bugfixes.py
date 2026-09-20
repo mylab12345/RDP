@@ -154,7 +154,7 @@ def test_quick_connect_default_protocol():
 
 
 def test_parse_ssh_target_ipv6():
-    from rdpstudio.protocols.ssh.session import parse_ssh_target
+    from rdpstudio.protocols.ssh.target import parse_ssh_target
 
     assert parse_ssh_target("[::1]:2222") == ("", "::1", 2222)
     assert parse_ssh_target("root@[2001:db8::5]") == ("root", "2001:db8::5", 0)

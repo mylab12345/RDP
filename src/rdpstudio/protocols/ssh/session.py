@@ -12,13 +12,13 @@ from ...core.log import debug_ratelimited, get_logger
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
-    ProtocolPlugin,
     SessionContext,
     SessionController,
     SessionState,
 )
 from ...core.reconnect import ReconnectPolicy
 from ..base_caps import capability_set
+from .plugin import SshPlugin
 from .worker import AuthMaterial, SshWorker
 
 log = get_logger("ssh.session")
@@ -381,60 +381,6 @@ class SshSessionController(SessionController):
         return provider
 
 
-class SshPlugin(ProtocolPlugin):
-    id = "ssh"
-    title = "SSH"
-    description = "Secure shell/OpenSSH to Linux, Windows, BSD and macOS hosts: terminal, SFTP, tunnels."
-    default_port = 22
-    icon_name = "terminal"
-    tags = ["ssh", "shell", "sftp"]
-
-    def create_session(self, definition: Session, ctx: SessionContext) -> SessionController:
-        return SshSessionController(definition, ctx)
-
-    def quick_connect_target(self, text: str) -> Session | None:
-        parsed = parse_ssh_target(text)
-        if parsed is None:
-            return None
-        user, host, port = parsed
-        s = Session(protocol="ssh", host=host, port=port or 22, username=user or "")
-        s.name = s.target()
-        return s
 
 
-def parse_ssh_target(text: str) -> tuple[str, str, int] | None:
-    """Parse ``[user@]host[:port]``; returns (user, host, port) or None.
-
-    IPv6 is supported as ``[::1]:2222`` (bracketed, with port) or a bare
-    literal like ``::1`` (no port).
-    """
-    text = text.strip()
-    if not text or "/" in text or " " in text:
-        return None
-    user = ""
-    if "@" in text:
-        user, _, rest = text.partition("@")
-        text = rest
-    port = 0
-    if text.startswith("["):
-        host, _, rest = text[1:].partition("]")
-        if not host:
-            return None
-        if rest:
-            if not rest.startswith(":") or not rest[1:].isdigit():
-                return None
-            port = int(rest[1:])
-        text = host
-    elif ":" in text:
-        host, _, port_s = text.rpartition(":")
-        if ":" in host:
-            # More than one colon and no brackets: a bare IPv6 literal
-            # (port cannot be expressed without brackets).
-            return user, text, 0
-        if not host or not port_s.isdigit():
-            return None
-        port = int(port_s)
-        text = host
-    if not text:
-        return None
-    return user, text, port
+__all__ = ['SshSessionController', 'SshPlugin']

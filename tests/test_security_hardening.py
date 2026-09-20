@@ -19,7 +19,7 @@ def test_rdp_password_not_in_argv_by_default():
     import stat as _stat
 
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import (
+    from rdpstudio.protocols.rdp.client import (
         build_freerdp_args,
         uses_args_file,
         write_args_file,

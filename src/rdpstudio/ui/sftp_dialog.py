@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.downloads import resolve_download_start
 from ..core.plugin import SessionContext
 from ..protocols.ssh.sftp import SftpEngine
 from .file_editor_dialog import FileEditorDialog
@@ -37,14 +38,6 @@ TEXT_EXTS = {
     ".json", ".xml", ".html", ".css", ".js", ".ts", ".md", ".env", ".toml", ".service",
     ".c", ".h", ".cpp", ".rs", ".go", ".sql", ".csv", ".zsh", ".profile",
 }
-
-
-def resolve_download_start(explicit: str, configured: str, home: str) -> str:
-    """First existing directory wins: local pane → configured default → home."""
-    for candidate in (explicit or "", configured or "", home or ""):
-        if candidate and Path(candidate).is_dir():
-            return candidate
-    return home or ""
 
 
 class _Pane(QWidget):

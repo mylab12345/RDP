@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 import time
 from pathlib import Path
@@ -904,6 +905,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.open_session(defn)
 
     def open_session(self, defn: Session) -> SessionTab | None:
+        defn = copy.deepcopy(defn)
         try:
             plugin = registry().require(defn.protocol)
         except KeyError as exc:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import os
+import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,11 +28,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.auth import (
+    AUTH_NONE,
+    auth_method_options,
+    auth_supports_vault_passphrase,
+    auth_uses_credential,
+    auth_uses_key_file,
+    auth_uses_saved_password,
+    normalize_auth_for_protocol,
+    preferred_auth_for_session,
+)
 from ..core.log import debug_ratelimited, get_logger
 from ..core.models import (
-    AUTH_AGENT,
-    AUTH_KEY,
-    AUTH_PASSWORD,
     PROTOCOL_LOCAL,
     PROTOCOL_RDP,
     PROTOCOL_SSH,
@@ -38,6 +47,7 @@ from ..core.models import (
     default_port_for,
 )
 from ..core.plugin import SessionContext, registry
+from ..core.session_check import check_session_connectivity
 from ..core.shares import MAX_SHARES, Share, sanitize_share_name, share_name_from_path, unique_share_names
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
@@ -61,6 +71,8 @@ _VALID_STYLE = "border: 1px solid {border};"
 
 class SessionDialog(QDialog):
     """Create or edit a saved session — MobaXterm "Session settings" style dialog."""
+
+    _sigTestFinished = Signal(bool, str, str)
 
     def __init__(self, ctx: SessionContext, session: Session | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -95,6 +107,8 @@ class SessionDialog(QDialog):
         root.addWidget(subtitle)
 
         self._advanced: list[QWidget] = []
+        self._test_thread: threading.Thread | None = None
+        self._sigTestFinished.connect(self._show_test_result)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -432,14 +446,14 @@ class SessionDialog(QDialog):
         form.setContentsMargins(16, 16, 16, 16)
 
         auth = self._make_combo()
-        auth.addItem("Password", AUTH_PASSWORD)
-        auth.addItem("Private key", AUTH_KEY)
-        auth.addItem("SSH agent", AUTH_AGENT)
+        for method, label in auth_method_options(protocol):
+            auth.addItem(label, method)
         auth_label = self._make_label("Method")
         form.addRow(auth_label, auth)
 
         credential = self._make_combo()
-        credential_label = self._make_label("Credential")
+        credential_label = self._make_label("Saved credential")
+        credential.setToolTip("Vault entry resolved at connect time")
         form.addRow(credential_label, credential)
 
         key_path = self._make_input(self.session.key_path, "~/.ssh/id_ed25519")
@@ -448,7 +462,7 @@ class SessionDialog(QDialog):
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.setSpacing(8)
         key_layout.addWidget(key_path, 1)
-        browse = QPushButton("Browse\u2026")
+        browse = QPushButton("Browse…")
         browse.setObjectName("subtle")
         browse.clicked.connect(lambda _=False, edit=key_path: self._browse_key(edit))
         key_layout.addWidget(browse)
@@ -463,16 +477,17 @@ class SessionDialog(QDialog):
             "credential_label": credential_label,
             "key_label": key_label,
             "key_row": key_row,
+            "protocol": protocol,
         }
 
+        self._reload_credentials_into(credential)
         auth.currentIndexChanged.connect(lambda _=0, p=protocol: self._on_auth(p))
-        idx = auth.findData(self.session.auth or AUTH_PASSWORD)
+        idx = auth.findData(preferred_auth_for_session(self.session))
         auth.setCurrentIndex(idx if idx >= 0 else 0)
         if self.session.credential_id:
             ci = credential.findData(self.session.credential_id)
             if ci >= 0:
                 credential.setCurrentIndex(ci)
-        self._reload_credentials_into(credential)
         self._on_auth(protocol)
         return card
 
@@ -850,22 +865,34 @@ class SessionDialog(QDialog):
             PROTOCOL_LOCAL: self._local_page,
         }.get(pid, self._ssh_page)
         self.stack.setCurrentWidget(widget)
+        if pid in (PROTOCOL_SSH, PROTOCOL_RDP):
+            self._on_auth(pid)
 
     def _on_auth(self, protocol: str | None = None) -> None:
         ui = self._current_auth_ui(protocol)
-        method = ui["auth"].currentData()
-        wants_credential = False
-        wants_key = method == AUTH_KEY
+        pid = ui.get("protocol", protocol or self.protocol.currentData() or PROTOCOL_SSH)
+        method = normalize_auth_for_protocol(pid, ui["auth"].currentData())
+        uses_credential = auth_uses_credential(pid, method)
+        uses_key = auth_uses_key_file(pid, method)
+        supports_passphrase = auth_supports_vault_passphrase(pid, method)
+        wants_credential = uses_credential or supports_passphrase
         ui["credential_label"].setVisible(wants_credential)
         ui["credential"].setVisible(wants_credential)
-        ui["key_label"].setVisible(wants_key)
-        ui["key_row"].setVisible(wants_key)
+        ui["key_label"].setVisible(uses_key)
+        ui["key_row"].setVisible(uses_key)
         ui["credential"].setEnabled(wants_credential)
-        ui["key_path"].setEnabled(wants_key)
-        uses_password = method == AUTH_PASSWORD
+        ui["key_path"].setEnabled(uses_key)
+        if supports_passphrase:
+            ui["credential_label"].setText("Key passphrase (vault)")
+            ui["credential"].setToolTip("Optional vault entry containing the private-key passphrase")
+        else:
+            ui["credential_label"].setText("Saved credential")
+            ui["credential"].setToolTip("Vault entry resolved at connect time")
+        uses_password = auth_uses_saved_password(pid, method)
         self.password.setEnabled(uses_password)
         self.password.setPlaceholderText(
             "leave blank to prompt at connect" if uses_password
+            else "resolved from vault at connect time" if uses_credential
             else "not used with this method"
         )
 
@@ -906,8 +933,8 @@ class SessionDialog(QDialog):
     # Save / connect / test / delete
     # ------------------------------------------------------------------
 
-    def _collect_session(self) -> Session:
-        s = self.session
+    def _collect_session(self, *, detached: bool = False) -> Session:
+        s = copy.deepcopy(self.session) if detached else self.session
         s.protocol = self.protocol.currentData() or PROTOCOL_SSH
         s.name = self.name.text().strip()
         s.group = self.group.currentText().strip()
@@ -924,9 +951,19 @@ class SessionDialog(QDialog):
             else None
         )
         if s.protocol == PROTOCOL_SSH:
-            s.auth = auth_ui["auth"].currentData()
-            s.credential_id = auth_ui["credential"].currentData() or ""
-            s.key_path = auth_ui["key_path"].text().strip()
+            method = normalize_auth_for_protocol(s.protocol, auth_ui["auth"].currentData())
+            s.auth = method
+            s.credential_id = (
+                auth_ui["credential"].currentData() or ""
+                if auth_uses_credential(s.protocol, method)
+                or auth_supports_vault_passphrase(s.protocol, method)
+                else ""
+            )
+            s.key_path = (
+                auth_ui["key_path"].text().strip() if auth_uses_key_file(s.protocol, method) else ""
+            )
+            if not auth_uses_saved_password(s.protocol, method):
+                s.password = ""
             s.jump_session_id = self.jump.currentData() or ""
             s.startup_command = self.startup.text()
             s.keepalive = self.keepalive.value()
@@ -935,8 +972,16 @@ class SessionDialog(QDialog):
             s.auto_reconnect = self.auto_reconnect.isChecked()
             s.agent_forwarding = self.agent_forward.isChecked()
         elif s.protocol == PROTOCOL_RDP:
-            s.auth = auth_ui["auth"].currentData()
-            s.credential_id = auth_ui["credential"].currentData() or ""
+            method = normalize_auth_for_protocol(s.protocol, auth_ui["auth"].currentData())
+            s.auth = method
+            s.credential_id = (
+                auth_ui["credential"].currentData() or ""
+                if auth_uses_credential(s.protocol, method)
+                else ""
+            )
+            if not auth_uses_saved_password(s.protocol, method):
+                s.password = ""
+            s.key_path = ""
             s.domain = self.domain.text().strip()
             s.rdp_width = self.rdp_width.value()
             s.rdp_height = self.rdp_height.value()
@@ -953,11 +998,20 @@ class SessionDialog(QDialog):
             s.rdp_gateway_user = self.gw_user.text().strip()
             s.auto_reconnect = True
         else:
+            s.auth = AUTH_NONE
+            s.credential_id = ""
+            s.key_path = ""
+            s.password = ""
+            s.host = ""
+            s.port = 0
+            s.username = ""
+            s.domain = ""
+            s.jump_session_id = ""
             s.options["command"] = self.local_cmd.text().strip()
 
         if not s.name and s.protocol == PROTOCOL_LOCAL:
             s.name = "Local shell"
-        if s.group:
+        if s.group and not detached:
             self.ctx.store.ensure_group(s.group)
         return s
 
@@ -976,14 +1030,34 @@ class SessionDialog(QDialog):
         self.accept()
 
     def _on_test(self) -> None:
-        if not self._validate_fields():
+        if not self._validate_fields() or (self._test_thread is not None and self._test_thread.is_alive()):
             return
-        from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(
-            self,
-            "Test connection",
-            "Connection test is not yet implemented. The session will be saved and you can connect to test it.",
+        candidate = self._collect_session(detached=True)
+        self.btn_test.setEnabled(False)
+        self.btn_test.setText("Testing…")
+
+        def work() -> None:
+            result = check_session_connectivity(candidate, timeout=5.0)
+            self._sigTestFinished.emit(result.ok, result.summary, result.details)
+
+        self._test_thread = threading.Thread(
+            target=work, daemon=True, name=f"session-test-{candidate.protocol}"
         )
+        self._test_thread.start()
+
+    def _show_test_result(self, ok: bool, summary: str, details: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        self._test_thread = None
+        self.btn_test.setEnabled(True)
+        self.btn_test.setText("Test")
+        box = QMessageBox(self)
+        box.setWindowTitle("Test connection")
+        box.setIcon(QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning)
+        box.setText(summary)
+        if details:
+            box.setInformativeText(details)
+        box.exec()
 
     def _on_delete(self) -> None:
         from PySide6.QtWidgets import QMessageBox

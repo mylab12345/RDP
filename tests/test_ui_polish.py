@@ -8,7 +8,7 @@ from __future__ import annotations
 # Command palette fuzzy ranker
 # ----------------------------------------------------------------------
 def test_fuzzy_score_requires_subsequence() -> None:
-    from rdpstudio.ui.command_palette import fuzzy_score
+    from rdpstudio.core.fuzzy import fuzzy_score
 
     assert fuzzy_score("abc", "xabc") > 0
     assert fuzzy_score("acb", "abc") == 0  # order matters
@@ -17,7 +17,7 @@ def test_fuzzy_score_requires_subsequence() -> None:
 
 
 def test_fuzzy_score_rewards_early_consecutive_matches() -> None:
-    from rdpstudio.ui.command_palette import fuzzy_score
+    from rdpstudio.core.fuzzy import fuzzy_score
 
     # "nw" starts "Network" — must beat the deep, scattered hit in "Session".
     assert fuzzy_score("nw", "Network Tools & Port Scanner") > fuzzy_score("nw", "Session")

@@ -171,7 +171,7 @@ def test_default_download_dir_roundtrip(home):
 
 
 def test_resolve_download_start_prefers_existing(tmp_path):
-    from rdpstudio.ui.sftp_dialog import resolve_download_start
+    from rdpstudio.core.downloads import resolve_download_start
 
     configured = tmp_path / "configured"
     configured.mkdir()
