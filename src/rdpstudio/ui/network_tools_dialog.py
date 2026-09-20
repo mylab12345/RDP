@@ -161,8 +161,8 @@ class NetworkToolsDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self._build_scanner_tab(), "Port Scanner")
-        tabs.addTab(self._build_ping_tab(), "Ping & Latency")
-        tabs.addTab(self._build_dns_tab(), "DNS & IP Lookup")
+        tabs.addTab(self._build_ping_tab(), "Ping && Latency")
+        tabs.addTab(self._build_dns_tab(), "DNS && IP Lookup")
         layout.addWidget(tabs, 1)
 
     def closeEvent(self, event) -> None:  # noqa: N802
@@ -220,11 +220,12 @@ class NetworkToolsDialog(QDialog):
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(1, 10)
         self.timeout_spin.setValue(1)
+        self.timeout_spin.setFixedWidth(64)
         r2.addWidget(self.timeout_spin)
 
         self.chk_open_only = QComboBox()
-        self.chk_open_only.addItem("Show Open Ports Only")
-        self.chk_open_only.addItem("Show All Probed Ports")
+        self.chk_open_only.addItem("Open ports only")
+        self.chk_open_only.addItem("All probed ports")
         self.chk_open_only.currentIndexChanged.connect(self._refresh_table)
         r2.addWidget(self.chk_open_only)
 
@@ -233,6 +234,7 @@ class NetworkToolsDialog(QDialog):
         self.max_results_spin.setRange(0, 1000000)
         self.max_results_spin.setValue(50000)
         self.max_results_spin.setSpecialValueText("Unlimited")
+        self.max_results_spin.setFixedWidth(84)
         self.max_results_spin.setToolTip(
             "Cap retained results; the scan stops early once reached (0 = unlimited)."
         )
@@ -249,6 +251,7 @@ class NetworkToolsDialog(QDialog):
 
         self.btn_scan = QPushButton("▶ Start Scan")
         self.btn_scan.setObjectName("primary")
+        self.btn_scan.setMinimumWidth(124)
         self.btn_scan.clicked.connect(self._toggle_scan)
         r2.addWidget(self.btn_scan)
 
@@ -471,7 +474,7 @@ class NetworkToolsDialog(QDialog):
             toast(self, f"Export failed: {exc}", "bad")
 
     # ------------------------------------------------------------------
-    # TAB 2: Ping & Latency
+    # TAB 2: Ping && Latency
     # ------------------------------------------------------------------
     def _build_ping_tab(self) -> QWidget:
         page = QWidget()
@@ -585,7 +588,7 @@ class NetworkToolsDialog(QDialog):
             self.ping_spark.push(lat)
 
     # ------------------------------------------------------------------
-    # TAB 3: DNS & IP Lookup
+    # TAB 3: DNS && IP Lookup
     # ------------------------------------------------------------------
     def _build_dns_tab(self) -> QWidget:
         page = QWidget()

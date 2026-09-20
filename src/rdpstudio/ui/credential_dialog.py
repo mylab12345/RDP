@@ -100,9 +100,10 @@ class CredentialDialog(QDialog):
         form.setContentsMargins(0, 4, 0, 4)
 
         _input_style = (
-            f"QLineEdit {{ font-size: 13px; padding: 6px 10px; "
-            f"border: 1px solid {pal['border']}; border-radius: 3px; "
-            f"background: {pal['bg3']}; color: {pal['fg']}; }}"
+            f"QLineEdit {{ font-size: 12.5px; padding: 7px 10px; "
+            f"border: 1px solid {pal['border_strong']}; border-radius: 6px; "
+            f"background: {pal['bg2']}; color: {pal['fg']}; }}"
+            f"QLineEdit:hover {{ border-color: {pal['fg_muted']}; }}"
             f"QLineEdit:focus {{ border-color: {pal['accent']}; }}"
         )
 

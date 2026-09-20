@@ -90,11 +90,11 @@ class SessionTab(QWidget):
         # Compact session header — chips, info, actions
         header = QWidget()
         header.setObjectName("header")
-        header.setMinimumHeight(30)
-        header.setMaximumHeight(30)
+        header.setMinimumHeight(36)
+        header.setMaximumHeight(36)
         h = QHBoxLayout(header)
-        h.setContentsMargins(8, 3, 6, 3)
-        h.setSpacing(6)
+        h.setContentsMargins(12, 5, 10, 5)
+        h.setSpacing(8)
 
         self.chip = StateChip("connecting", "info")
         h.addWidget(self.chip)
@@ -115,17 +115,17 @@ class SessionTab(QWidget):
         def make_action_btn(text, icon_name, tip, cb):
             b = QPushButton(text)
             if icon_name:
-                b.setIcon(icon(icon_name))
+                b.setIcon(icon(icon_name, palette()["fg_dim"]))
                 self._themed_buttons.append((b, icon_name, None))
             b.setObjectName("subtle")
             b.setToolTip(tip)
             b.clicked.connect(cb)
-            b.setFixedHeight(22)
-            b.setFixedWidth(70)
+            b.setFixedHeight(26)
+            b.setFixedWidth(74)
             b.setStyleSheet(
                 b.styleSheet()
-                + "font-size: 11px; font-weight: 400; padding: 1px 8px; "
-                + "border-radius: 2px;"
+                + "font-size: 11.5px; font-weight: 500; padding: 1px 10px; "
+                + "border-radius: 6px;"
             )
             return b
 
@@ -135,12 +135,12 @@ class SessionTab(QWidget):
         self.btn_reconnect.setObjectName("primary")
         self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
-        self.btn_reconnect.setFixedHeight(22)
-        self.btn_reconnect.setFixedWidth(84)
+        self.btn_reconnect.setFixedHeight(26)
+        self.btn_reconnect.setFixedWidth(88)
         self.btn_reconnect.setStyleSheet(
             self.btn_reconnect.styleSheet()
-            + "font-size: 11px; font-weight: 400; padding: 1px 10px; "
-            + "border-radius: 2px;"
+            + "font-size: 11.5px; font-weight: 600; padding: 1px 12px; "
+            + "border-radius: 6px;"
         )
         h.addWidget(self.btn_reconnect)
 
@@ -165,7 +165,8 @@ class SessionTab(QWidget):
         self._themed_buttons.append((close_btn, "close", None))
         close_btn.setObjectName("tabClose")
         close_btn.setToolTip("Close this session tab")
-        close_btn.setFixedSize(20, 20)
+        close_btn.setFixedSize(22, 22)
+        close_btn.setIconSize(QSize(13, 13))
         close_btn.clicked.connect(lambda: self.main.close_tab(self.main.tabs.indexOf(self)))
         h.addWidget(close_btn)
 
@@ -400,7 +401,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._themed_corner_buttons.append((b, icon_name))
             b.setObjectName("ghost")
             b.setToolTip(tip)
-            b.setFixedSize(24, 22)
+            b.setFixedSize(26, 26)
+            b.setIconSize(QSize(16, 16))
             b.clicked.connect(cb)
             return b
 
@@ -579,19 +581,14 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         if hasattr(self, "_toolbar"):
             if s.toolbar_labels:
-                # MobaXterm default: large icon with the caption underneath
+                # Default: large icon with the caption underneath
                 self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-                self._toolbar.setIconSize(QSize(24, 24))
+                self._toolbar.setIconSize(QSize(22, 22))
             else:
                 self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(24, 24))
-        if hasattr(self, "_dash_header_label"):
-            # Compact density trims the dashboard header; comfortable uses the
-            # QSS #dashTitle size (theme-aware) with no inline override.
-            if s.density == "compact":
-                self._dash_header_label.setStyleSheet("font-size: 17px; font-weight: 400;")
-            else:
-                self._dash_header_label.setStyleSheet("")
+                self._toolbar.setIconSize(QSize(22, 22))
+        # Dashboard title sizing (comfortable/compact) lives in the global
+        # QSS (#dashTitle) — no inline overrides.
 
     def _refresh_theme(self) -> None:
         """Re-tint every palette-baked icon after a live theme switch.
@@ -606,13 +603,21 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         for btn, icon_name in getattr(self, "_themed_corner_buttons", []):
             btn.setIcon(icon(icon_name))
         for lbl, icon_name in getattr(self, "_dash_action_icons", []):
-            lbl.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(28, 28)))
+            lbl.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(20, 20)))
+        logo_tile = getattr(self, "_dash_logo_tile", None)
+        if logo_tile is not None:
+            p = palette()
+            logo_tile.setStyleSheet(
+                f"background: {theme.solid_on(p['accent_subtle'], p['bg'])}; "
+                f"border: 1px solid {p['border_subtle']}; "
+                f"border-radius: 10px;"
+            )
         for lbl, mode, arg in getattr(self, "_dash_recent_rows", []):
             if mode == "proto":
-                lbl.setPixmap(protocol_badge(str(arg), self._proto_icon(str(arg))).pixmap(QSize(18, 18)))
+                lbl.setPixmap(protocol_badge(str(arg), self._proto_icon(str(arg))).pixmap(QSize(20, 20)))
             else:
                 name, tint_key = arg
-                lbl.setPixmap(icon(name, palette()[tint_key]).pixmap(QSize(13, 13)))
+                lbl.setPixmap(icon(name, palette()[tint_key]).pixmap(QSize(14, 14)))
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
@@ -646,6 +651,22 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # Show/hide the "Close All" toolbar button
         if hasattr(self, "_close_all_btn"):
             self._close_all_btn.setVisible(has_tabs)
+        if not has_tabs:
+            # The welcome page goes back on screen — refresh its recents so
+            # recently saved/removed sessions are current.
+            self._refresh_dashboard()
+
+    def _refresh_dashboard(self) -> None:
+        """Rebuild the welcome dashboard (recents, tiles) — only visible
+        when no tabs are open, so this is cheap and side-effect free."""
+        if self.tabs.count() > 0:
+            return
+        lay = self._center_layout
+        lay.removeWidget(self._empty)
+        self._empty.deleteLater()
+        self._empty = self._build_dashboard()
+        lay.insertWidget(0, self._empty)
+        self._empty.setVisible(True)
 
     # ------------------------------------------------------------------
     # Tab actions & Context menu
@@ -1032,6 +1053,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         dlg = SessionDialog(self.ctx, Session(group=group), self)
         if dlg.exec():
             self.sidebar.reload()
+            self._refresh_dashboard()
             if dlg.session.id:
                 self.connect_session(dlg.session.id)
 
@@ -1050,6 +1072,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         dlg = SessionDialog(self.ctx, defn, self)
         if dlg.exec():
             self.sidebar.reload()
+            self._refresh_dashboard()
 
     def _delete_session(self, session_id: str) -> None:
         defn = self.ctx.store.get(session_id)
@@ -1067,6 +1090,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if box.clickedButton() is yes:
             self.ctx.store.delete(session_id)
             self.sidebar.reload()
+            self._refresh_dashboard()
 
     def quick_connect(self) -> None:
         self._quick_connect_from(self.quick)
@@ -1262,6 +1286,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
 
         added = import_ssh_config(self.ctx.store)
         self.sidebar.reload()
+        self._refresh_dashboard()
         toast(self, f"Imported {added} session(s) from ~/.ssh/config", "good")
 
     def _import_json(self) -> None:
@@ -1292,6 +1317,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             QMessageBox.warning(self, "Import failed", str(exc))
             return
         self.sidebar.reload()
+        self._refresh_dashboard()
         toast(self, f"Imported {added} session(s)", "good")
 
     def _export_json(self) -> None:

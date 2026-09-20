@@ -50,7 +50,7 @@ class KeyUtilityDialog(QDialog):
         layout.addLayout(head)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_inspector_tab(), "Key Inspector & Randomart")
+        tabs.addTab(self._build_inspector_tab(), "Key Inspector && Randomart")
         tabs.addTab(self._build_generator_tab(), "Key Generator")
         tabs.addTab(self._build_converter_tab(), "PuTTY PPK Converter")
         layout.addWidget(tabs, 1)

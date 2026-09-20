@@ -1,5 +1,30 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 5 — design-system pass: correctness, states & dark-theme legibility (2026-09)
+
+Presentation-layer only. This round audited every screen and dialog, fixed the
+remaining rendering defects, and tightened the shared design system so all five
+themes render identically structured.
+
+| Area | Change |
+|---|---|
+| **8-digit hex bug (biggest fix)** | Qt parses `#RRGGBBAA` as `#AARRGGBB` — every translucent QSS colour was mangled (checked toolbar buttons rendered a wrong solid green on dark themes, status-chip/badge/toast tints came out brownish, drop shadows were fully transparent). New `theme.palette_color()` / `theme.solid_on()` / `theme.tint()` helpers pre-blend every alpha colour into a solid `#rrggbb` before it reaches QSS or `QColor`; all 40+ sites (global QSS, `StateChip`, `PillBadge`, `Toast`, `ModernButton`, `ModernComboBox`, command palette, dashboard logo tile) converted. |
+| **Design scale** | Radii unified to 4/6/8/10 + 999 px pills; 2 px accent focus rings on tabs, tree rows, buttons, inputs; `#ghost` min-width 60 px (All/None buttons no longer collapse in the cluster dialog). |
+| **Empty states** | Sessions sidebar shows a friendly *No saved sessions* state with a **New session** action and a separate *No matches* state for dead filters (`SessionTree._sync_empty_states`). |
+| **Dashboard** | Logo tile + hero **Quick connect** field (same code path as the toolbar), four action tiles, recent-sessions card with tinted protocol badges, kbd-chip footer. `MainWindow._refresh_dashboard()` rebuilds it on theme/store changes. |
+| **Dark-theme legibility** | `toolbar_icon()` lifts the MobaXterm glyph tints ×1.9 on dark chrome (charcoal → theme `fg`) so every toolbar icon keeps its hue *and* contrast in Midnight/Dracula/Ocean/Contrast. |
+| **SFTP dialog** | Folder/file rows use theme SVG icons (`resources/icons/file.svg` added) instead of emoji that render as tofu without a colour-emoji font; Download/Upload buttons carry the `transfer` glyph. |
+| **Network tools** | Controls row fits at the 700 px minimum width (shorter *Open ports only / All probed ports* labels, bounded spinboxes, 124 px *Start Scan*); tab labels escaped (`Ping && Latency`) — QTabBar treats a bare `&` as a mnemonic, which was eating the character. Same escape applied to the Key Utility tab. |
+| **Credential dialog** | Inputs restyled to the shared 6 px-radius / border-strong / hover / focus treatment. |
+| **Motion safety** | `animate_in` / `pulse` no longer `deleteLater()` the animation: if the widget is orphaned, the Python GC could destroy the animation's C++ parent before the deferred deletion is processed (use-after-free, reproduced as a bus error in tests). Animations are children of the widget and die with it. |
+| **Tests** | `test_mobaxterm_qss_has_flat_geometry` (obsolete after the radius redesign) replaced by `test_qss_uses_consistent_design_scale`; added contract tests for focus rings, pill chips/badges, the dashboard hero quick-connect, sidebar empty-state toggling and tinted protocol badges. |
+
+### Contrast
+
+All five palettes re-audited with a WCAG script over every foreground/surface
+pair: body & muted text ≥ 4.5:1 on `bg`/`bg2`/`bg3`/`panel`, `accent_text` on
+`accent` ≥ 4.5:1, accent as a graphic ≥ 3:1, terminal ≥ 4.5:1 — 0 failures.
+
 ## Round 4 — MobaXterm look (2026-09, UI files only)
 
 The whole presentation layer now mirrors MobaXterm's classic Windows chrome.

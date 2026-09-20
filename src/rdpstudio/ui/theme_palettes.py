@@ -3,47 +3,54 @@
 Extracted verbatim from ``theme.py`` (ARCH-02). Pure data, no Qt
 imports. ``theme.py`` re-exports these names, so ``from .theme
 import PALETTE`` keeps working.
+
+Every palette exposes the exact same 30 keys (see
+``tests/test_ui_polish.py``) so the global QSS can ``.format(**pal)``
+safely on any theme.
 """
 
 from __future__ import annotations
 
 # ----------------------------------------------------------------------
-# Palettes — natural, harmonious, carefully tuned for contrast & warmth
-# Each palette is a complete design system with bg, surfaces, text, accents
+# Palettes — carefully tuned for contrast (WCAG AA) and layered surfaces
+# Surface model:  bg (window chrome) < panel (chrome panels) < bg3 (fill)
+#                < bg2 (content surface) — borders separate the layers.
 # ----------------------------------------------------------------------
 PALETTE = {
-    # MobaXterm — classic light Windows chrome (default)
+    # MobaXterm — light neutral chrome (default). Signature values kept:
+    # window chrome #f0f0f0, Microsoft-blue accent #0075d2 (white button
+    # text at 4.7:1). Everything else is a cool, calm neutral family.
     "mobaxterm": {
         "bg": "#f0f0f0",
         "bg2": "#ffffff",
-        "bg3": "#e5e5e5",
-        "panel": "#f5f5f5",
-        "panel2": "#e9e9e9",
-        "panel3": "#d9d9d9",
-        "border": "#d9d9d9",
-        "border_strong": "#adadad",
-        "border_subtle": "#e3e3e3",
-        "fg": "#1e1e1e",
-        "fg_dim": "#505050",
-        "fg_muted": "#656565",
+        "bg3": "#eceef1",
+        "panel": "#f7f8fa",
+        "panel2": "#eef0f3",
+        "panel3": "#d8dce2",
+        "border": "#e3e5e9",
+        "border_strong": "#c9ced6",
+        "border_subtle": "#eceef1",
+        "fg": "#1f2329",
+        "fg_dim": "#4d5460",
+        "fg_muted": "#5f6672",
         "accent": "#0075d2",
         "accent_hover": "#1a86e0",
-        "accent_active": "#005a9e",
+        "accent_active": "#0062ab",
         "accent_text": "#ffffff",
-        "accent_subtle": "#cce8ff",
+        "accent_subtle": "#e8f1fa",
         "accent_gradient": "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2b8ee0, stop:1 #0a6fc9)",
         "good": "#2e8b3d",
-        "warn": "#d9822b",
+        "warn": "#c0741f",
         "bad": "#d13438",
         "info": "#0078d7",
-        "term_bg": "#000000",
-        "term_fg": "#bfbfbf",
+        "term_bg": "#0d1117",
+        "term_fg": "#d4d9e1",
         "sel": "#cce8ff",
-        "sel_hover": "#e5f3ff",
-        "shadow": "#00000033",
-        "shadow_soft": "#0000001a",
+        "sel_hover": "#f4f6f8",
+        "shadow": "#10182826",
+        "shadow_soft": "#10182814",
         "overlay": "#f0f0f0e6",
-        "card_shadow": "#00000014",
+        "card_shadow": "#1018280f",
     },
     # Ocean — deep Atlantic, teal & cyan
     "ocean": {
@@ -57,13 +64,13 @@ PALETTE = {
         "border_strong": "#224865",
         "border_subtle": "#0e2536",
         "fg": "#cfe8f4",
-        "fg_dim": "#7fb8d0",
-        "fg_muted": "#7196a7",
+        "fg_dim": "#8fc3d9",
+        "fg_muted": "#7f9fb0",
         "accent": "#22d3ee",
         "accent_hover": "#67e8f9",
         "accent_active": "#06b6d4",
-        "accent_text": "#042e3a",
-        "accent_subtle": "#22d3ee18",
+        "accent_text": "#04262f",
+        "accent_subtle": "#22d3ee1f",
         "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #22d3ee, stop:1 #06b6d4)",
         "good": "#34d399",
         "warn": "#fbbf24",
@@ -123,13 +130,13 @@ PALETTE = {
         "border_strong": "#44475a",
         "border_subtle": "#2c2e3c",
         "fg": "#f8f8f2",
-        "fg_dim": "#b0b8c8",
-        "fg_muted": "#9ea8c3",
+        "fg_dim": "#b3bad0",
+        "fg_muted": "#a0aac4",
         "accent": "#bd93f9",
         "accent_hover": "#caa8ff",
         "accent_active": "#a67ce8",
         "accent_text": "#1e1f29",
-        "accent_subtle": "#bd93f918",
+        "accent_subtle": "#bd93f924",
         "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #bd93f9, stop:1 #ff79c6)",
         "good": "#50fa7b",
         "warn": "#f1fa8c",
@@ -144,27 +151,27 @@ PALETTE = {
         "overlay": "#1e1f29cc",
         "card_shadow": "#00000044",
     },
-    # Midnight — deep navy night · sky accent. White button text and muted
-    # text both meet WCAG AA (verified by test_all_palettes_meet_wcag_aa).
+    # Midnight — deep navy night, vivid sky accent with dark label text.
+    # All pairs verified against WCAG AA (test_all_palettes_meet_wcag_aa).
     "midnight": {
         "bg": "#0a1120",
-        "bg2": "#0e1730",
+        "bg2": "#0f1930",
         "bg3": "#1a2540",
-        "panel": "#101b36",
-        "panel2": "#1a2540",
+        "panel": "#0e1830",
+        "panel2": "#16233e",
         "panel3": "#2b3d63",
         "border": "#223350",
         "border_strong": "#3a5079",
         "border_subtle": "#141f38",
-        "fg": "#e6edf7",
-        "fg_dim": "#a9bcd6",
-        "fg_muted": "#93a7c4",
-        "accent": "#3b75b9",
-        "accent_hover": "#3c78bd",
-        "accent_active": "#2c5a96",
-        "accent_text": "#ffffff",
-        "accent_subtle": "#17395f",
-        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3b75b9, stop:1 #2c5a96)",
+        "fg": "#e8edf5",
+        "fg_dim": "#a8b6cf",
+        "fg_muted": "#91a3c0",
+        "accent": "#4d8fe8",
+        "accent_hover": "#6ba3ef",
+        "accent_active": "#2f6fd0",
+        "accent_text": "#081120",
+        "accent_subtle": "#1d3a5f",
+        "accent_gradient": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4d8fe8, stop:1 #2f6fd0)",
         "good": "#34d399",
         "warn": "#fbbf24",
         "bad": "#f87171",
@@ -184,23 +191,23 @@ PALETTE = {
 # read the protocol at a glance: SSH green, RDP blue, local = theme accent.
 PROTOCOL_TINTS: dict[str, str] = {"ssh": "good", "rdp": "info", "local": "accent"}
 
-# Typography — MobaXterm uses the Windows UI stack (Segoe UI / Tahoma 9 pt)
-# and Consolas for code. Nothing is bundled; the stack degrades gracefully.
+# Typography — system UI stack first (Segoe UI on Windows), degrading to
+# quality open-source fallbacks. Consolas for code/data.
 _UI_SANS = (
-    '"Segoe UI", "Tahoma", "Noto Sans", "DejaVu Sans", "Liberation Sans", '
+    '"Segoe UI", "Inter", "Noto Sans", "DejaVu Sans", "Liberation Sans", '
     '"Nimbus Sans L", "Helvetica Neue", "Arial", sans-serif'
 )
 _UI_MONO = (
-    '"Consolas", "Cascadia Mono", "Lucida Console", "DejaVu Sans Mono", '
-    '"Liberation Mono", "Noto Sans Mono", "Courier New", monospace'
+    '"Cascadia Mono", "Consolas", "JetBrains Mono", "Liberation Mono", '
+    '"DejaVu Sans Mono", "Noto Sans Mono", "Courier New", monospace'
 )
 _UI_DISPLAY = (
-    '"Segoe UI Semibold", "Segoe UI", "Tahoma", "Noto Sans", "DejaVu Sans", '
-    '"Liberation Sans", "Arial", sans-serif'
+    '"Segoe UI", "Inter", "Noto Sans", "DejaVu Sans", "Liberation Sans", '
+    '"Helvetica Neue", "Arial", sans-serif'
 )
 
-# MobaXterm's big toolbar uses coloured glyphs — one tint per action so the
-# buttons read at a glance (keys are the icon names in resources/icons/).
+# Toolbar glyphs — one tint per action so the big toolbar reads at a
+# glance (keys are the icon names in resources/icons/).
 TOOLBAR_ICON_TINTS: dict[str, str] = {
     "plus": "#2e9e44",       # Session — green
     "console": "#3a3a3a",    # Terminal — charcoal

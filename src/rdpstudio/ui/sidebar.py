@@ -22,6 +22,7 @@ from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
 from .theme import icon, palette, protocol_badge, toolbar_icon
+from .widgets import EmptyState
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
@@ -112,7 +113,7 @@ class SessionTree(QWidget):
             b.setToolTip(tip)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(cb)
-            b.setFixedSize(24, 22)
+            b.setFixedSize(26, 26)
             b.setIconSize(QSize(16, 16))
             return b
 
@@ -143,7 +144,7 @@ class SessionTree(QWidget):
         )
         self._search_action.setToolTip("Filter sessions by name, host, tag or folder")
         self.search.textChanged.connect(self._on_search)
-        self.search.setFixedHeight(22)
+        self.search.setFixedHeight(28)
         bl.addWidget(self.search, 1)
         layout.addWidget(bar_wrap)
 
@@ -167,6 +168,27 @@ class SessionTree(QWidget):
         self.tree.itemDoubleClicked.connect(self._double_clicked)
         self.tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout.addWidget(self.tree, 1)
+
+        # Empty states — shown instead of the tree
+        self._empty_state = EmptyState(
+            icon_name="panel",
+            title="No sessions yet",
+            subtitle="Save a connection, import your ~/.ssh/config, or use quick connect in the toolbar.",
+            action_text="New session…",
+            action_callback=lambda: self.newSessionRequested.emit(),
+        )
+        self._empty_state.setVisible(False)
+        layout.addWidget(self._empty_state, 1)
+
+        self._no_match_state = EmptyState(
+            icon_name="search",
+            title="No matching sessions",
+            subtitle="Try a different name, host, tag or folder.",
+            action_text="Clear search",
+            action_callback=self.search.clear,
+        )
+        self._no_match_state.setVisible(False)
+        layout.addWidget(self._no_match_state, 1)
 
         # Footer hint — plain caption
         self._hint = QLabel("Double-click to connect · Right-click for actions")
@@ -270,6 +292,23 @@ class SessionTree(QWidget):
 
         if self._filter:
             self.tree.expandAll()
+
+        self._sync_empty_states()
+
+    def _sync_empty_states(self) -> None:
+        """Show the right empty state (or the tree) for the current data."""
+        visible_items = self.tree.topLevelItemCount()
+        has_data = bool(self.store.sessions() or self.store.groups())
+        if self._filter:
+            show_no_match = visible_items == 0
+            self.tree.setVisible(not show_no_match)
+            self._empty_state.setVisible(False)
+            self._no_match_state.setVisible(show_no_match)
+        else:
+            show_empty = not has_data
+            self.tree.setVisible(not show_empty)
+            self._empty_state.setVisible(show_empty)
+            self._no_match_state.setVisible(False)
 
     def _add_session_item(self, parent, s: Session, reg) -> None:
         pinned = bool(s.options.get("pinned", False))

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..core import paths
 from ..core.fuzzy import fuzzy_score
-from .theme import icon, palette
+from .theme import icon, palette, palette_color, solid_on, tint
 
 
 @dataclass
@@ -119,8 +119,8 @@ class CommandPaletteDialog(QDialog):
             f"""
             QWidget#card {{
                 background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 2px;
+                border: 1px solid {pal['border_strong']};
+                border-radius: 10px;
             }}
             """
         )
@@ -128,7 +128,7 @@ class CommandPaletteDialog(QDialog):
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(40)
         shadow.setOffset(0, 16)
-        shadow.setColor(QColor(pal["shadow"] or "#00000066"))
+        shadow.setColor(palette_color(pal["shadow"] or "#00000066"))
         self.card.setGraphicsEffect(shadow)
 
         outer.addWidget(self.card)
@@ -145,20 +145,16 @@ class CommandPaletteDialog(QDialog):
             QWidget#searchRow {{
                 background: {pal['bg3']};
                 border: 1px solid {pal['border_subtle']};
-                border-radius: 3px;
-            }}
-            QWidget#searchRow:focus-within {{
-                border-color: {pal['accent']};
-                background: {pal['bg2']};
+                border-radius: 8px;
             }}
             """
         )
         sr_l = QHBoxLayout(search_row)
-        sr_l.setContentsMargins(6, 6, 6, 6)
+        sr_l.setContentsMargins(8, 6, 8, 6)
         sr_l.setSpacing(10)
 
-        icon_lbl = QLabel("⌕")
-        icon_lbl.setStyleSheet(f"color: {pal['accent']}; font-size: 18px; font-weight: 800; padding-left: 8px;")
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(icon("search", pal["fg_dim"]).pixmap(QSize(16, 16)))
         sr_l.addWidget(icon_lbl)
 
         self.search = QLineEdit()
@@ -169,8 +165,8 @@ class CommandPaletteDialog(QDialog):
             QLineEdit#paletteSearch {{
                 background: transparent;
                 border: none;
-                padding: 10px 8px;
-                font-size: 15px;
+                padding: 8px 4px;
+                font-size: 14px;
                 color: {pal['fg']};
             }}
             """
@@ -181,13 +177,15 @@ class CommandPaletteDialog(QDialog):
         esc_hint = QLabel("Esc")
         esc_hint.setStyleSheet(
             f"""
-            background: {pal['panel2']};
-            border: 1px solid {pal['border']};
-            border-radius: 2px;
-            padding: 3px 8px;
+            background: {pal['bg2']};
+            border: 1px solid {pal['border_strong']};
+            border-bottom: 2px solid {pal['border_strong']};
+            border-radius: 5px;
+            padding: 1px 7px;
             color: {pal['fg_dim']};
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 500;
+            font-family: {pal.get('ui_mono', 'monospace')};
             """
         )
         sr_l.addWidget(esc_hint)
@@ -204,19 +202,20 @@ class CommandPaletteDialog(QDialog):
                 outline: none;
             }}
             QListWidget::item {{
-                padding: 12px 14px;
-                border-radius: 2px;
-                margin: 3px 2px;
+                padding: 10px 12px;
+                border-radius: 8px;
+                margin: 2px 4px;
                 color: {pal['fg']};
                 border: 1px solid transparent;
+                font-size: 12.5px;
             }}
             QListWidget::item:hover {{
                 background: {pal['bg3']};
-                border-color: {pal['border_subtle']};
+                border-color: transparent;
             }}
             QListWidget::item:selected {{
-                background: {pal['accent_subtle']};
-                border: 1px solid {pal['accent']}40;
+                background: {solid_on(pal['accent_subtle'], pal['bg2'])};
+                border: 1px solid {tint(pal['accent'], 0x40)};
                 color: {pal['fg']};
             }}
             """
@@ -247,11 +246,11 @@ class CommandPaletteDialog(QDialog):
                 f"""
                 background: {pal['bg3']};
                 border: 1px solid {pal['border_subtle']};
-                border-radius: 2px;
-                padding: 4px 10px;
+                border-radius: 999px;
+                padding: 3px 10px;
                 color: {pal['fg_dim']};
                 font-size: 11px;
-                font-weight: 600;
+                font-weight: 500;
                 """
             )
             return lbl

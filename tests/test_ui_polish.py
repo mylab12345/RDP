@@ -223,15 +223,21 @@ def test_toolbar_icons_are_tinted_per_action(qtapp) -> None:  # noqa: ARG001
     assert red[0] > red[1] and red[0] > red[2]  # "Close all" is red
 
 
-def test_mobaxterm_qss_has_flat_geometry(qtapp) -> None:  # noqa: ARG001
+def test_qss_uses_consistent_design_scale(qtapp) -> None:  # noqa: ARG001
+    """Round 7: the ops-console design system ships a 4/6/8/10 px radius
+    scale (pills 999 px) — no ad-hoc large radii in the global sheet."""
     from rdpstudio.ui import theme
 
     theme.apply_theme(qtapp, "mobaxterm", animations=False)
     qss = qtapp.styleSheet()
     assert "QToolBar#moxaToolbar" in qss
     assert "QTabBar#sideRail" in qss
-    # No large "bento" radii survive in the global sheet
-    assert "border-radius: 14px" not in qss and "border-radius: 8px" not in qss
+    assert "border-radius: 6px" in qss  # controls (buttons, inputs, tabs)
+    assert "border-radius: 8px" in qss  # cards, menus
+    assert "border-radius: 999px" in qss  # pills
+    # Nothing in the global sheet rounds past the 10 px floating-surface step.
+    for radius in ("12px", "14px", "16px", "20px", "24px"):
+        assert f"border-radius: {radius}" not in qss, radius
 
 
 def test_sidebar_has_rail_and_pages(home, qtapp) -> None:
@@ -337,3 +343,110 @@ def test_midnight_theme_registered_and_distinct(qtapp) -> None:  # noqa: ARG001
     assert qtapp.styleSheet()
     assert theme.PALETTE["midnight"]["bg"] != theme.PALETTE["mobaxterm"]["bg"]
     theme.apply_theme(qtapp, "mobaxterm", animations=False)
+
+
+# ----------------------------------------------------------------------
+# Round 7 — ops-console design system: focus rings, pills, dashboard,
+# sidebar empty states
+# ----------------------------------------------------------------------
+def test_focus_rings_use_visible_outline(qtapp) -> None:
+    """Every interactive family gets a 2 px accent outline, not a
+    border-only recolor, and the global sheet no longer kills outlines."""
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    qss = qtapp.styleSheet()
+    accent = theme.palette()["accent"]
+    assert f"outline: 2px solid {accent}" in qss
+    for sel in (
+        "QPushButton:focus",
+        "QLineEdit:focus",
+        "QToolButton:focus",
+        "QTabBar:focus",
+        "QTreeView:focus",
+    ):
+        assert sel in qss, sel
+
+
+def test_state_chips_and_badges_are_pills(qtapp) -> None:  # noqa: ARG001
+    from rdpstudio.ui.widgets import PillBadge, StateChip
+
+    chip = StateChip("connected", "good")
+    assert "border-radius: 999px" in chip.styleSheet()
+    pill = PillBadge("5", "accent")
+    assert "border-radius: 999px" in pill.styleSheet()
+
+
+def test_dashboard_has_hero_quick_connect(home, qtapp) -> None:  # noqa: ARG001
+    """The welcome page offers a prominent quick-connect field wired to the
+    same parse/connect path as the toolbar one."""
+    from rdpstudio.app import build_context
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.main_window import MainWindow
+
+    ctx = build_context()
+    theme.apply_theme(qtapp, ctx.settings.theme, animations=False)
+    win = MainWindow(ctx)
+    try:
+        # The dashboard is the current "empty" page; the input is owned by
+        # the window (DashboardMixin) so toolbar and dashboard share one
+        # quick-connect code path.
+        assert win._empty is not None
+        quick = getattr(win, "dash_quick", None)
+        assert quick is not None, "dashboard quick-connect input missing"
+        assert quick.objectName() == "dashQuick"
+        assert "3389" in quick.placeholderText()
+    finally:
+        win.close()
+        qtapp.processEvents()
+
+
+def test_sidebar_empty_states_toggle(home, qtapp) -> None:  # noqa: ARG001
+    """No saved sessions → friendly empty state with an action; adding one
+    brings the tree back; a dead search shows the no-match state."""
+    from rdpstudio.core.models import PROTOCOL_SSH, Session
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.sidebar import SessionTree
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    store = SessionStore(home / "sessions.json")
+    sb = SessionTree(store)
+    # The tree is never shown in this test, so assert on the widgets' own
+    # visibility flags (isHidden) rather than isVisible (parent-chain).
+    try:
+        assert not sb._empty_state.isHidden()
+        assert sb.tree.isHidden()
+        store.upsert(Session(name="prod", protocol=PROTOCOL_SSH, host="10.0.0.1"))
+        sb.reload()
+        assert not sb.tree.isHidden()
+        assert sb._empty_state.isHidden()
+        # dead search → no-match state instead of a bare empty tree
+        sb._filter = "zzzz-no-match"
+        sb.reload()
+        assert not sb._no_match_state.isHidden()
+        assert sb.tree.isHidden()
+        sb._filter = ""
+        sb.reload()
+        assert not sb.tree.isHidden()
+        assert sb._no_match_state.isHidden()
+    finally:
+        sb.close()
+        qtapp.processEvents()
+
+
+def test_protocol_badges_use_tinted_tiles(qtapp) -> None:  # noqa: ARG001
+    """Badges render the protocol hue in the tile AND the glyph — not a
+    neutral gray tile with a colored glyph."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QColor
+
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    pal = theme.palette()
+    ssh = _average_opaque_color(theme.protocol_badge("ssh", "terminal").pixmap(QSize(16, 16)))
+    green = QColor(pal["good"]).getRgb()[:3]
+    # The average over a tinted tile + glyph should lean toward the protocol hue.
+    assert ssh[1] > ssh[0], f"ssh badge not green-leaning: {ssh}"
+    assert abs(ssh[0] - green[0]) < 120
