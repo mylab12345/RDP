@@ -12,18 +12,34 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from .auth import (
+    AUTH_AGENT,
+    AUTH_CREDENTIAL,
+    AUTH_KEY,
+    AUTH_NONE,
+    AUTH_PASSWORD,
+    PROTOCOL_LOCAL,
+    PROTOCOL_RDP,
+    PROTOCOL_SSH,
+    normalize_auth_for_protocol,
+)
 from .coerce import as_bool, as_float, as_int
 from .shares import Share, shares_from_dicts
 
-PROTOCOL_SSH = "ssh"
-PROTOCOL_RDP = "rdp"
-PROTOCOL_LOCAL = "local"
-
-AUTH_PASSWORD = "password"
-AUTH_KEY = "key"
-AUTH_AGENT = "agent"
-AUTH_CREDENTIAL = "credential"  # secret resolved from the vault at connect time
-AUTH_NONE = "none"
+__all__ = [
+    "AUTH_AGENT",
+    "AUTH_CREDENTIAL",
+    "AUTH_KEY",
+    "AUTH_NONE",
+    "AUTH_PASSWORD",
+    "Forward",
+    "PROTOCOL_LOCAL",
+    "PROTOCOL_RDP",
+    "PROTOCOL_SSH",
+    "Session",
+    "default_port_for",
+    "new_id",
+]
 
 
 def new_id() -> str:
@@ -237,7 +253,7 @@ class Session:
         password = d.get("password", "")
         s.password = password if isinstance(password, str) else ""
         auth = d.get("auth", AUTH_PASSWORD)
-        s.auth = auth if isinstance(auth, str) and auth else AUTH_PASSWORD
+        s.auth = normalize_auth_for_protocol(s.protocol, auth if isinstance(auth, str) and auth else AUTH_PASSWORD)
         s.credential_id = str(d.get("credential_id") or "")
         s.key_path = str(d.get("key_path") or "")
         s.jump_session_id = str(d.get("jump_session_id") or "")

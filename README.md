@@ -32,7 +32,7 @@ NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
 | **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
 | **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+Tab`, `Ctrl+1..9`) |
 | **Simple by default** | The session editor asks for **host, username and password** — everything else (ports, tags, jump hosts, keepalives, forwards, RD gateway, certificates) lives behind a single **Advanced options** toggle. RDP display is one dropdown: fit to window, fullscreen, or a standard resolution |
-| **Credentials** | Type a **username + password** per session (stored in the sessions file, `0600`). Leave the password empty to be asked at connect time. |
+| **Credentials** | Use a plain **username + password** per session (stored in the sessions file, `0600`) or pick a **Saved credential** from the encrypted vault. Leave the password empty to be asked at connect time. |
 | **Reconnect** | Exponential backoff + jitter, attempt limits, live status chips; FreeRDP `+auto-reconnect` for RDP |
 | **Clipboard & logging** | Copy-on-select, middle-click paste **anywhere on the terminal surface** — viewport *and* scrollbar strip, pyte *and* native QTermWidget tabs, X11 PRIMARY selection first with clipboard fallback; Ctrl+Shift+C/V, multi-line paste confirmation, OSC-52 (`\x1b]52`) support, RDP clipboard redirection; live session output logging to file (`● REC`) |
 | **Security** | TOFU host-key verification with loud changed-key warnings (own `known_hosts`), vault secrets never in session store (a plain password is only written if you explicitly save it), passwords never exported, atomic encrypted vault writes (0600) |
@@ -86,10 +86,12 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 
 1. Launch `kb-remote` (the legacy `rdpstudio` command remains available).
 2. **Session → New session** (Ctrl+N) → pick *SSH terminal* or *RDP remote
-   desktop* → fill **Host**, **Username** and **Password** → *Save*. The
-   password is stored with the session (leave it empty and you'll be asked at
-   connect time). For RDP, tick **Fit display to screen** to scale the remote
-   desktop to the window. SSH tabs keep the remote host’s own console colors.
+   desktop* → fill **Host**, **Username** and **Password** (or choose a
+   **Saved credential** from the vault) → *Save*. Leave the password empty to
+   be asked at connect time. Use **Test** for a lightweight SSH banner / RDP
+   negotiation / local-shell availability check before you connect. For RDP,
+   tick **Fit display to screen** to scale the remote desktop to the window.
+   SSH tabs keep the remote host’s own console colors.
 3. Double-click the session in the sidebar. Use **Files** on the tab header
    for SFTP.
 4. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.

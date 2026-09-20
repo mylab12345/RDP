@@ -210,7 +210,7 @@ def _cli_rdp_target(argv: list[str], store) -> bool:
         return saved.protocol == "rdp"
     # quick connect: user@host[:port] — RDP when the port says so (3389)
     try:
-        from ..ssh.session import parse_ssh_target
+        from ..ssh.target import parse_ssh_target
 
         parsed = parse_ssh_target(argv[0])
         if parsed is not None and parsed[2] == 3389:

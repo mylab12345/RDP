@@ -26,10 +26,12 @@ import importlib
 import importlib.metadata as importlib_metadata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QWidget
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from PySide6.QtWidgets import QWidget
 
 from .events import EventBus
 from .log import get_logger
@@ -45,9 +47,9 @@ ENTRY_POINT_GROUP = "rdpstudio.protocols"
 # headless processes that do not load Qt, while preserving the same registry
 # contents when the application asks for them.
 BUILTIN_PLUGIN_SPECS: tuple[tuple[str, str], ...] = (
-    ("rdpstudio.protocols.ssh.session", "SshPlugin"),
-    ("rdpstudio.protocols.rdp.session", "RdpPlugin"),
-    ("rdpstudio.protocols.local.session", "LocalShellPlugin"),
+    ("rdpstudio.protocols.ssh.plugin", "SshPlugin"),
+    ("rdpstudio.protocols.rdp.plugin", "RdpPlugin"),
+    ("rdpstudio.protocols.local.plugin", "LocalShellPlugin"),
 )
 
 

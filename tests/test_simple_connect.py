@@ -10,7 +10,7 @@ pytestmark = pytest.mark.usefixtures("home")
 # --- FreeRDP command line ---------------------------------------------------
 def test_freerdp_args_fit_screen():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args
+    from rdpstudio.protocols.rdp.client import build_freerdp_args
 
     s = Session(protocol="rdp", host="win.lab", username="admin", rdp_fit_screen=True)
     args = build_freerdp_args(s, password=None)
@@ -24,7 +24,7 @@ def test_freerdp_args_fit_screen():
 def test_freerdp_password_never_on_cmdline_by_default():
     """The secret must not be readable via `ps` / /proc/<pid>/cmdline."""
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args, uses_args_file
+    from rdpstudio.protocols.rdp.client import build_freerdp_args, uses_args_file
 
     s = Session(protocol="rdp", host="win.lab", username="admin", password="s3cret")
     args = build_freerdp_args(s, password="s3cret")
@@ -46,7 +46,7 @@ def test_freerdp_password_never_on_cmdline_by_default():
 
 def test_freerdp_no_stdin_flag_without_password():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_freerdp_args, uses_args_file
+    from rdpstudio.protocols.rdp.client import build_freerdp_args, uses_args_file
 
     s = Session(protocol="rdp", host="win.lab", username="admin")
     args = build_freerdp_args(s, password=None)

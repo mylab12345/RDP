@@ -1,13 +1,13 @@
 """Tests for the credential guard — ensures that sessions without saved
 credentials require username+password before connecting.
 
-These tests exercise only the pure-Python logic of
-``needs_credential_prompt`` and the ``Session`` model so they work in a
-headless environment (no Qt / libGL required).
+These tests exercise only the pure-Python logic of ``needs_credential_prompt``
+so they work in a headless environment (no Qt / libGL required).
 """
 
 from __future__ import annotations
 
+from rdpstudio.core.auth import needs_credential_prompt
 from rdpstudio.core.models import (
     AUTH_AGENT,
     AUTH_KEY,
@@ -18,63 +18,20 @@ from rdpstudio.core.models import (
     Session,
 )
 
-# ---------------------------------------------------------------------------
-# needs_credential_prompt — imported lazily to avoid PySide6 at module level
-# ---------------------------------------------------------------------------
-
-def _needs(defn: Session) -> bool:
-    # Import the pure-logic function without pulling in any Qt widget code.
-    import importlib
-    import sys
-    import types
-    from unittest.mock import patch
-
-    # Build a minimal PySide6 stub so the import chain succeeds headlessly.
-    # patch.dict snapshots sys.modules and restores it on exit — the stubs
-    # must never leak, or every later test in this pytest process that
-    # imports PySide6 breaks with "cannot import name ... (unknown location)".
-    pyside = types.ModuleType("PySide6")
-    pyside.QtCore = types.ModuleType("PySide6.QtCore")
-    pyside.QtCore.Qt = object()
-    pyside.QtWidgets = types.ModuleType("PySide6.QtWidgets")
-    for cls in (
-        "QDialog", "QDialogButtonBox", "QFormLayout", "QFrame",
-        "QHBoxLayout", "QLabel", "QLineEdit", "QVBoxLayout", "QWidget",
-    ):
-        setattr(pyside.QtWidgets, cls, type(cls, (), {}))
-
-    with patch.dict(
-        sys.modules,
-        {
-            "PySide6": pyside,
-            "PySide6.QtCore": pyside.QtCore,
-            "PySide6.QtWidgets": pyside.QtWidgets,
-        },
-    ):
-        # Reload the module cleanly with stubs in place.
-        sys.modules.pop("rdpstudio.ui.credential_dialog", None)
-        mod = importlib.import_module("rdpstudio.ui.credential_dialog")
-        return mod.needs_credential_prompt(defn)
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 class TestNeedsCredentialPrompt:
-
     def test_local_never_prompts(self):
         s = Session(protocol=PROTOCOL_LOCAL)
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_rdp_bare_ip_prompts(self):
         """The core bug: bare IP with no credentials must trigger the prompt."""
         s = Session(protocol=PROTOCOL_RDP, host="192.168.1.100")
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_ssh_bare_ip_prompts(self):
         s = Session(protocol=PROTOCOL_SSH, host="10.0.0.5")
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_rdp_full_credentials_no_prompt(self):
         s = Session(
@@ -83,7 +40,7 @@ class TestNeedsCredentialPrompt:
             username="Administrator",
             password="Secret1!",
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_rdp_vault_credential_no_prompt(self):
         s = Session(
@@ -91,7 +48,7 @@ class TestNeedsCredentialPrompt:
             host="192.168.1.100",
             credential_id="vault-entry-abc",
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_rdp_missing_password_prompts(self):
         """Username without password must still prompt."""
@@ -101,7 +58,7 @@ class TestNeedsCredentialPrompt:
             username="Administrator",
             password="",
         )
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_rdp_missing_username_prompts(self):
         """Password without username must prompt."""
@@ -111,7 +68,7 @@ class TestNeedsCredentialPrompt:
             username="",
             password="Secret1!",
         )
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_ssh_key_auth_username_present_no_prompt(self):
         """Key auth only needs username — no prompt when both are present."""
@@ -122,7 +79,7 @@ class TestNeedsCredentialPrompt:
             auth=AUTH_KEY,
             key_path="/home/user/.ssh/id_ed25519",
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_ssh_key_auth_no_username_prompts(self):
         """Key auth but missing username must prompt."""
@@ -133,7 +90,7 @@ class TestNeedsCredentialPrompt:
             auth=AUTH_KEY,
             key_path="/home/user/.ssh/id_ed25519",
         )
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_ssh_agent_auth_username_present_no_prompt(self):
         s = Session(
@@ -142,7 +99,7 @@ class TestNeedsCredentialPrompt:
             username="deploy",
             auth=AUTH_AGENT,
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_ssh_password_auth_full_no_prompt(self):
         s = Session(
@@ -152,7 +109,7 @@ class TestNeedsCredentialPrompt:
             password="p@ssw0rd",
             auth=AUTH_PASSWORD,
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)
 
     def test_domain_machine_no_creds_prompts(self):
         """Domain RDP session with domain set but no user/pass still prompts."""
@@ -161,7 +118,7 @@ class TestNeedsCredentialPrompt:
             host="server.corp.example.com",
             domain="CORP",
         )
-        assert _needs(s)
+        assert needs_credential_prompt(s)
 
     def test_domain_machine_full_creds_no_prompt(self):
         s = Session(
@@ -171,4 +128,4 @@ class TestNeedsCredentialPrompt:
             username="jdoe",
             password="hunter2",
         )
-        assert not _needs(s)
+        assert not needs_credential_prompt(s)

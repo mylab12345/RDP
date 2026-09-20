@@ -34,7 +34,7 @@ def _ctx(tmp_path):
 
 # --- support detection --------------------------------------------------------
 def test_embedded_support_matrix():
-    from rdpstudio.protocols.rdp.session import embedded_support
+    from rdpstudio.protocols.rdp.embed import embedded_support
 
     # mstsc cannot be embedded
     ok, why = embedded_support(
@@ -95,7 +95,7 @@ def test_embedded_support_matrix():
 # --- embedded command line ----------------------------------------------------
 def test_build_embedded_args():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_embedded_args
+    from rdpstudio.protocols.rdp.client import build_embedded_args
 
     s = Session(protocol="rdp", host="w", port=3389, username="u", password="s3cret", rdp_fit_screen=True)
     args = build_embedded_args(s, "s3cret", 0x1234)
@@ -116,7 +116,7 @@ def test_build_embedded_args_detected_size_overrides_session_resolution():
     """Fit mode: the detected display size replaces the saved /size so the
     whole remote screen is visible inside the tab."""
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_embedded_args
+    from rdpstudio.protocols.rdp.client import build_embedded_args
 
     s = Session(protocol="rdp", host="w", rdp_width=1600, rdp_height=900)
     args = build_embedded_args(s, None, 7, size=(1234, 720))
@@ -128,7 +128,7 @@ def test_build_embedded_args_detected_size_overrides_session_resolution():
 
 def test_build_embedded_args_detected_size_clamped():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_embedded_args
+    from rdpstudio.protocols.rdp.client import build_embedded_args
 
     s = Session(protocol="rdp", host="w")
     # below the FreeRDP/Windows minimum → clamped up
@@ -141,7 +141,7 @@ def test_build_embedded_args_detected_size_clamped():
 
 def test_embedded_args_drop_fullscreen():
     from rdpstudio.core.models import Session
-    from rdpstudio.protocols.rdp.session import build_embedded_args
+    from rdpstudio.protocols.rdp.client import build_embedded_args
 
     s = Session(protocol="rdp", host="w", rdp_fullscreen=True)
     args = build_embedded_args(s, None, 7)

@@ -38,7 +38,6 @@ from ...core.log import get_logger
 from ...core.models import Session
 from ...core.plugin import (
     Capabilities,
-    ProtocolPlugin,
     SessionContext,
     SessionController,
     SessionState,
@@ -70,6 +69,7 @@ from .embed import (
     relaunch_under_x11,
 )
 from .negotiate import RdpProbeError, probe
+from .plugin import RdpPlugin
 from .rdpfile import write_rdp_file
 from .x11 import fit_child_windows
 
@@ -1104,29 +1104,6 @@ class RdpSessionController(SessionController):
         self.statusInfo.emit(info)
 
 
-class RdpPlugin(ProtocolPlugin):
-    id = "rdp"
-    title = "RDP"
-    description = "Remote Desktop to Windows hosts — built-in display (FreeRDP embedded) or mstsc/FreeRDP window."
-    default_port = 3389
-    icon_name = "windows"
-    tags = ["rdp", "windows", "remote-desktop"]
 
-    def create_session(self, definition: Session, ctx: SessionContext) -> SessionController:
-        return RdpSessionController(definition, ctx)
 
-    def quick_connect_target(self, text: str) -> Session | None:
-        from ..ssh.session import parse_ssh_target
-
-        parsed = parse_ssh_target(text)
-        if parsed is None:
-            return None
-        user, host, port = parsed
-        # Only claim the target when the port explicitly says RDP — quick
-        # connect walks plugins in order, and a bare ``user@host`` must fall
-        # through to SSH (the documented "port 3389 ⇒ RDP" behaviour).
-        if port != 3389:
-            return None
-        s = Session(protocol="rdp", host=host, port=3389, username=user or "")
-        s.name = s.target()
-        return s
+__all__ = ['EMBEDDABLE_CLIENTS', 'RdpPlugin', 'RdpSessionController', 'build_embedded_args', 'build_freerdp_args', 'embedded_support', 'password_via_stdin', 'uses_args_file']

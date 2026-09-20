@@ -24,44 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.models import (
-    AUTH_AGENT,
-    AUTH_KEY,
-    AUTH_NONE,
-    PROTOCOL_LOCAL,
-    PROTOCOL_RDP,
-    Session,
-)
+from ..core.auth import needs_credential_prompt as _needs_credential_prompt
+from ..core.models import PROTOCOL_RDP, Session
 
 
 def needs_credential_prompt(defn: Session) -> bool:
-    """Return True when the session lacks sufficient credentials to connect.
-
-    Rules
-    -----
-    * Local-shell sessions never need credentials.
-    * Sessions whose auth method does not use a password (key / agent / none)
-      only need a username — skip the prompt if one is saved.
-    * For password-based auth: both username AND password must be present.
-      A missing username or password triggers the prompt.
-    * Sessions with a vault ``credential_id`` are considered complete
-      (the vault resolves the secret at connect time).
-    """
-    if defn.protocol == PROTOCOL_LOCAL:
-        return False  # no credentials needed for a local shell
-
-    # Vault credential covers everything — no prompt needed
-    if defn.credential_id:
-        return False
-
-    # Key / agent / none methods need only a username
-    if defn.auth in (AUTH_KEY, AUTH_AGENT, AUTH_NONE):
-        return not defn.username  # prompt only if username is also missing
-
-    # Password-based: need both username AND password
-    missing_user = not defn.username
-    missing_pass = not defn.password
-    return missing_user or missing_pass
+    return _needs_credential_prompt(defn)
 
 
 class CredentialDialog(QDialog):
