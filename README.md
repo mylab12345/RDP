@@ -96,6 +96,31 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
    for SFTP.
 4. Or just type `root@10.0.0.9:2222` into the quick-connect box and hit ⏎.
 
+### Look & layout
+
+KB-Remote opens in the **MobaXterm Dark** theme (charcoal chrome, Windows-blue
+accent); the classic light MobaXterm chrome plus Midnight, Dracula, Ocean and a
+high-contrast preset are one click away in **View → Theme** or **Settings →
+General**. *View → Session Tabs Position* (Ctrl+Shift+J cycles) moves the tab
+strip between the top, left and right edges.
+
+Nothing about the layout is fixed — drag it where you want it:
+
+| Want this | Do this |
+| --- | --- |
+| Sessions panel on the other side | Drag its ⠿ grip (header, next to *Sessions*) at the left or right edge of the window, double-click the grip or the splitter divider, or press **Ctrl+Shift+B** |
+| Panel wider / narrower | Drag the divider between the panel and the work area at any width from ~190 px up |
+| Session tabs as a vertical rail | Drag the empty part of the tab strip (or the ⠿ grip in the tab-strip corner) to the left or right edge |
+| Tabs back on top | Drag the strip up to the top, or pick **View → Session Tabs Position → Top** |
+
+A drag lights up the candidate edge and only commits when you release inside
+it — dropping in the middle of the work area, or pressing Esc, changes nothing.
+The layout (panel side, panel width, tab-strip edge) is remembered per user.
+
+| ![Docked layout](docs/screenshots/layout-docking.png) |
+| --- |
+| Sessions panel docked to the right edge, session tabs as a left rail |
+
 ## Sharing files with Windows (RDP) machines
 
 A Windows box has no SSH daemon, so there is nothing to SFTP *to*. KB-Remote

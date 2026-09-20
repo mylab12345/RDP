@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -41,6 +41,7 @@ class SessionTree(QWidget):
     newFolderRequested = Signal()
     newSessionRequested = Signal()
     localTerminalRequested = Signal()
+    sideFlipRequested = Signal()  # Ctrl+Shift+B / double-click the grip
 
     def __init__(self, store: SessionStore, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -90,6 +91,22 @@ class SessionTree(QWidget):
         title = QLabel("Sessions")
         title.setObjectName("sideTitle")
         hl.addWidget(title)
+
+        # Dock grip — drag it at the left or right edge to move the whole
+        # panel there; double-click flips it. (main_window wires the drag.)
+        self.dock_grip = QPushButton()
+        self.dock_grip.setObjectName("dockGrip")
+        self.dock_grip.setIcon(icon("grip"))
+        self.dock_grip.setIconSize(QSize(14, 14))
+        self.dock_grip.setFixedSize(20, 20)
+        self.dock_grip.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.dock_grip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.dock_grip.setToolTip(
+            "Drag to move the Sessions panel to the left or right edge\n"
+            "Double-click to move it to the other side (Ctrl+Shift+B)"
+        )
+        self.dock_grip.installEventFilter(self)
+        hl.addWidget(self.dock_grip)
         hl.addStretch(1)
 
         self._count_label = QLabel("")
@@ -110,6 +127,10 @@ class SessionTree(QWidget):
             b.setIcon(toolbar_icon(icon_name))
             self._themed_buttons.append((b, icon_name))
             b.setObjectName("ghost")
+            # Marks the square, icon-only variant for QSS: it must not inherit
+            # the labelled ghost button's min-width (that would keep the whole
+            # Sessions panel from being dragged narrow).
+            b.setProperty("iconOnly", True)
             b.setToolTip(tip)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(cb)
@@ -232,7 +253,48 @@ class SessionTree(QWidget):
         tl.addWidget(t_hint)
         self.pages.addWidget(tools)
 
+        self._side = "left"
         self.reload()
+
+    # ------------------------------------------------------------------
+    # Docking
+    # ------------------------------------------------------------------
+    def side(self) -> str:
+        """``"left"`` or ``"right"`` — the window edge the panel sits on."""
+        return self._side
+
+    def set_side(self, side: str) -> None:
+        """Mirror the panel for the given window edge.
+
+        The vertical Sessions/Tools rail always hugs the *outer* edge, so on
+        a right-docked panel it moves behind the pages instead of in front of
+        them, and it rounds the other way. The QSS border flip keys off the
+        ``side`` dynamic property (see QWidget#sidebar in theme_qss).
+        """
+        side = "right" if str(side).lower().startswith("r") else "left"
+        self._side = side
+        self.rail.setShape(
+            QTabBar.Shape.RoundedEast if side == "right" else QTabBar.Shape.RoundedWest
+        )
+        outer = self.layout()
+        if outer is not None:
+            # addWidget moves an item that is already in the layout to the end
+            outer.addWidget(self.rail, 0, Qt.AlignmentFlag.AlignTop)
+            if side == "left":
+                outer.insertWidget(0, self.rail, 0, Qt.AlignmentFlag.AlignTop)
+        self.setProperty("side", side)
+        style = self.style()
+        style.unpolish(self)
+        style.polish(self)
+        self.update()
+
+    # ------------------------------------------------------------------
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt naming
+        """Double-clicking the grip flips the panel to the other edge."""
+        if obj is getattr(self, "dock_grip", None) and event.type() == QEvent.Type.MouseButtonDblClick:
+            self.sideFlipRequested.emit()
+            return True
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     def reload(self) -> None:
@@ -341,6 +403,7 @@ class SessionTree(QWidget):
         # the new palette's colours.
         self.reload()
         self._search_action.setIcon(icon("search"))
+        self.dock_grip.setIcon(icon("grip"))
         for btn, icon_name in self._themed_buttons:
             btn.setIcon(toolbar_icon(icon_name))
         for it, icon_name in getattr(self, "_tool_items", []):

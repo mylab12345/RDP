@@ -1,5 +1,21 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 8 — MobaXterm Dark (new default) + mouse-driven docking (2026-09)
+
+Presentation-layer only, again: no core/protocol changes. Two user requests —
+a dark MobaXterm theme, and letting the session area be moved/resized with the
+mouse — landed as one round.
+
+| Area | Change |
+|---|---|
+| **MobaXterm Dark** | New palette `mobaxterm_dark` (`ui/theme_palettes.py`): charcoal chrome `#1c1c1f`, raised surfaces `#232327`/`#2c2c31`, Windows-blue accent `#1670c6` with white button text (5.0:1) and muted text at 6.1:1 on `bg3`. It is the shipped default (`DEFAULT_THEME`, `Settings.theme`), classified dark for terminal colouring, and the light `mobaxterm` chrome stays selectable — unknown/absent ids fall back to the new default, so no existing config breaks. |
+| **Glyph lift for neutral chrome** | `theme.toolbar_icon()` lifted dark glyphs ×1.9 (tuned for the saturated night palettes) and the session green went neon on charcoal. Dark glyphs now lift ×1.5 on `mobaxterm_dark` and pass through `_lift_for_dark()`, which clamps the peak channel to 205 and scales the rest of the colour back — hue and channel ratios survive, the glow does not. |
+| **Docking engine** | New `ui/docking.py`: `zone_at()` / `zone_rect()` hit-test the window edges (nearest band wins, `None` = cancel), `DockOverlay` paints the translucent drop indicator from palette colours (so it follows live theme switches), and `DockDragFilter` turns press → drag → release on any grip into a `dockRequested` zone. Presses that never pass the 8 px threshold stay clicks, Escape cancels, and the pointer leaving the window is a no-op. |
+| **Sessions panel moves** | Drag the ⠿ grip (sidebar header) to either side edge, double-click the grip or the splitter divider, or Ctrl+Shift+B. `move_sidebar()` reorders the splitter with `insertWidget` (moves, never duplicates), keeps the panel width, keeps collapsed state, and flips the rail shape + `#sidebar[side="right"]` border. The divider double-click is handled in `MainWindow.eventFilter` so QSplitter keeps its own drag-to-resize. |
+| **Session tab strip moves** | Drag the empty part of the tab bar, or the ⠿ grip in the tab-strip corner, to the top/left/right edge — or use the new `View → Session Tabs Position` submenu (Ctrl+Shift+J cycles). Tabs are content-sized (`tabBar().setExpanding(False)`, *after* `setDocumentMode()`, which resets it) so there is empty strip space to grab, and corner widgets survive vertical docking (Qt drops them for W/E) by moving the session counter and quick buttons onto their own strip row. `QTabBar[dock=…]` QSS mirrors the corners, the accent indicator and the close button for both vertical shapes. |
+| **Panel is resizable for real** | The panel's minimum width was 391 px because three square icon buttons inherited `#ghost`'s 60 px `min-width` (90 px each with borders) — the splitter could not be dragged narrower. Icon-only ghosts now carry `iconOnly="true"` → `min-width: 0`, and the panel can be dragged from ~189 px up. |
+| **Persistence + tests** | `geometry.sidebar_side` / `geometry.tabs_position` are saved on close and restored on build. New `tests/test_ui_docking.py` (24 cases): palette default/legibility, zone hit-testing, drag/flip/cycle, cancel-by-escape, veto on tabs and session pane, corner-widget survival, and restart persistence. |
+
 ## Round 5 — design-system pass: correctness, states & dark-theme legibility (2026-09)
 
 Presentation-layer only. This round audited every screen and dialog, fixed the

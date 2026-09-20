@@ -250,12 +250,39 @@ QPushButton#ghost {{
     border-radius: 6px;
     min-width: 60px;
 }}
+/* Square, icon-only ghost buttons (side panel toolbar, tab-strip corner).
+   The 60 px min-width above is for labelled ghost buttons — on these it
+   inflated the Sessions panel's minimum width by ~230 px, which stopped the
+   splitter from being dragged narrow. */
+QPushButton#ghost[iconOnly="true"] {{
+    min-width: 0px;
+    min-height: 0px;
+    padding: 0px;
+}}
 QPushButton#ghost:hover {{
     background: {bg3};
     color: {fg};
 }}
 QPushButton#ghost:pressed {{
     background: {panel2};
+}}
+/* Dock grips — the little ⠿ handle you drag to move the Sessions panel or
+   the session tab strip to another edge (see ui/docking.py). */
+QPushButton#dockGrip {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    min-width: 0px;
+    min-height: 0px;
+    padding: 0px;
+}}
+QPushButton#dockGrip:hover {{
+    background: {accent_subtle};
+    border-color: {border_strong};
+}}
+QPushButton#dockGrip:pressed {{
+    background: {bg3};
+    border-color: {accent};
 }}
 QPushButton#subtle {{
     background: {bg2};
@@ -479,33 +506,53 @@ QTabBar::tab:hover:!selected {{
 QTabBar::tab:first {{
     margin-left: 2px;
 }}
-QTabBar::close-button {{
-    subcontrol-position: right;
-    width: 16px; height: 16px;
-    border-radius: 4px;
-    margin-left: 6px;
-    margin-right: 0px;
-    background: transparent;
+/* Session tab strip docked to a side edge (View ▸ Session Tabs, or drag the
+   strip by its grip). Corners and the selected indicator move to the edge
+   facing away from the work area, i.e. an N bar turned 90°. The ``dock``
+   dynamic property is set on the QTabBar by the main window to the zone id
+   ("left" / "right" / "top") — an attribute selector beats the plain
+   :selected rules above regardless of order, and Qt draws the labels rotated
+   for vertical shapes. min-width is what gives a rotated label room: without
+   it Qt elides "root@prod-web-01" down to two characters. */
+QTabBar[dock="left"]::tab, QTabBar[dock="right"]::tab {{
+    border-radius: 0px;
+    max-width: none;
+    max-height: 150px;
+    /* Rotated labels need their own room: Qt reserves the close-button slot
+       out of this width, and ~120 px left "root@prod-web-01" elided at 13
+       characters. */
+    min-width: 160px;
+    min-height: 26px;
+    margin: 0px 0px 2px 0px;
+    padding: 7px 10px 7px 8px;
 }}
-QTabBar::close-button:hover {{
-    background: {bad_soft};
+QTabBar[dock="left"]::tab {{
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
 }}
-QTabBar::close-button:pressed {{
-    background: {bad_soft2};
+QTabBar[dock="right"]::tab {{
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
 }}
-QTabBar QToolButton {{
-    background: {bg2};
-    border: 1px solid {border_strong};
-    border-radius: 6px;
-    padding: 1px;
-    margin-top: 3px;
+QTabBar[dock="left"]::tab:first, QTabBar[dock="right"]::tab:first {{
+    margin-top: 2px;
+    margin-left: 0px;
 }}
-QTabBar QToolButton:hover {{
-    background: {bg3};
-    border-color: {accent};
+QTabBar[dock="left"]::tab:selected {{
+    border-color: {border_strong};
+    border-left: 2px solid {accent};
 }}
-QTabBar::scroller {{
-    width: 32px;
+QTabBar[dock="right"]::tab:selected {{
+    border-color: {border_strong};
+    border-right: 2px solid {accent};
+}}
+QTabBar[dock="left"]::close-button, QTabBar[dock="right"]::close-button {{
+    subcontrol-position: bottom right;
+    margin: 0px 6px 6px 0px;
+}}
+QTabBar[dock="left"]::scroller, QTabBar[dock="right"]::scroller {{
+    width: 22px;
+    height: 30px;
 }}
 
 /* Vertical tab strip (sidebar left rail: Sessions / Tools / Macros) */
@@ -992,6 +1039,12 @@ QWidget#header {{
 QWidget#sidebar {{
     background: {panel};
     border-right: 1px solid {border};
+}}
+/* Sessions panel docked to the right edge (View ▸ Move Sessions Panel, or
+   drag its grip): the divider moves to the panel's left side. */
+QWidget#sidebar[side="right"] {{
+    border-right: none;
+    border-left: 1px solid {border};
 }}
 QWidget#sidebarPanel {{
     background: {panel};

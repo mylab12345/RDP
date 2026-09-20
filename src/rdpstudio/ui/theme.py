@@ -8,9 +8,10 @@ Design language (modelled on MobaXterm's classic Windows chrome):
 - Big text-under-icon toolbar with coloured glyphs, classic document tabs,
   a Sessions side panel with a vertical tab strip
 
-The MobaXterm light look is the default; ``dark`` is the MobaXterm dark
-variant. The remaining palettes are kept as optional colour schemes and
-share the same MobaXterm geometry.
+The MobaXterm Dark look is the default; the classic MobaXterm light chrome
+is one click away in View ▸ Theme (or Settings ▸ General). The remaining
+palettes are kept as optional colour schemes and share the same MobaXterm
+geometry.
 
 No bundled fonts or extra resources — only system fonts and SVG icons.
 """
@@ -194,8 +195,9 @@ def _glyph_icon(glyph: str) -> QIcon:
 
 
 # Theme currently applied to the app (see apply_theme). Widgets that build
-# colors at construction time use this so light theme doesn't render dark.
-_current_theme = "mobaxterm"
+# colors at construction time use this so a live theme switch doesn't render
+# one frame of stale chrome.
+_current_theme = "mobaxterm_dark"
 _density = "comfortable"  # comfortable | compact
 MOTIONS_ENABLED = True  # global motion switch (Settings → UI → Animations)
 
@@ -252,9 +254,16 @@ def protocol_badge(protocol: str, icon_name: str, size: int = 16) -> QIcon:
     return badge_icon(icon_name, size, palette()[protocol_tint(protocol)])
 
 
+def _default_theme() -> str:
+    """Shipped default theme id (imported lazily — ``core`` stays Qt-free)."""
+    from ..core.settings import DEFAULT_THEME
+
+    return DEFAULT_THEME
+
+
 def palette(theme: str | None = None) -> dict[str, str]:
     """Palette for ``theme`` — defaults to the currently applied theme."""
-    return PALETTE.get(theme or _current_theme, PALETTE["mobaxterm"])
+    return PALETTE.get(theme or _current_theme, PALETTE[_default_theme()])
 
 
 
@@ -272,7 +281,10 @@ def toolbar_icon(name: str) -> QIcon:
         # Charcoal glyphs read as "off" on dark chrome — use the theme fg.
         if tint in ("#3a3a3a",):
             return icon(name, palette()["fg"])
-        return icon(name, _shade(tint, 1.9))
+        # Neutral charcoal chrome needs a gentler lift than the saturated
+        # night palettes, and a ceiling keeps "session green" out of neon.
+        lift = 1.5 if current_theme() == "mobaxterm_dark" else 1.9
+        return icon(name, _lift_for_dark(tint, lift))
     return icon(name)
 
 # ----------------------------------------------------------------------
@@ -391,6 +403,31 @@ def tint(hex_color: str, alpha: int, over: str | None = None) -> str:
     return solid_on(h, base)
 
 
+# Brightest channel a lifted glyph may reach on dark chrome. Above this the
+# icon colours stop reading as MobaXterm's calm toolbar and start glowing.
+_DARK_GLYPH_CEILING = 205
+
+
+def _lift_for_dark(hex_color: str, factor: float) -> str:
+    """Brighten ``hex_color`` for dark chrome, capping the peak channel.
+
+    Plain multiplication saturates whatever channel was already brightest
+    (green glyphs went neon, reds blew out). Scaling the whole colour back
+    once its peak hits :data:`_DARK_GLYPH_CEILING` keeps the hue and the
+    relative channel ratios — which is what makes the tint readable.
+    """
+    lifted = _shade(hex_color, factor)
+    h = lifted.lstrip("#")
+    if len(h) != 6:
+        return lifted
+    rgb = [int(h[i : i + 2], 16) for i in (0, 2, 4)]
+    peak = max(rgb)
+    if peak <= _DARK_GLYPH_CEILING:
+        return lifted
+    scale = _DARK_GLYPH_CEILING / peak
+    return "#" + "".join(f"{min(255, max(0, int(round(c * scale)))):02x}" for c in rgb)
+
+
 def _shade(hex_color: str, factor: float) -> str:
     """Darken (<1) or lighten (>1) a #rrggbb colour, clamped to 0-255."""
     h = hex_color.lstrip("#")
@@ -403,12 +440,12 @@ def _shade(hex_color: str, factor: float) -> str:
 
 def apply_theme(
     app: QApplication,
-    theme: str = "mobaxterm",
+    theme: str = "",
     density: str = "comfortable",
     animations: bool = True,
 ) -> None:
     global _current_theme, _density, MOTIONS_ENABLED
-    _current_theme = theme if theme in PALETTE else "mobaxterm"
+    _current_theme = theme if theme in PALETTE else _default_theme()
     _density = density if density in ("comfortable", "compact") else "comfortable"
     MOTIONS_ENABLED = bool(animations)
     pal = palette(theme)

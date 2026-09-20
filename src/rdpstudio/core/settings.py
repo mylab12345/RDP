@@ -10,19 +10,22 @@ from .coerce import as_bool, as_float, as_int, as_text
 from .crypto import MAX_KDF_ITERATIONS
 from .persistence import atomic_write_text
 
-# Theme ids accepted in settings.json. MobaXterm look is the default.
-# Five themes, one per nature: signature light, navy night, violet night,
-# deep teal, and high-contrast accessibility. Unknown ids fall back to
-# "mobaxterm" on load, so removing a theme never breaks existing configs.
+# Theme ids accepted in settings.json. MobaXterm Dark is the default look.
+# Six themes, one per nature: signature dark, signature light, navy night,
+# violet night, deep teal, and high-contrast accessibility. Unknown ids fall
+# back to DEFAULT_THEME on load, so removing a theme never breaks configs.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("mobaxterm", "MobaXterm — light gray chrome · Windows blue (default)"),
+    ("mobaxterm_dark", "MobaXterm Dark — charcoal chrome · Windows blue (default)"),
+    ("mobaxterm", "MobaXterm — light gray chrome · Windows blue"),
     ("midnight", "Midnight — deep navy night · sky accent"),
     ("dracula", "Dracula — violet night · pink & cyan"),
     ("ocean", "Ocean — deep teal · cyan"),
     ("contrast", "High contrast — pure black & white · accessibility"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
-DARK_THEMES = {"midnight", "dracula", "ocean", "contrast"}
+DARK_THEMES = {"mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
+# Fallback for a missing/unknown theme id (hand-edited or older settings.json).
+DEFAULT_THEME = "mobaxterm_dark"
 
 # Curated terminal typefaces (system-installed only; nothing is bundled).
 FONT_PRESETS: tuple[str, ...] = (
@@ -74,7 +77,7 @@ SHARE_DEFAULT_USER = "kbshare"
 @dataclass
 class Settings:
     # appearance
-    theme: str = "mobaxterm"  # see THEME_IDS
+    theme: str = DEFAULT_THEME  # see THEME_IDS
     density: str = "comfortable"  # comfortable | compact
     toolbar_labels: bool = True  # icon+label vs icon-only toolbar
     animations: bool = True  # disable for reduced motion
@@ -162,7 +165,7 @@ class Settings:
             maximum=MAX_KDF_ITERATIONS,
         )
 
-        s.theme = as_text(s.theme, "mobaxterm")
+        s.theme = as_text(s.theme, DEFAULT_THEME)
         s.density = as_text(s.density, "comfortable")
         s.font_family = as_text(s.font_family)
         s.cursor_style = as_text(s.cursor_style, "block")
@@ -172,7 +175,7 @@ class Settings:
         s.default_download_dir = as_text(s.default_download_dir)
 
         if s.theme not in THEME_IDS:
-            s.theme = "mobaxterm"
+            s.theme = DEFAULT_THEME
         if s.density not in ("comfortable", "compact"):
             s.density = "comfortable"
         if s.host_key_policy not in ("accept-new", "strict"):
