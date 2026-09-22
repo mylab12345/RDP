@@ -73,13 +73,19 @@ class TunnelsDialog(QDialog):
     def reload(self) -> None:
         self.tree.clear()
         self._definitions = {}
+        live_fn = getattr(self.controller, "live_forwards", None)
+        live = {entry["port"]: entry for entry in live_fn()} if callable(live_fn) else {}
         for fwd in self.controller.definition.forwards:
             key = f"{fwd.kind}:{fwd.listen_host}:{fwd.listen_port}"
             self._definitions[key] = fwd
-            self._row(fwd, running=False)
-        # saved-but-not-running are shown above; runtime (ad-hoc) below
-        for port in sorted(getattr(self.controller, "_live_ports", []) or []):
-            item = QTreeWidgetItem(["●", "runtime", str(port), "", ""])
+            self._row(fwd, running=fwd.listen_port in live)
+        # Ad-hoc runtime forwards (bound to auto ports, no saved definition)
+        known_ports = {f.listen_port for f in self.controller.definition.forwards}
+        for port in sorted(live):
+            if port in known_ports:
+                continue
+            entry = live[port]
+            item = QTreeWidgetItem(["● active", entry.get("kind", "?"), str(port), entry.get("label", ""), ""])
             item.setForeground(0, Qt.GlobalColor.green)
             self.tree.addTopLevelItem(item)
 

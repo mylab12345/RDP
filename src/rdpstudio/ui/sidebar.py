@@ -27,6 +27,9 @@ from .widgets import EmptyState
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
 
+# Pseudo-folder marker for the "Recent" section (never a real group name).
+RECENT_GROUP_SENTINEL = "\x00recent"
+
 _PROTO_ICONS = {"rdp": "windows", "ssh": "terminal", "local": "console"}
 
 
@@ -43,9 +46,10 @@ class SessionTree(QWidget):
     localTerminalRequested = Signal()
     sideFlipRequested = Signal()  # Ctrl+Shift+B / double-click the grip
 
-    def __init__(self, store: SessionStore, parent: QWidget | None = None) -> None:
+    def __init__(self, store: SessionStore, parent: QWidget | None = None, settings=None) -> None:
         super().__init__(parent)
         self.store = store
+        self._settings = settings
         self._filter = ""
         self.setObjectName("sidebar")
         # Buttons whose icons are re-tinted on a live theme switch
@@ -335,6 +339,25 @@ class SessionTree(QWidget):
             for name in self.store.groups():
                 groups.setdefault(name, [])
 
+        # Recent section — last-connected sessions, newest first. Hidden
+        # while filtering (the filter already surfaces them by name).
+        if not self._filter and self._settings is not None:
+            recents: list[Session] = []
+            for sid in list(getattr(self._settings, "recent_session_ids", []) or []):
+                s = self.store.get(sid)
+                if s is not None:
+                    recents.append(s)
+            if recents:
+                recent_folder = QTreeWidgetItem(["Recent"])
+                recent_folder.setData(0, ROLE_GROUP, RECENT_GROUP_SENTINEL)
+                recent_folder.setIcon(0, toolbar_icon("clock"))
+                recent_folder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                recent_folder.setToolTip(0, "Recently connected sessions (right-click to clear)")
+                for s in recents:
+                    self._add_session_item(recent_folder, s, reg)
+                self.tree.addTopLevelItem(recent_folder)
+                recent_folder.setExpanded(True)
+
         # top-level sessions first — pinned sessions float to the top
         def _sort_key(x: Session):
             return (not x.options.get("pinned", False), x.display_name().lower())
@@ -433,7 +456,7 @@ class SessionTree(QWidget):
         if item is None:
             return ""
         group = item.data(0, ROLE_GROUP)
-        if group:
+        if group and str(group) != RECENT_GROUP_SENTINEL:
             return str(group)
         session_id = item.data(0, ROLE_ID)
         if session_id:
@@ -467,16 +490,23 @@ class SessionTree(QWidget):
                 menu.addAction(icon("trash"), "Delete", lambda: self.deleteRequested.emit(session_id))
             elif item.data(0, ROLE_GROUP):
                 group = item.data(0, ROLE_GROUP)
-                menu.addAction(
-                    icon("edit"),
-                    "Rename folder…",
-                    lambda: self._rename_group(str(group)),
-                )
-                menu.addAction(
-                    icon("trash"),
-                    "Delete folder",
-                    lambda: (self.store.delete_group(str(group)), self.reload()),
-                )
+                if str(group) == RECENT_GROUP_SENTINEL:
+                    menu.addAction(
+                        icon("trash"),
+                        "Clear recent list",
+                        self.clear_recents,
+                    )
+                else:
+                    menu.addAction(
+                        icon("edit"),
+                        "Rename folder…",
+                        lambda: self._rename_group(str(group)),
+                    )
+                    menu.addAction(
+                        icon("trash"),
+                        "Delete folder",
+                        lambda: (self.store.delete_group(str(group)), self.reload()),
+                    )
             menu.exec(self.tree.viewport().mapToGlobal(pos))
             return
         menu.addAction(icon("plus"), "New session…", self.newSessionRequested.emit)
@@ -512,6 +542,19 @@ class SessionTree(QWidget):
 
         move_menu.addAction("New folder…", _new_and_move)
         menu.addMenu(move_menu)
+
+    def clear_recents(self) -> None:
+        """Empty the Recent section (sessions themselves are kept)."""
+        if self._settings is None:
+            return
+        self._settings.recent_session_ids = []
+        try:
+            from ..core import paths as _paths
+
+            self._settings.save(_paths.settings_file())
+        except Exception:  # noqa: BLE001 — clearing memory is the point; save is bonus
+            pass
+        self.reload()
 
     def move_session_to_group(self, session_id: str, group: str) -> None:
         """Assign a session to a folder ("" = top level) and refresh the tree."""

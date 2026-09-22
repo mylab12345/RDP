@@ -7,9 +7,12 @@ import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QMimeData, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QDrag, QDropEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -28,6 +31,14 @@ from PySide6.QtWidgets import (
 from ..core.downloads import resolve_download_start
 from ..core.plugin import SessionContext
 from ..protocols.ssh.sftp import SftpEngine
+from .dnd import (
+    MIME_LOCAL_FILES,
+    MIME_REMOTE_FILES,
+    classify_drop,
+    copy_local_files,
+    encode_local_payload,
+    encode_remote_payload,
+)
 from .file_editor_dialog import FileEditorDialog
 from .theme import icon, palette
 from .widgets import ShimmerProgressBar, format_bytes, toast
@@ -38,6 +49,78 @@ TEXT_EXTS = {
     ".json", ".xml", ".html", ".css", ".js", ".ts", ".md", ".env", ".toml", ".service",
     ".c", ".h", ".cpp", ".rs", ".go", ".sql", ".csv", ".zsh", ".profile",
 }
+
+
+class FileTree(QTreeWidget):
+    """A browser pane list with MobaXterm-style drag-and-drop.
+
+    Drags *out* carry the pane's custom mime (remote or local payload);
+    local drags additionally carry ``text/uri-list`` so they can be dropped
+    into a system file manager. Drops are resolved through
+    :func:`dnd.classify_drop` and delivered as a :class:`DropAction` via
+    :attr:`filesDropped` — the dialog owns the transfer itself.
+    """
+
+    filesDropped = Signal(object)  # DropAction
+
+    def __init__(self, pane: _Pane, parent=None) -> None:
+        super().__init__(parent)
+        self._pane = pane
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+
+    # -- drag out ------------------------------------------------------
+    def startDrag(self, actions) -> None:  # noqa: N802 — Qt override naming
+        names = self._pane.selected_names()
+        if not names:
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        if self._pane.is_remote:
+            mime.setData(MIME_REMOTE_FILES, encode_remote_payload(self._pane.current_dir(), names))
+        else:
+            mime.setData(MIME_LOCAL_FILES, encode_local_payload(self._pane.current_dir(), names))
+            from PySide6.QtCore import QUrl
+
+            urls = [QUrl.fromLocalFile(str(Path(self._pane.current_dir()) / n)) for n in names]
+            mime.setUrls(urls)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+    # -- drop in --------------------------------------------------------
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if self._can_accept(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if self._can_accept(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        mime = event.mimeData()
+        action = classify_drop(
+            target_is_remote=self._pane.is_remote,
+            target_dir=self._pane.current_dir(),
+            has_remote_mime=mime.hasFormat(MIME_REMOTE_FILES),
+            remote_payload=bytes(mime.data(MIME_REMOTE_FILES)) if mime.hasFormat(MIME_REMOTE_FILES) else b"",
+            has_local_mime=mime.hasFormat(MIME_LOCAL_FILES),
+            local_payload=bytes(mime.data(MIME_LOCAL_FILES)) if mime.hasFormat(MIME_LOCAL_FILES) else b"",
+            urls=[u.toString() for u in mime.urls()] if mime.hasUrls() else [],
+        )
+        self.filesDropped.emit(action)
+        event.acceptProposedAction()
+
+    @staticmethod
+    def _can_accept(mime: QMimeData) -> bool:
+        return mime.hasFormat(MIME_REMOTE_FILES) or mime.hasFormat(MIME_LOCAL_FILES) or mime.hasUrls()
 
 
 class _Pane(QWidget):
@@ -73,7 +156,7 @@ class _Pane(QWidget):
         head.addWidget(self.btn_refresh)
         layout.addLayout(head)
 
-        self.list = QTreeWidget()
+        self.list = FileTree(self)
         self.list.setHeaderLabels(["Name", "Size", "Modified"])
         self.list.setRootIsDecorated(False)
         self.list.setAlternatingRowColors(True)
@@ -82,6 +165,17 @@ class _Pane(QWidget):
         self.list.sortItems(0, Qt.SortOrder.AscendingOrder)
         self.list.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.list, 1)
+
+    def current_dir(self) -> str:
+        return self.path.text().strip()
+
+    def selected_names(self) -> list[str]:
+        names = []
+        for item in self.list.selectedItems():
+            entry = item.data(0, Qt.ItemDataRole.UserRole)
+            if entry:
+                names.append(entry["name"])
+        return names
 
     def _go(self) -> None:
         if self.on_navigate:
@@ -113,6 +207,7 @@ class SftpDialog(QDialog):
     _sigUpload = Signal(str, str, str)
     _sigReadFile = Signal(str)
     _sigWriteFile = Signal(str, bytes)
+    _sigTransferMode = Signal(str)
 
     def __init__(self, ctx: SessionContext, controller, parent=None) -> None:
         super().__init__(parent)
@@ -122,7 +217,14 @@ class SftpDialog(QDialog):
         self.resize(1100, 660)
         self.setMinimumSize(800, 500)
 
-        self.engine = SftpEngine(controller.transport_provider())
+        proto = getattr(ctx.settings, "transfer_protocol", "sftp")
+        if proto not in ("sftp", "scp"):
+            proto = "sftp"
+        self.engine = SftpEngine(
+            controller.transport_provider(),
+            controller.definition.display_name(),
+            proto,
+        )
         self.thread = QThread(self)
         self.thread.setObjectName("sftp")
         self.engine.moveToThread(self.thread)
@@ -144,6 +246,21 @@ class SftpDialog(QDialog):
         self.chk_hidden.toggled.connect(self._toggle_hidden)
         top_bar.addWidget(self.chk_hidden)
         top_bar.addStretch(1)
+
+        proto_label = QLabel("Transfer:")
+        proto_label.setObjectName("muted")
+        top_bar.addWidget(proto_label)
+        self.proto_combo = QComboBox()
+        self.proto_combo.addItem("SFTP", "sftp")
+        self.proto_combo.addItem("SCP", "scp")
+        self.proto_combo.setToolTip(
+            "Byte-transfer protocol. SCP moves bytes over the classic scp "
+            "wire protocol (handy when SFTP is slow or missing); browsing "
+            "always uses SFTP."
+        )
+        self.proto_combo.setCurrentIndex(self.proto_combo.findData(proto))
+        self.proto_combo.currentIndexChanged.connect(self._on_proto_changed)
+        top_bar.addWidget(self.proto_combo)
 
         btn_refresh_all = QPushButton("↻ Refresh Both")
         btn_refresh_all.setObjectName("subtle")
@@ -226,6 +343,11 @@ class SftpDialog(QDialog):
         self._sigUpload.connect(self.engine.upload_to)
         self._sigReadFile.connect(self.engine.read_file_content)
         self._sigWriteFile.connect(self.engine.write_file_content)
+        self._sigTransferMode.connect(self.engine.set_transfer_mode)
+
+        # Drag-and-drop between panes / from the OS file manager.
+        self.remote.list.filesDropped.connect(lambda action: self._on_pane_drop(True, action))
+        self.local.list.filesDropped.connect(lambda action: self._on_pane_drop(False, action))
 
         # Context menus & double clicks
         self.remote.list.customContextMenuRequested.connect(lambda pos: self._menu(self.remote, pos))
@@ -262,6 +384,65 @@ class SftpDialog(QDialog):
             self._sigReadFile.emit(str(args[0]))
         elif method == "write_file":
             self._sigWriteFile.emit(str(args[0]), bytes(args[1]))
+
+    def _on_proto_changed(self) -> None:
+        mode = self.proto_combo.currentData() or "sftp"
+        self._sigTransferMode.emit(mode)
+        try:
+            self.ctx.settings.transfer_protocol = mode
+            from ..core import paths as _paths
+
+            self.ctx.settings.save(_paths.settings_file())
+        except Exception:  # noqa: BLE001 — a prefs write must not break browsing
+            pass
+        toast(self, f"Transfer protocol: {mode.upper()}", "info")
+
+    # -- drag-and-drop ---------------------------------------------------------
+    def _on_pane_drop(self, target_is_remote: bool, action) -> None:
+        kind = action.action
+        if kind == "download":
+            # Remote pane → local pane: straight into the viewed folder.
+            op_id = uuid.uuid4().hex[:8]
+            payload = action.source_dir + "\n" + "\n".join(action.names)
+            self._track(op_id, "download", list(action.names), action.dest_dir)
+            self._call("download_to", op_id, action.dest_dir, payload)
+        elif kind == "upload":
+            if action.reason == "os-drop":
+                self._upload_paths(list(action.names), action.dest_dir)
+            else:
+                op_id = uuid.uuid4().hex[:8]
+                payload = action.source_dir + "\n" + "\n".join(action.names)
+                self._track(op_id, "upload", list(action.names), action.dest_dir)
+                self._call("upload_to", op_id, action.dest_dir, payload)
+        elif kind == "copy_local":
+            copied, errors = copy_local_files(action.names, action.source_dir, action.dest_dir)
+            if errors:
+                toast(self, f"Copied {copied} file(s); {errors}", "warn")
+            else:
+                toast(self, f"Copied {copied} file(s)", "good")
+            self._call("list_local", self.local.path.text())
+        elif kind == "navigate":
+            self.local.path.setText(action.dest_dir)
+            self._call("list_local", action.dest_dir)
+        elif action.reason:
+            toast(self, action.reason, "info")
+
+    def _upload_paths(self, local_paths: list[str], remote_dir: str) -> None:
+        """Upload absolute local paths (OS drop), grouped by parent dir."""
+        groups: dict[str, list[str]] = {}
+        for path in local_paths:
+            p = Path(path)
+            if not p.exists():
+                continue
+            groups.setdefault(str(p.parent), []).append(p.name)
+        if not groups:
+            toast(self, "Nothing to upload (files not found)", "warn")
+            return
+        for local_dir, names in groups.items():
+            op_id = uuid.uuid4().hex[:8]
+            payload = local_dir + "\n" + "\n".join(names)
+            self._track(op_id, "upload", names, remote_dir)
+            self._call("upload_to", op_id, remote_dir, payload)
 
     def _refresh_all(self) -> None:
         self._call("list_dir", self.remote.path.text())
@@ -483,14 +664,22 @@ class SftpDialog(QDialog):
         if not op:
             return
         item = op["item"]
-        pct = int(done * 100 / total) if total else 0
-        op["pct"] = pct
-        item.setText(2, f"{pct} %  ({format_bytes(done)} / {format_bytes(total)})")
-        item.setText(3, f"{format_bytes(rate)}/s · {files}/{files_total} files")
+        if total:
+            pct = int(done * 100 / total)
+            progress_text = f"{pct} %  ({format_bytes(done)} / {format_bytes(total)})"
+            files_text = f"{format_bytes(rate)}/s · {files}/{files_total} files"
+        else:
+            # Indeterminate total (blind SCP without SFTP for sizing).
+            pct = -1
+            progress_text = f"{format_bytes(done)} transferred"
+            files_text = f"{format_bytes(rate)}/s · {files} file(s)"
+        op["pct"] = pct if pct >= 0 else 0
+        item.setText(2, progress_text)
+        item.setText(3, files_text)
         # Bottom status line tracks the same numbers
-        self._shimmer.set_percent(pct)
-        self._transfer_label.setText(f"{item.text(0)} — {pct} %  ({format_bytes(done)} / {format_bytes(total)})")
-        self._transfer_rate.setText(f"{format_bytes(rate)}/s · {files}/{files_total} files")
+        self._shimmer.set_percent(op["pct"])
+        self._transfer_label.setText(f"{item.text(0)} — {progress_text}")
+        self._transfer_rate.setText(files_text)
 
     def _on_done(self, op_id, ok, message) -> None:
         op = self._ops.pop(op_id, None)

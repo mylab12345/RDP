@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added — SCP transfers, browser drag-and-drop, retryable engine, terminal schemes
+- **Classic SCP transfers** alongside SFTP. New `protocols/ssh/scp.py` speaks
+  the `scp -f`/`-t` wire protocol over the existing SSH transport (no extra
+  connection): recursive trees, preserved times/modes, atomic receive,
+  traversal-safe wire names, and the remote's stderr folded into errors. The
+  SFTP browser's Transfer combo switches engines per window and persists to
+  Settings; when the SFTP subsystem is missing, totals/classification fall
+  back to blind SCP (file first, then directory). Behaviour is pinned against
+  a real `sshd` + system `scp`, including the sink's cp-like no-`-d`
+  semantics (missing target becomes the dir, existing dir nests).
+- **Drag-and-drop in the file browser.** Files drag between the remote/local
+  panes (in-app MIME) and out to / in from the OS file manager
+  (`text/uri-list`): OS drops onto the remote pane upload grouped by parent,
+  a single dropped folder navigates the local pane, same-folder drops are
+  no-ops, and indeterminate SCP totals render bytes/rate without a false
+  percent.
+- **Resilient transfer engine.** Downloads stay atomic (`.part` + resume) and
+  transient transport failures retry with capped exponential backoff + jitter
+  (`core/retry.py`; auth/permission/not-found errors never retry); every
+  finished transfer appends a record to `logs/transfers.jsonl`
+  (`core/transfers.py`, bounded at 500, no secrets). Empty selections finish
+  immediately without polluting history.
+- **Terminal color schemes.** Seven curated schemes (MobaXterm default,
+  Dracula, Monokai, Nord, Solarized dark/light, light) in
+  `ui/terminal_schemes.py`, all clearing 4:1 text contrast; local tabs always
+  render in the scheme while SSH tabs keep native colors unless overridden.
+  Settings adds scheme preview, blink/line-spacing controls, and per-tab
+  Ctrl+Plus/Minus/0 zoom.
+- **Enabled port forwards now autostart** with the session and the tunnels
+  dialog reflects live bound ports (event-driven refresh); recent sessions
+  are newest-first (cap 10, local shells excluded) with a clear menu.
+
 ### Added — MobaXterm Dark theme (new default) + mouse-driven docking
 - **MobaXterm Dark** palette (charcoal chrome `#1c1c1f`, Windows-blue accent
   `#1670c6`, white-on-accent 5.0:1, muted text 6.1:1) joins the registry and

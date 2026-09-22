@@ -475,6 +475,43 @@ class SettingsDialog(QDialog):
         scroll, lay = _make_scroll_page()
         tabs.addTab(scroll, "  Terminal  ")
 
+        # -- color scheme --
+        grp_s, grp_s_lay = _make_group("Color Scheme", pal)
+        from .terminal_schemes import scheme_choices
+
+        self.term_scheme = QComboBox()
+        self.term_scheme.setMinimumHeight(24)
+        for sid, label in scheme_choices():
+            self.term_scheme.addItem(label, sid)
+        si = self.term_scheme.findData(getattr(settings, "terminal_color_scheme", "mobaxterm"))
+        self.term_scheme.setCurrentIndex(si if si >= 0 else 0)
+        row_s = QHBoxLayout()
+        row_s.setSpacing(12)
+        row_s.addWidget(_make_row_label("Scheme", pal))
+        row_s.addWidget(self.term_scheme, 1)
+        grp_s_lay.addLayout(row_s)
+
+        self._scheme_preview = QLabel("user@host:~$ ls --color  ERROR  ok  0123456789")
+        self._scheme_preview.setWordWrap(True)
+        self._scheme_preview.setMinimumHeight(52)
+        grp_s_lay.addWidget(self._scheme_preview)
+        self.term_scheme.currentIndexChanged.connect(lambda _i: self._refresh_scheme_preview())
+        self._refresh_scheme_preview()
+
+        self.term_override_remote = QCheckBox("Also apply the scheme to SSH tabs (override remote colors)")
+        self.term_override_remote.setChecked(getattr(settings, "terminal_override_remote", False))
+        self.term_override_remote.setMinimumHeight(28)
+        self.term_override_remote.setToolTip(
+            "Off (default): SSH tabs keep the remote host's own console palette. "
+            "On: paint SSH tabs in the selected scheme too."
+        )
+        grp_s_lay.addWidget(self.term_override_remote)
+        grp_s_lay.addWidget(_make_hint(
+            "Applies to the Python terminal renderer; the optional native engine keeps its own palette.",
+            pal,
+        ))
+        lay.addWidget(grp_s)
+
         # -- buffer --
         grp, grp_lay = _make_group("Buffer & Rendering", pal)
         self.scrollback = QSpinBox()
@@ -524,7 +561,26 @@ class SettingsDialog(QDialog):
         row_c.addWidget(_make_row_label("Cursor style", pal))
         row_c.addWidget(self.cursor_tab, 1)
         grp_c_lay.addLayout(row_c)
+        self.cursor_blink = QCheckBox("Blinking cursor")
+        self.cursor_blink.setChecked(getattr(settings, "cursor_blink", True))
+        self.cursor_blink.setMinimumHeight(28)
+        grp_c_lay.addWidget(self.cursor_blink)
         lay.addWidget(grp_c)
+
+        # -- row spacing --
+        grp_ls, grp_ls_lay = _make_group("Row Spacing", pal)
+        self.line_spacing = QSpinBox()
+        self.line_spacing.setRange(0, 12)
+        self.line_spacing.setSuffix(" px")
+        self.line_spacing.setValue(int(getattr(settings, "terminal_line_spacing", 0) or 0))
+        self.line_spacing.setMinimumHeight(24)
+        row_ls = QHBoxLayout()
+        row_ls.setSpacing(12)
+        row_ls.addWidget(_make_row_label("Extra space between rows", pal))
+        row_ls.addWidget(self.line_spacing, 1)
+        grp_ls_lay.addLayout(row_ls)
+        grp_ls_lay.addWidget(_make_hint("Adds breathing room to dense terminal output. Takes effect on Save.", pal))
+        lay.addWidget(grp_ls)
 
         # -- copy / paste --
         grp2, grp2_lay = _make_group("Copy & Paste", pal)
@@ -660,6 +716,23 @@ class SettingsDialog(QDialog):
         grp_dl_lay.addLayout(dl_row)
         grp_dl_lay.addWidget(_make_hint(
             "Initial folder offered by the SFTP download dialog.",
+            pal,
+        ))
+
+        self.transfer_proto = QComboBox()
+        self.transfer_proto.setMinimumHeight(24)
+        self.transfer_proto.addItem("SFTP — fast, resumable (default)", "sftp")
+        self.transfer_proto.addItem("SCP — classic scp wire protocol", "scp")
+        pi = self.transfer_proto.findData(getattr(settings, "transfer_protocol", "sftp"))
+        self.transfer_proto.setCurrentIndex(pi if pi >= 0 else 0)
+        proto_row = QHBoxLayout()
+        proto_row.setSpacing(12)
+        proto_row.addWidget(_make_row_label("Transfer protocol", pal))
+        proto_row.addWidget(self.transfer_proto, 1)
+        grp_dl_lay.addLayout(proto_row)
+        grp_dl_lay.addWidget(_make_hint(
+            "Browsing always uses SFTP (SCP has no listing command) — this only "
+            "changes how bytes move. Switchable per window in the Files browser.",
             pal,
         ))
         lay.addWidget(grp_dl)
@@ -904,6 +977,32 @@ class SettingsDialog(QDialog):
         font.setPointSize(size)
         self._font_preview.setFont(font)
 
+    def _refresh_scheme_preview(self) -> None:
+        from .terminal_schemes import contrast_ratio, get_scheme
+
+        scheme = get_scheme(self.term_scheme.currentData())
+        ratio = contrast_ratio(scheme["fg"], scheme["bg"])
+        c16 = scheme["16"]
+        # A row of ANSI swatches under the sample line.
+        swatches = "".join(
+            f"<span style='background:{c};'>&nbsp;&nbsp;&nbsp;</span>" for c in c16
+        )
+        self._scheme_preview.setText(
+            f"<span style='color:{c16[2]};'>user@host</span>"
+            f"<span style='color:{scheme['fg_dim']};'>:</span>"
+            f"<span style='color:{c16[4]};'>~$</span>"
+            f"<span style='color:{scheme['fg']};'> ls --color</span> "
+            f"<span style='color:{c16[1]};'>ERROR</span> "
+            f"<span style='color:{c16[2]};'>ok</span><br>{swatches}"
+            f"<br><span style='color:{scheme['fg_dim']}; font-size: 10px;'>"
+            f"contrast {ratio:.1f}:1 {'(AA)' if ratio >= 4.5 else '(below AA)'}</span>"
+        )
+        self._scheme_preview.setStyleSheet(
+            f"background: {scheme['bg']}; color: {scheme['fg']}; "
+            "border: 1px solid palette(mid); border-radius: 6px; "
+            "padding: 10px 12px; font-family: monospace; font-size: 12px;"
+        )
+
     def _refresh_rdp_status(self) -> None:
         from ..protocols.rdp.embed import embed_blocked_on_wayland, embedded_support
 
@@ -953,6 +1052,11 @@ class SettingsDialog(QDialog):
         self.font_size.setValue(defaults.font_size)
         self.cursor.setCurrentIndex(self.cursor.findData(defaults.cursor_style))
         self.cursor_tab.setCurrentIndex(self.cursor_tab.findData(defaults.cursor_style))
+        self.cursor_blink.setChecked(defaults.cursor_blink)
+        self.line_spacing.setValue(defaults.terminal_line_spacing)
+        self.term_scheme.setCurrentIndex(self.term_scheme.findData(defaults.terminal_color_scheme))
+        self.term_override_remote.setChecked(defaults.terminal_override_remote)
+        self.transfer_proto.setCurrentIndex(self.transfer_proto.findData(defaults.transfer_protocol))
         self.scrollback.setValue(defaults.scrollback_lines)
         self.terminal_backend.setCurrentIndex(self.terminal_backend.findData(defaults.terminal_backend))
         self.copy_on_select.setChecked(defaults.copy_on_select)
@@ -980,6 +1084,11 @@ class SettingsDialog(QDialog):
         s.font_family = self.font_family.currentText()
         s.font_size = self.font_size.value()
         s.cursor_style = self.cursor_tab.currentData() or self.cursor.currentData()
+        s.cursor_blink = self.cursor_blink.isChecked()
+        s.terminal_line_spacing = self.line_spacing.value()
+        s.terminal_color_scheme = self.term_scheme.currentData() or "mobaxterm"
+        s.terminal_override_remote = self.term_override_remote.isChecked()
+        s.transfer_protocol = self.transfer_proto.currentData() or "sftp"
         s.scrollback_lines = self.scrollback.value()
         s.terminal_backend = self.terminal_backend.currentData()
         s.copy_on_select = self.copy_on_select.isChecked()
