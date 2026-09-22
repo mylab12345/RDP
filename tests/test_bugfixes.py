@@ -334,6 +334,18 @@ def test_ssh_config_parser_tab_and_equals():
     assert s.port == 2200
 
 
+def test_ssh_config_parser_applies_options_to_every_host_in_stanza():
+    from rdpstudio.importers.ssh_config import parse_ssh_config
+
+    text = "Host web2 api2\n    HostName=10.0.0.12\n    User=deploy\n    Port=2200\n"
+    sessions = parse_ssh_config(text)
+
+    assert [(session.name, session.host, session.username, session.port) for session in sessions] == [
+        ("web2", "10.0.0.12", "deploy", 2200),
+        ("api2", "10.0.0.12", "deploy", 2200),
+    ]
+
+
 # --- worker: disconnected emitted exactly once ---------------------------------
 def test_worker_emits_disconnected_once():
     from rdpstudio.protocols.ssh.worker import AuthMaterial, SshWorker

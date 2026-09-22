@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Fixed — dead features and store consistency (production-readiness pass, round 2)
+- **Sidebar “Connect & SFTP” works again.** `MainWindow.connect_session()` now
+  returns the opened tab; `_connect_and_sftp()` chained off that return value,
+  which was always `None`, so the browser never opened (regression-tested).
+- **Vault auto-lock is wired up.** The Settings dialog's *Lock after inactivity*
+  value was saved but `MainWindow._autolock()` was a deliberate no-op — the
+  vault never locked. The 30 s timer now honours `vault_autolock_minutes` and
+  shows a toast when the vault locks (0 disables; regression-tested).
+- **`SessionStore.upsert()` is transactional.** A failed save during insert
+  rolled back neither the new session nor a mutated one, leaving memory ahead
+  of disk (REL-04). It now follows the same snapshot → save → rollback
+  contract as `update()`/`delete()`, for both inserts and edits.
+- **Suite hang on teardown noted** (reliability): the offscreen test run
+  completes its results but pytest can hang in Qt/worker teardown afterwards
+  for tens of minutes; the integration tests remain the last, slowest slice.
+
+### Hardened — production-readiness pass (CLI, logging, status surface, test gates)
+- **CLI contract is now pure and fully flagged.** `-v`/`--verbose` (repeatable)
+  and `-q` are accepted in any position — before or after the startup target —
+  and are unit-tested via the new `app.parse_cli` helper. `-q` silences the
+  console handler (WARNING and up) while the rotating file log keeps full
+  detail for support diagnostics.
+- **Startup is resilient to bad targets.** A malformed `kb-remote <target>`
+  argument (or a failing quick-connect parser) now logs and degrades to a plain
+  launch instead of aborting startup.
+- **Live session state at a glance.** The status bar gained a colored state
+  chip mirroring the *current* tab's session state (CONNECTING / CONNECTED /
+  RECONNECTING / CLOSED / FAILED — same palette as the per-tab chips), the
+  window title reflects the active session's state, and tab switches re-sync
+  both. STANDBY returns when the last tab closes.
+- **FreeRDP capability detection hardened.** `--version` banner scanning now
+  checks every line (distro-patched banners split version/build across lines,
+  which previously could misdetect FreeRDP 2 as 3 and route passwords into
+  argv), and the cache is resettable for tests and client upgrades.
+- **`SessionStore.delete()` is transactional.** A failed save during delete
+  restores the in-memory session instead of letting memory run ahead of disk
+  (matching `update()`'s rollback semantics); regression-tested.
+- **Test suite runs green without root.** The sshd-backed integration fixture
+  now *skips* cleanly when the privilege-separation directory (`/run/sshd`)
+  cannot be prepared, instead of raising 7 collection errors.
+- **Windows CI gate added** (TEST-01, first pass): import/CLI smoke plus the
+  platform-independent core suite on `windows-latest`.
+- **Multi-host `Host a b` ssh-config stanzas** apply per-host options to every
+  host in the stanza, and a failed RDP protocol probe no longer reports the
+  session check as reachable (both landed with focused regression tests).
+
 ### Added — SCP transfers, browser drag-and-drop, retryable engine, terminal schemes
 - **Classic SCP transfers** alongside SFTP. New `protocols/ssh/scp.py` speaks
   the `scp -f`/`-t` wire protocol over the existing SSH transport (no extra

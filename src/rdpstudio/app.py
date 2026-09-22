@@ -7,6 +7,8 @@ Usage:
     kb-remote <session-id>        # open + connect a saved session
     kb-remote user@host[:port]    # quick connect (3389 ⇒ RDP)
     kb-remote --version
+    kb-remote -v / --verbose      # verbose logging (repeatable)
+    kb-remote -q                  # quiet logging
 """
 
 from __future__ import annotations
@@ -15,7 +17,9 @@ import os
 import sys
 
 
-def build_context(home_override: str | None = None, verbose: bool = False):
+def build_context(
+    home_override: str | None = None, verbose: bool = False, quiet: bool = False
+):
     """Assemble settings, store, vault, bus and the session context."""
     if home_override:
         os.environ["KB_REMOTE_HOME"] = home_override
@@ -28,7 +32,7 @@ def build_context(home_override: str | None = None, verbose: bool = False):
     from .core.store import SessionStore
     from .core.vault import CredentialVault
 
-    setup_logging(paths.logs_dir(), verbose=verbose)
+    setup_logging(paths.logs_dir(), verbose=verbose, quiet=quiet)
     log = get_logger("app")
     settings = Settings.load(paths.settings_file())
     store = SessionStore(paths.sessions_file())
@@ -55,15 +59,30 @@ def build_context(home_override: str | None = None, verbose: bool = False):
     return ctx
 
 
+def parse_cli(argv: list[str]) -> tuple[int, list[str]]:
+    """Split ``argv`` into ``(verbosity, positional targets)``.
+
+    Each ``-v``/``--verbose`` raises verbosity by one, each ``-q`` lowers it
+    by one (quiet wins when mixed). Flags may appear in any position — Qt
+    itself accepts them anywhere and wrappers routinely append them after the
+    startup target — so the first remaining positional is the target.
+    Pure and side-effect free so the CLI contract is directly unit-testable.
+    """
+    verbose = 0
+    targets: list[str] = []
+    for arg in argv:
+        if arg in ("-v", "--verbose"):
+            verbose += 1
+        elif arg == "-q":
+            verbose -= 1
+        else:
+            targets.append(arg)
+    return verbose, targets
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    verbose = False
-    if "--verbose" in argv:
-        verbose = True
-        argv.remove("--verbose")
-    if "-v" in argv:
-        verbose = True
-        argv.remove("-v")
+    verbose, argv = parse_cli(argv)
     if "--version" in argv:
         from . import __version__
 
@@ -93,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setApplicationVersion(__version__)
-    ctx = build_context(verbose=verbose)
+    ctx = build_context(verbose=verbose > 0, quiet=verbose < 0)
     theme.apply_theme(
         app,
         ctx.settings.theme,
@@ -108,7 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     ctx.prompter._parent = win  # prompts parent to the main window
     win.show()
 
-    # optional startup target (session id or user@host)
+    # optional startup target (session id or user@host). A malformed target
+    # must degrade to a plain launch, never abort startup or kill the app.
     if argv:
         target = argv[0]
         defn = ctx.store.get(target)
@@ -117,13 +137,18 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from .core.plugin import registry
 
-            for plugin in registry().editable():
-                parsed = plugin.quick_connect_target(target)
-                if parsed is not None:
-                    ctx.store.upsert(parsed)
-                    win.sidebar.reload()
-                    win.open_session(parsed)
-                    break
+            try:
+                for plugin in registry().editable():
+                    parsed = plugin.quick_connect_target(target)
+                    if parsed is not None:
+                        ctx.store.upsert(parsed)
+                        win.sidebar.reload()
+                        win.open_session(parsed)
+                        break
+            except Exception:  # noqa: BLE001 — startup must survive a bad target
+                from .core.log import get_logger
+
+                get_logger("app").exception("invalid startup target %r", target)
 
     return app.exec()
 

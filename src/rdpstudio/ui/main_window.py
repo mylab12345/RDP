@@ -317,23 +317,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._build_menu()
         self._build_toolbar()
         self._build_body()
+        self._build_status_bar()
         self._bind_shortcuts()
         self._setup_tray()
         # Live theme switches re-tint icons and palette-baked chrome.
         theme.add_theme_changed_callback(self._refresh_theme)
-
-        status = QStatusBar()
-        status.setSizeGripEnabled(False)
-        self.setStatusBar(status)
-
-        # Modern status bar — session info left, connection state right
-        self.session_info_label = QLabel("")
-        self.session_info_label.setObjectName("statusSession")
-        status.addWidget(self.session_info_label, 1)
-
-        self.status_label = QLabel("STANDBY")
-        self.status_label.setObjectName("caption")
-        status.addPermanentWidget(self.status_label)
 
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(30_000)
@@ -1193,11 +1181,18 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
-    def connect_session(self, session_id: str) -> None:
+    def connect_session(self, session_id: str) -> SessionTab | None:
+        """Open a saved session by id; returns its tab (or None on failure).
+
+        The return value lets callers chain follow-up actions on the new tab
+        (e.g. *Connect & SFTP* opens the browser once the transport is up);
+        every other caller (sidebar double-click, palette, dashboard) simply
+        ignores it.
+        """
         defn = self.ctx.store.get(session_id)
         if defn is None:
-            return
-        self.open_session(defn)
+            return None
+        return self.open_session(defn)
 
     def open_session(self, defn: Session) -> SessionTab | None:
         defn = copy.deepcopy(defn)
@@ -1241,6 +1236,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         controller.statusInfo.connect(
             lambda info, c=controller: self._on_controller_status(info, c)
         )
+        # Live state chip + window title follow the current tab's session.
+        controller.stateChanged.connect(
+            lambda state, c=controller: self._on_tab_state_changed(state, c)
+        )
         controller.start()
         self._update_empty_state()
         # Recently-connected sessions power the sidebar's Recent section.
@@ -1268,7 +1267,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                 widget.controller.stop("closed by user")
             except Exception:
                 log.exception("error stopping session controller")
-            self._last_connected_info.pop(id(widget.controller), None)
+            finally:
+                # A stop() failure must not leak the tab's teardown markers.
+                self._last_connected_info.pop(id(widget.controller), None)
             widget.controller.deleteLater()
         if widget is not None:
             widget.deleteLater()
@@ -1281,13 +1282,34 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             return widget.controller
         return None
 
+    def _build_status_bar(self) -> None:
+        """Status bar: session identity left, live state chip + summary right."""
+        status = QStatusBar()
+        status.setSizeGripEnabled(False)
+        self.setStatusBar(status)
+
+        self.session_info_label = QLabel("")
+        self.session_info_label.setObjectName("statusSession")
+        status.addWidget(self.session_info_label, 1)
+
+        # Live connection state of the *current* tab (CONNECTING/CONNECTED/
+        # RECONNECTING/CLOSED/FAILED) — the at-a-glance health indicator.
+        self.state_chip = StateChip("STANDBY", "fg_dim")
+        status.addPermanentWidget(self.state_chip)
+
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("caption")
+        status.addPermanentWidget(self.status_label)
+
     def _tab_changed(self, index: int) -> None:
         widget = self.tabs.widget(index)
         if isinstance(widget, SessionTab):
             caps = widget.controller.capabilities()
             if caps.shell:
                 QTimer.singleShot(0, lambda: widget.controller.widget().setFocus())
-        self._update_session_status(self.current_controller())
+        controller = self.current_controller()
+        self._update_session_status(controller)
+        self._update_state_chip(controller)
 
     # ------------------------------------------------------------------
     # Status-bar session summary
@@ -1327,6 +1349,27 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._last_connected_info[id(controller)] = info["connected"]
         if self.current_controller() is controller:
             self._update_session_status(controller)
+
+    # ------------------------------------------------------------------
+    # Live state chip (status bar)
+    # ------------------------------------------------------------------
+    def _update_state_chip(self, controller: SessionController | None) -> None:
+        """Mirror the current tab's session state in the status-bar chip."""
+        if controller is None:
+            self.state_chip.set_color("fg_dim")
+            self.state_chip.setText("STANDBY")
+            self.setWindowTitle(APP_NAME)
+            return
+        state = controller.state()
+        self.state_chip.set_color(STATE_COLORS.get(state, "fg_dim"))
+        self.state_chip.setText((state or "").upper())
+
+    def _on_tab_state_changed(self, state: str, controller: SessionController) -> None:
+        if self.current_controller() is not controller:
+            return
+        self._update_state_chip(controller)
+        if state and controller.definition.protocol != "local":
+            self.setWindowTitle(f"{state.upper()} · {APP_NAME}")
 
     # -- dialogs -------------------------------------------------------------
     def new_session(self, *args) -> None:
@@ -1634,9 +1677,20 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             subprocess.Popen(["xdg-open", str(path)])
 
     def _autolock(self) -> None:
-        # Vault auto-lock was removed from Settings; keep the timer as a
-        # no-op so existing callers/tests that start it stay safe.
-        return
+        """Lock the vault after configured inactivity (Settings → Security).
+
+        The timer fires every 30 s; the vault itself tracks activity via
+        ``touch()`` on every access, so only the idle threshold matters here.
+        Set 0 minutes in Settings to disable auto-lock entirely.
+        """
+        minutes = int(getattr(self.ctx.settings, "vault_autolock_minutes", 0) or 0)
+        if minutes <= 0:
+            return
+        try:
+            if self.ctx.vault.lock_if_due(minutes):
+                toast(self, "Credential vault locked after inactivity", "info")
+        except Exception:  # noqa: BLE001 — a lock failure must never crash the timer
+            log.exception("vault auto-lock failed")
 
     def closeEvent(self, event) -> None:  # noqa: N802
         for i in range(self.tabs.count()):

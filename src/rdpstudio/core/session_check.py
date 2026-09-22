@@ -115,6 +115,10 @@ def _check_rdp(session: Session, timeout: float) -> SessionCheckResult:
             f"RDP server reachable — {result.latency_ms:.0f} ms",
             f"The server refused the requested security mode: {result.failure_name}",
         )
+    if not result.ok:
+        raise SessionCheckError(
+            f"RDP check failed for {host}:{port}: {result.error or 'invalid response'}"
+        )
     return SessionCheckResult(
         True,
         f"RDP server reachable — {result.latency_ms:.0f} ms",

@@ -13,7 +13,7 @@ log = get_logger("importers.sshconfig")
 
 def parse_ssh_config(text: str) -> list[Session]:
     sessions: list[Session] = []
-    current: Session | None = None
+    active: list[Session] = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -29,28 +29,31 @@ def parse_ssh_config(text: str) -> list[Session]:
         key = key.strip().lower()
         if key == "host":
             names = value.split()
+            active = []
             for name in names:
                 if any(ch in name for ch in "*?!") or not name:
                     continue
-                current = Session(protocol=PROTOCOL_SSH, name=name)
-                current.host = name
-                current.auth = AUTH_NONE
-                sessions.append(current)
-        elif current is not None:
-            if key == "hostname":
-                current.host = value
-            elif key == "user":
-                current.username = value
-            elif key == "port":
-                try:
-                    current.port = int(value)
-                except ValueError:
-                    pass
-            elif key == "identityfile":
-                current.key_path = value.replace("~", str(Path.home()), 1)
-                current.auth = AUTH_KEY
-            elif key == "proxyjump":
-                current.options["imported_proxyjump"] = value
+                session = Session(protocol=PROTOCOL_SSH, name=name)
+                session.host = name
+                session.auth = AUTH_NONE
+                sessions.append(session)
+                active.append(session)
+        elif active:
+            for session in active:
+                if key == "hostname":
+                    session.host = value
+                elif key == "user":
+                    session.username = value
+                elif key == "port":
+                    try:
+                        session.port = int(value)
+                    except ValueError:
+                        pass
+                elif key == "identityfile":
+                    session.key_path = value.replace("~", str(Path.home()), 1)
+                    session.auth = AUTH_KEY
+                elif key == "proxyjump":
+                    session.options["imported_proxyjump"] = value
     return sessions
 
 

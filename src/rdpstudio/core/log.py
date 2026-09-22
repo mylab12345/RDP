@@ -89,8 +89,13 @@ def debug_ratelimited(
     logger.debug(msg + suffix, *args)
 
 
-def setup_logging(log_dir: Path, verbose: bool = False) -> None:
-    """Rotating file log + console log, both redacted."""
+def setup_logging(log_dir: Path, verbose: bool = False, quiet: bool = False) -> None:
+    """Rotating file log + console log, both redacted.
+
+    ``quiet`` raises the *console* handler to WARNING only — the rotating
+    file log keeps full INFO/DEBUG detail so support diagnostics survive a
+    quiet console session.
+    """
     global _configured
     if _configured:
         return
@@ -107,6 +112,8 @@ def setup_logging(log_dir: Path, verbose: bool = False) -> None:
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
     console.addFilter(_RedactingFilter())
+    if quiet:
+        console.setLevel(logging.WARNING)
 
     root.addHandler(file_handler)
     root.addHandler(console)

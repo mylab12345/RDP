@@ -135,15 +135,36 @@ class SessionStore:
         with self._lock:
             owned = copy.deepcopy(session)
             owned.updated_at = time.time()
+            # Snapshot what we are about to change so a failed save can be
+            # rolled back (same transactional contract as update()/delete():
+            # memory must never run ahead of disk).
+            had_previous = owned.id in self._sessions
+            previous = self._sessions.get(owned.id)
+            snapshot_groups = list(self._groups)
             self._sessions[owned.id] = owned
             if owned.group and owned.group not in self._groups:
                 self._groups.append(owned.group)
-            self.save()
+            try:
+                self.save()
+            except Exception:
+                if had_previous:
+                    self._sessions[owned.id] = previous
+                else:
+                    self._sessions.pop(owned.id, None)
+                self._groups = snapshot_groups
+                raise
 
     def delete(self, session_id: str) -> None:
         with self._lock:
-            if self._sessions.pop(session_id, None) is not None:
-                self.save()
+            removed = self._sessions.pop(session_id, None)
+            if removed is not None:
+                try:
+                    self.save()
+                except Exception:
+                    # Memory must never run ahead of disk: restore the
+                    # deleted session so a failed save can't silently lose it.
+                    self._sessions[session_id] = removed
+                    raise
 
     def duplicate(self, session_id: str) -> Session | None:
         s = self.get(session_id)

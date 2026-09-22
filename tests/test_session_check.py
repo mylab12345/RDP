@@ -88,6 +88,28 @@ def test_rdp_check_uses_protocol_probe(monkeypatch):
     assert result.details == "Negotiated security: TLS"
 
 
+def test_rdp_check_rejects_failed_protocol_probe(monkeypatch):
+    from rdpstudio.protocols.rdp import negotiate
+    from rdpstudio.protocols.rdp.negotiate import RdpProbeResult
+
+    monkeypatch.setattr(
+        negotiate,
+        "probe",
+        lambda host, port, timeout=5.0: RdpProbeResult(
+            host=host,
+            port=port,
+            ok=False,
+            error="not a TPKT response",
+            latency_ms=3.0,
+        ),
+    )
+
+    result = check_session_connectivity(Session(protocol=PROTOCOL_RDP, host="win.lab", port=3389))
+    assert result.ok is False
+    assert "RDP check failed for win.lab:3389" in result.summary
+    assert "not a TPKT response" in result.summary
+
+
 def test_local_session_check_reports_resolved_command(monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/sh")
     result = check_session_connectivity(Session(protocol=PROTOCOL_LOCAL))

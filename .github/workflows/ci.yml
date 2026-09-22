@@ -29,6 +29,31 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: pytest -v
 
+  windows-smoke:
+    # Cross-platform gate (TEST-01): import-level + headless smoke on Windows.
+    # The full GUI suite is validated on Linux; here we catch Windows-only
+    # breakage (path handling, ConPTY imports, win32 branches) early. Core
+    # tests must pass; GUI tests are best-effort (continue-on-error) until the
+    # offscreen backend is proven stable on Windows runners.
+    name: windows smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: pip install -e ".[dev,win]"
+      - name: Import + CLI smoke
+        run: |
+          python -c "import rdpstudio; print(rdpstudio.__version__)"
+          python -m rdpstudio --version
+          python -c "from rdpstudio.app import parse_cli; assert parse_cli(['-v','x'])[0] == 1"
+      - name: Core (platform-independent) tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/test_models_store.py tests/test_state_validation.py tests/test_store_import_safety.py tests/test_crypto.py tests/test_vault.py tests/test_session_check.py tests/test_rdp_client.py tests/test_rdpfile.py tests/test_core_persistence.py tests/test_retry_transfers.py tests/test_transfer_engine.py tests/test_production_readiness.py --timeout=180
+
   build:
     name: pyinstaller (ubuntu-latest)
     runs-on: ubuntu-latest

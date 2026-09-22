@@ -72,8 +72,13 @@ def sshd():
         "Subsystem sftp internal-sftp\n"
         "LogLevel ERROR\n"
     )
-    run_dir = Path("/run/sshd")
-    run_dir.mkdir(exist_ok=True)
+    # sshd's privilege-separation directory must exist (and be root-owned).
+    # Sandboxes and user-namespaces often cannot provide it — skip cleanly
+    # instead of erroring, so the suite stays green without root.
+    try:
+        Path("/run/sshd").mkdir(exist_ok=True)
+    except OSError as exc:
+        pytest.skip(f"cannot prepare sshd privsep dir: {exc}")
     proc = subprocess.Popen(
         [sshd_bin, "-f", str(cfg), "-E", str(base / "sshd.log"), "-D"],
         stdout=subprocess.DEVNULL,

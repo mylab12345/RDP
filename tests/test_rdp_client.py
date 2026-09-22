@@ -90,7 +90,7 @@ def test_freerdp_version_capability_detection_is_cached(monkeypatch):
         return SimpleNamespace(stdout="This is FreeRDP version 3.9.0", stderr="")
 
     monkeypatch.setattr(client.subprocess, "run", run)
-    freerdp_supports_args_from_file._cache = {}
+    client.reset_args_from_cache()
     assert freerdp_supports_args_from_file("/opt/xfreerdp") is True
     assert freerdp_supports_args_from_file("/opt/xfreerdp") is True
     assert calls == [["/opt/xfreerdp", "--version"]]
@@ -101,5 +101,30 @@ def test_freerdp_version_probe_failure_degrades_safely(monkeypatch):
         raise subprocess.TimeoutExpired("xfreerdp", 5)
 
     monkeypatch.setattr(client.subprocess, "run", fail)
-    freerdp_supports_args_from_file._cache = {}
+    client.reset_args_from_cache()
     assert freerdp_supports_args_from_file("/opt/hung-xfreerdp") is False
+
+
+def test_freerdp_version_scans_every_banner_line(monkeypatch):
+    """Distro-patched banners can split version and build across lines;
+    the first line mentioning 'version' is not necessarily the numbered one."""
+
+    def run(_argv, **_kwargs):
+        return SimpleNamespace(
+            stdout="FreeRDP version unknown patch\nversion 2.11.7 about\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(client.subprocess, "run", run)
+    client.reset_args_from_cache()
+    assert freerdp_supports_args_from_file("/opt/xfreerdp2-patched") is False
+
+    def run3(_argv, **_kwargs):
+        return SimpleNamespace(
+            stdout="FreeRDP version unknown patch\nversion 3.0.0 about\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(client.subprocess, "run", run3)
+    client.reset_args_from_cache()
+    assert freerdp_supports_args_from_file("/opt/xfreerdp3-patched") is True

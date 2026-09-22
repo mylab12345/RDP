@@ -54,17 +54,23 @@ def find_rdp_client() -> tuple[str, str] | None:
     return None
 
 
+_args_from_cache: dict[str, bool] = {}
+
+
+def reset_args_from_cache() -> None:
+    """Forget cached ``/args-from:file:`` detection (used by tests/upgrades)."""
+    _args_from_cache.clear()
+
+
 def freerdp_supports_args_from_file(path: str | None = None) -> bool:
     """Detect and cache FreeRDP 3's private ``/args-from:file:`` support."""
-    if not hasattr(freerdp_supports_args_from_file, "_cache"):
-        freerdp_supports_args_from_file._cache: dict[str, bool] = {}
     if path is None:
         client = find_rdp_client()
         path = client[0] if client else ""
-    if path in freerdp_supports_args_from_file._cache:
-        return freerdp_supports_args_from_file._cache[path]
+    if path in _args_from_cache:
+        return _args_from_cache[path]
     if not path:
-        freerdp_supports_args_from_file._cache[path] = False
+        _args_from_cache[path] = False
         return False
     try:
         completed = subprocess.run(
@@ -75,19 +81,19 @@ def freerdp_supports_args_from_file(path: str | None = None) -> bool:
             check=False,
         )
         text = (completed.stdout + completed.stderr).lower()
-        has_args_from = "args-from" in text or "/args-from" in text
+        has_args_from = "args-from" in text
         if not has_args_from:
-            for line in text.splitlines():
-                if "freerdp version" not in line:
-                    continue
-                match = re.search(r"version\s+(\d+)\.", line)
-                if match and int(match.group(1)) >= 3:
+            # Version banner layouts differ between distro patches; scan
+            # every line instead of assuming the first mention carries the
+            # version number.
+            for match in re.finditer(r"version\s+(\d+)\.", text):
+                if int(match.group(1)) >= 3:
                     has_args_from = True
-                break
-        freerdp_supports_args_from_file._cache[path] = has_args_from
+                    break
+        _args_from_cache[path] = has_args_from
         return has_args_from
     except (OSError, subprocess.SubprocessError, ValueError):
-        freerdp_supports_args_from_file._cache[path] = False
+        _args_from_cache[path] = False
         return False
 
 
