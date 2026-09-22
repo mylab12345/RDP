@@ -42,6 +42,9 @@ class SshSessionController(SessionController):
         self._policy = ReconnectPolicy.from_settings(ctx.settings)
         self._attempt = 0
         self._wanted_stop = False
+        # Live forwards: listen_port -> {"kind", "label", "error"}. Started
+        # automatically for every enabled definition on each (re)connect.
+        self._live_ports: dict[int, dict] = {}
 
         # Native remote palette: do not apply workbench theme / Settings colors.
         # On Linux the factory selects the native QTermWidget/VTE-style
@@ -115,9 +118,7 @@ class SshSessionController(SessionController):
         self._worker.stateInfo.connect(
             lambda txt: self.statusInfo.emit({"status_text": txt})
         )
-        self._worker.forwardEvent.connect(
-            lambda ev: self.statusInfo.emit({"forward": ev})
-        )
+        self._worker.forwardEvent.connect(self._on_forward_event)
         # bridge signals → worker slots (queued: worker lives on its thread)
         # For typing we now call directly, but keep signals for compat.
         self._sigWrite.connect(self._worker.write_input_slot)
@@ -191,11 +192,46 @@ class SshSessionController(SessionController):
         self.statusInfo.emit({"connected": info, "status_text": ""})
         self.transportUp.emit()
         self.ctx.publish("session/connected", {"protocol": "ssh", **info})
+        # Enabled forwards come up with the session (MobaXterm-style):
+        # every (re)connect gets a fresh TunnelManager, so re-arm them all.
+        self._live_ports = {}
+        self._autostart_forwards()
         # Ensure terminal gets focus after connect — previously focus could
         # stay on the quick-connect box, making it look like typing was broken.
         QTimer.singleShot(0, lambda: self.term.setFocus())
 
+    def _autostart_forwards(self) -> None:
+        for fwd in self.definition.forwards:
+            if fwd.enabled:
+                try:
+                    self.start_forward(fwd.to_dict())
+                except Exception as exc:  # noqa: BLE001 — one bad forward must not break the tab
+                    log.warning("forward autostart failed for %s: %s", fwd.label(), exc)
+
+    def _on_forward_event(self, ev: dict) -> None:
+        kind = ev.get("event")
+        port = ev.get("port")
+        if kind in ("started", "bound") and isinstance(port, int):
+            self._live_ports[port] = {
+                "kind": ev.get("kind", "?"),
+                "label": ev.get("label", ""),
+                "error": ev.get("error", ""),
+            }
+        elif kind == "stopped" and isinstance(port, int):
+            self._live_ports.pop(port, None)
+        elif kind == "error" and isinstance(port, int) and port in self._live_ports:
+            self._live_ports[port]["error"] = ev.get("error", "")
+        self.statusInfo.emit({"forward": ev})
+
+    def live_forwards(self) -> list[dict]:
+        """Currently active forwards as ``{"port", "kind", "label", "error"}``."""
+        return [
+            {"port": port, **info}
+            for port, info in sorted(self._live_ports.items())
+        ]
+
     def _on_failed(self, message: str) -> None:
+        self._live_ports = {}
         self.set_state(SessionState.FAILED)
         self.statusInfo.emit({"error": message, "status_text": message})
         self._teardown_thread()
@@ -205,6 +241,7 @@ class SshSessionController(SessionController):
             self.emit_finished_once(f"connection failed: {message}")
 
     def _on_disconnected(self, reason: str) -> None:
+        self._live_ports = {}
         if self._wanted_stop or not self.definition.auto_reconnect:
             self._teardown_thread()
             self.emit_finished_once(reason or "closed")

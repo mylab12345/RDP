@@ -1,11 +1,16 @@
-"""SFTP engine: browse + transfers with progress, running on its own thread.
+"""SFTP/SCP engine: browse + transfers with progress, running on its own thread.
 
 One engine per transfer window. It borrows the *existing* transport from a
 live SSH session (paramiko transports are thread-safe and multiplex channels),
 so opening the file browser costs nothing extra.
 
 Transfers are recursive and cancellable; progress is reported as
-(bytes_done, bytes_total, files_done, files_total).
+(bytes_done, bytes_total, files_done, files_total). Downloads are atomic
+(stream to ``*.part``, rename on success) and resumable; transient
+transport failures are retried with backoff; every finished transfer is
+recorded in the transfer history. The byte transfer can run over SFTP
+(default) or the classic ``scp`` wire protocol (see :mod:`.scp`) — browsing
+always uses SFTP, since SCP has no listing command.
 """
 
 from __future__ import annotations
@@ -22,10 +27,16 @@ import paramiko
 from PySide6.QtCore import QObject, Signal, Slot
 
 from ...core.log import get_logger
+from ...core.retry import RetryPolicy, is_transient
+from ...core.transfers import TransferRecord, log_transfer
+from .scp import ScpClient, ScpError
 
 log = get_logger("ssh.sftp")
 
 CHUNK = 131_072
+
+#: Retry policy for transient transfer failures (cancel-aware waits).
+TRANSFER_RETRY = RetryPolicy(attempts=3, base_delay=0.5, max_delay=4.0, jitter=0.2)
 
 
 @dataclass
@@ -56,6 +67,8 @@ class TransferJob:
     dest: str = ""
     remote_root: str = ""
     local_root: str = ""
+    protocol: str = "sftp"  # sftp | scp
+    session: str = ""
     done_bytes: int = 0
     total_bytes: int = 0
     files_done: int = 0
@@ -78,15 +91,31 @@ class SftpEngine(QObject):
     fileRead = Signal(str, bytes)  # path, content_bytes
     fileWritten = Signal(str, bool, str)  # path, ok, message
 
-    def __init__(self, transport_provider) -> None:
+    def __init__(self, transport_provider, session_name: str = "", transfer_protocol: str = "sftp") -> None:
         """``transport_provider``: callable returning a live paramiko Transport
         (called on the engine thread)."""
         super().__init__()
         self._transport_provider = transport_provider
+        self._session_name = session_name
+        self._transfer_mode = transfer_protocol if transfer_protocol in ("sftp", "scp") else "sftp"
         self._sftp: paramiko.SFTPClient | None = None
         self._jobs: dict[str, TransferJob] = {}
         self._pending_locals: dict[str, str] = {}
         self._pending_remotes: dict[str, str] = {}
+
+    @Slot(str)
+    def set_transfer_mode(self, mode: str) -> None:
+        """Switch the byte-transfer engine (``sftp`` | ``scp``).
+
+        Queued slot: safe to call from the GUI thread; applies to transfers
+        started afterwards.
+        """
+        if mode in ("sftp", "scp"):
+            self._transfer_mode = mode
+
+    @property
+    def transfer_mode(self) -> str:
+        return self._transfer_mode
 
     # ------------------------------------------------------------------
     @Slot()
@@ -197,16 +226,28 @@ class SftpEngine(QObject):
     @Slot(str, str, str)
     def download(self, op_id: str, remote_dir: str, names: str) -> None:
         """``names`` is a '\\n'-joined list inside ``remote_dir``."""
-        job = TransferJob(op_id=op_id, direction="download", remote_root=remote_dir)
+        job = TransferJob(
+            op_id=op_id, direction="download", remote_root=remote_dir,
+            protocol=self._transfer_mode, session=self._session_name,
+            sources=[n for n in names.split("\n") if n.strip()],
+        )
         self._jobs[op_id] = job
         local_dir = self._pending_locals.pop(op_id, "")
+        job.dest = local_dir
+        if not job.sources:
+            self._jobs.pop(op_id, None)
+            self.transferDone.emit(op_id, False, "nothing selected")
+            return
         try:
-            self.ensure_open()
-            assert self._sftp is not None
-            targets = [posixpath.join(remote_dir, n) for n in names.split("\n") if n]
-            self._compute_totals(targets, job)
-            for t in targets:
-                self._download_rec(t, local_dir, job)
+            targets = [posixpath.join(remote_dir, n) for n in job.sources]
+            if self._transfer_mode == "scp":
+                self._download_scp(targets, local_dir, job)
+            else:
+                self.ensure_open()
+                assert self._sftp is not None
+                self._compute_totals(targets, job)
+                for t in targets:
+                    self._download_rec(t, local_dir, job)
             self._finish(job, True, "download complete")
         except Exception as exc:  # noqa: BLE001
             log.exception("download failed")
@@ -214,16 +255,28 @@ class SftpEngine(QObject):
 
     @Slot(str, str, str)
     def upload(self, op_id: str, local_dir: str, names: str) -> None:
-        job = TransferJob(op_id=op_id, direction="upload", local_root=local_dir)
+        job = TransferJob(
+            op_id=op_id, direction="upload", local_root=local_dir,
+            protocol=self._transfer_mode, session=self._session_name,
+            sources=[n for n in names.split("\n") if n.strip()],
+        )
         self._jobs[op_id] = job
         remote_dir = self._pending_remotes.pop(op_id, "")
+        job.dest = remote_dir
+        if not job.sources:
+            self._jobs.pop(op_id, None)
+            self.transferDone.emit(op_id, False, "nothing selected")
+            return
         try:
-            self.ensure_open()
-            assert self._sftp is not None
-            targets = [os.path.join(local_dir, n) for n in names.split("\n") if n]
-            self._compute_totals_local(targets, job)
-            for t in targets:
-                self._upload_rec(t, remote_dir, job)
+            targets = [os.path.join(local_dir, n) for n in job.sources]
+            if self._transfer_mode == "scp":
+                self._upload_scp(targets, remote_dir, job)
+            else:
+                self.ensure_open()
+                assert self._sftp is not None
+                self._compute_totals_local(targets, job)
+                for t in targets:
+                    self._upload_rec(t, remote_dir, job)
             self._finish(job, True, "upload complete")
         except Exception as exc:  # noqa: BLE001
             log.exception("upload failed")
@@ -275,6 +328,25 @@ class SftpEngine(QObject):
                 job.total_bytes += p.stat().st_size
                 job.files_total += 1
 
+    def _with_retry(self, job: TransferJob, func, *args, **kwargs):
+        """Run ``func`` with cancel-aware retries on transient failures."""
+        last: Exception | None = None
+        for attempt in range(1, TRANSFER_RETRY.attempts + 1):
+            if self._cancelled(job):
+                raise RuntimeError("cancelled")
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 — classification decides
+                last = exc
+                if attempt >= TRANSFER_RETRY.attempts or not is_transient(exc):
+                    raise
+                if self._cancelled(job):
+                    raise RuntimeError("cancelled") from exc
+                log.info("transfer hit %s; retrying (%d/%d)", exc, attempt, TRANSFER_RETRY.attempts)
+                job.cancelled.wait(TRANSFER_RETRY.delay_for(attempt))
+        assert last is not None
+        raise last
+
     def _download_rec(self, remote: str, local_dir: str, job: TransferJob) -> None:
         if self._cancelled(job):
             raise RuntimeError("cancelled")
@@ -296,9 +368,50 @@ class SftpEngine(QObject):
             # Never materialise devices/fifos/sockets from a remote listing.
             log.warning("skipping non-regular remote file %s", remote)
             return
+        self._with_retry(job, self._download_file, remote, local_path, st, job)
+
+    def _download_file(self, remote: str, local_path: Path, st, job: TransferJob) -> None:
+        """Download one regular file: atomic, resumable, prefetched.
+
+        Bytes stream into a ``*.part`` sibling so an interrupted transfer
+        never leaves a half file masquerading as the real thing; a
+        leftover ``*.part`` smaller than the remote file is resumed instead
+        of restarted. ``SFTPFile.prefetch()`` keeps the pipe full on
+        high-latency links (guarded: test doubles may lack it).
+        """
+        assert self._sftp is not None
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(local_path, "wb") as out:
+        part = local_path.with_name(local_path.name + ".part")
+        resume_from = 0
+        try:
+            existing = part.stat().st_size
+        except OSError:
+            existing = 0
+        remote_size = int(st.st_size or 0)
+        if 0 < existing < remote_size:
+            resume_from = existing
+        elif existing >= remote_size and remote_size > 0:
+            try:
+                part.unlink()
+            except OSError:
+                pass
+        # Bytes already on disk from an interrupted run count immediately.
+        job.done_bytes += resume_from
+        with open(part, "ab" if resume_from else "wb") as out:
             with self._sftp.open(remote, "rb") as src:
+                prefetch = getattr(src, "prefetch", None)
+                if callable(prefetch):
+                    try:
+                        prefetch()
+                    except Exception:  # noqa: BLE001 — prefetch is best effort
+                        pass
+                if resume_from:
+                    try:
+                        src.seek(resume_from)
+                    except Exception:  # noqa: BLE001 — restart instead
+                        job.done_bytes -= resume_from
+                        out.seek(0)
+                        out.truncate()
                 while True:
                     if self._cancelled(job):
                         raise RuntimeError("cancelled")
@@ -308,8 +421,12 @@ class SftpEngine(QObject):
                     out.write(data)
                     job.done_bytes += len(data)
                     self._progress(job)
+        os.replace(part, local_path)
         job.files_done += 1
-        os.utime(local_path, (st.st_atime, st.st_mtime))
+        try:
+            os.utime(local_path, (st.st_atime, st.st_mtime))
+        except OSError:
+            pass
         self._progress(job)
 
     def _upload_rec(self, local: str, remote_dir: str, job: TransferJob) -> None:
@@ -326,6 +443,10 @@ class SftpEngine(QObject):
             for child in p.iterdir():
                 self._upload_rec(str(child), target, job)
             return
+        self._with_retry(job, self._upload_file, local, target, job)
+
+    def _upload_file(self, local: str, target: str, job: TransferJob) -> None:
+        assert self._sftp is not None
         with open(local, "rb") as src, self._sftp.open(target, "wb") as dst:
             while True:
                 if self._cancelled(job):
@@ -339,6 +460,81 @@ class SftpEngine(QObject):
         job.files_done += 1
         self._progress(job)
 
+    # -- SCP transfer paths --------------------------------------------------
+    def _scp_client(self) -> ScpClient:
+        transport = self._transport_provider()
+        if transport is None or not transport.is_active():
+            raise ScpError("session is not connected")
+        return ScpClient(transport)
+
+    def _classify_remote(self, remote: str) -> str:
+        """Return ``"dir"`` or ``"file"`` for a remote path (SFTP stat)."""
+        assert self._sftp is not None
+        st = self._sftp.stat(remote)
+        return "dir" if stat.S_ISDIR(st.st_mode) else "file"
+
+    def _download_scp(self, targets: list[str], local_dir: str, job: TransferJob) -> None:
+        # Totals + dir/file classification still come from SFTP when the
+        # subsystem is there; without it, totals stay indeterminate (0) and
+        # each target is tried as a file first, then as a directory.
+        have_sftp = True
+        try:
+            self.ensure_open()
+            assert self._sftp is not None
+            self._compute_totals(targets, job)
+        except Exception as exc:  # noqa: BLE001 — blind SCP fallback below
+            log.info("SFTP unavailable, using blind SCP: %s", exc)
+            self._sftp = None
+            have_sftp = False
+        client = self._scp_client()
+        Path(local_dir).mkdir(parents=True, exist_ok=True)
+        for target in targets:
+            if self._cancelled(job):
+                raise RuntimeError("cancelled")
+            is_dir = have_sftp and self._classify_remote(target) == "dir"
+            base = job.done_bytes
+            stats = self._with_retry(
+                job, self._scp_download_one, client, target, local_dir,
+                bool(is_dir), have_sftp, base, job,
+            )
+            job.files_done += stats.files
+
+    def _scp_download_one(self, client: ScpClient, target: str, local_dir: str,
+                          is_dir: bool, have_sftp: bool, base: int, job: TransferJob):
+        def _progress(done: int, _total) -> None:
+            job.done_bytes = base + done
+            self._progress(job)
+
+        if is_dir:
+            return client.download(target, local_dir, recursive=True, progress=_progress)
+        try:
+            return client.download(target, local_dir, recursive=False, progress=_progress)
+        except ScpError as exc:
+            if have_sftp or self._cancelled(job):
+                raise
+            # Blind fallback: maybe it was a directory after all.
+            if "directory" in str(exc).lower() or "regular file" in str(exc).lower():
+                return client.download(target, local_dir, recursive=True, progress=_progress)
+            raise
+
+    def _upload_scp(self, targets: list[str], remote_dir: str, job: TransferJob) -> None:
+        self._compute_totals_local(targets, job)
+        client = self._scp_client()
+        for target in targets:
+            if self._cancelled(job):
+                raise RuntimeError("cancelled")
+            base = job.done_bytes
+
+            def _progress(done: int, _total, _base: int = base) -> None:
+                job.done_bytes = _base + done
+                self._progress(job)
+
+            stats = self._with_retry(
+                job, client.upload, target, remote_dir,
+                recursive=Path(target).is_dir(), progress=_progress,
+            )
+            job.files_done += stats.files
+
     def _progress(self, job: TransferJob) -> None:
         elapsed = max(0.001, time.monotonic() - job.started_at)
         rate = job.done_bytes / elapsed
@@ -348,6 +544,25 @@ class SftpEngine(QObject):
 
     def _finish(self, job: TransferJob, ok: bool, message: str) -> None:
         self._jobs.pop(job.op_id, None)
+        duration = max(0.0, time.monotonic() - job.started_at)
+        if job.direction == "download":
+            source = f"{job.remote_root} ({len(job.sources)} item(s))"
+            dest = job.dest
+        else:
+            source = f"{job.local_root} ({len(job.sources)} item(s))"
+            dest = job.dest
+        log_transfer(TransferRecord(
+            protocol=job.protocol,
+            direction=job.direction,
+            session=self._session_name,
+            source=source,
+            destination=dest,
+            bytes_total=job.done_bytes if ok else job.total_bytes,
+            files_total=job.files_done if ok else job.files_total,
+            ok=ok,
+            error="" if ok else message[:300],
+            duration_s=round(duration, 2),
+        ))
         self.transferDone.emit(job.op_id, ok, message)
 
     @Slot(str)

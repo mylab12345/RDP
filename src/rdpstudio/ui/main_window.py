@@ -365,7 +365,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.main_splitter.setHandleWidth(4)
 
-        self.sidebar = SessionTree(self.ctx.store)
+        self.sidebar = SessionTree(self.ctx.store, settings=self.ctx.settings)
         self.main_splitter.addWidget(self.sidebar)
 
         # Center tabbed container
@@ -1243,6 +1243,15 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         controller.start()
         self._update_empty_state()
+        # Recently-connected sessions power the sidebar's Recent section.
+        if defn.id and defn.protocol != "local":
+            try:
+                self.ctx.settings.touch_recent_session(defn.id)
+                self.ctx.settings.save(paths.settings_file())
+                if hasattr(self, "sidebar"):
+                    self.sidebar.reload()
+            except Exception:  # noqa: BLE001 — recents must not break connects
+                log.debug("recent-session tracking failed", exc_info=True)
         return tab
 
     def close_tab(self, index: int) -> None:
@@ -1458,20 +1467,26 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._apply_terminal_prefs()
 
     def _apply_terminal_prefs(self) -> None:
-        """Push font size/family to open terminals. SSH colors stay native."""
+        """Push font/scheme/blink/spacing prefs to open terminals."""
         s = self.ctx.settings
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if not isinstance(w, SessionTab):
                 continue
             term = getattr(w.controller, "term", None)
-            if term is not None and hasattr(term, "apply_font"):
-                try:
+            if term is None:
+                continue
+            try:
+                if hasattr(term, "apply_font"):
                     term.apply_font(s.font_family, s.font_size)
-                    if hasattr(term, "apply_theme"):
-                        term.apply_theme()
-                except Exception:  # noqa: BLE001
-                    log.exception("apply terminal preferences failed")
+                # apply_terminal_prefs covers scheme/blink/spacing; the
+                # legacy apply_theme alias maps to it on TerminalView.
+                if hasattr(term, "apply_terminal_prefs"):
+                    term.apply_terminal_prefs()
+                elif hasattr(term, "apply_theme"):
+                    term.apply_theme()
+            except Exception:  # noqa: BLE001
+                log.exception("apply terminal preferences failed")
 
     def apply_theme_id(self, theme_id: str) -> None:
         from ..core.settings import THEME_IDS

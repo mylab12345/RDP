@@ -569,10 +569,8 @@ class TerminalView(QWidget):
         self._font = QFont(settings.font_family) if settings.font_family else QFont(_default_mono())
         self._font.setStyleHint(QFont.StyleHint.Monospace)
         self._font.setPointSize(max(6, settings.font_size))
-        self._fm = QFontMetrics(self._font)
-        self._cell_w = max(4, self._fm.horizontalAdvance("M"))
-        self._cell_h = max(6, self._fm.height())
-        self._ascent = self._fm.ascent()
+        self._line_spacing = max(0, min(12, int(getattr(settings, "terminal_line_spacing", 0) or 0)))
+        self._recalc_cells()
 
         self._scroll = 0  # lines scrolled back (0 = live)
         self._sel_start: tuple[int, int] | None = None
@@ -702,17 +700,40 @@ class TerminalView(QWidget):
     def font(self) -> QFont:
         return self._font
 
+    def _recalc_cells(self) -> None:
+        """Recompute cell geometry from the current font + line spacing."""
+        self._fm = QFontMetrics(self._font)
+        spacing = max(0, min(12, int(getattr(self, "_line_spacing", 0) or 0)))
+        self._cell_w = max(4, self._fm.horizontalAdvance("M"))
+        self._cell_h = max(6, self._fm.height() + spacing)
+        self._ascent = self._fm.ascent() + spacing // 2
+
     def apply_font(self, family: str, size: int) -> None:
         self._font = QFont(family) if family else QFont(_default_mono())
         self._font.setStyleHint(QFont.StyleHint.Monospace)
         self._font.setPointSize(max(6, size))
-        self._fm = QFontMetrics(self._font)
-        self._cell_w = max(4, self._fm.horizontalAdvance("M"))
-        self._cell_h = max(6, self._fm.height())
-        self._ascent = self._fm.ascent()
+        self._recalc_cells()
         self._font_variants.clear()
         self._font_size = size
         self._relayout()
+
+    def apply_terminal_prefs(self) -> None:
+        """Re-read Settings (scheme, blink, spacing) and repaint this tab."""
+        self._palette_cache = None  # force a palette rebuild on next paint
+        self._line_spacing = max(0, min(12, int(getattr(self.settings, "terminal_line_spacing", 0) or 0)))
+        self._recalc_cells()
+        self._font_variants.clear()
+        blink = getattr(self.settings, "cursor_blink", True)
+        if blink and not self._blink_timer.isActive():
+            self._blink_timer.start()
+        elif not blink and self._blink_timer.isActive():
+            self._blink_timer.stop()
+            self._blink_state = True
+        self._relayout()
+
+    # Compatibility alias (older callers use apply_theme for repaints).
+    def apply_theme(self) -> None:
+        self.apply_terminal_prefs()
 
     # -- session logging ---------------------------------------------------
     def start_logging(self, path: str | Path) -> None:
@@ -988,7 +1009,16 @@ class TerminalView(QWidget):
 
     def _palette(self) -> dict:
         """Color palette, built once per theme (or once for native SSH)."""
-        theme = "native" if self.native_colors else self.settings.theme
+        override = bool(getattr(self.settings, "terminal_override_remote", False))
+        if self.native_colors and not override:
+            theme = "native"
+        else:
+            # Keyed on the scheme *and* the UI theme: the match highlight
+            # border still comes from the workbench palette.
+            theme = (
+                f"scheme:{getattr(self.settings, 'terminal_color_scheme', 'mobaxterm')}"
+                f":ui:{self.settings.theme}"
+            )
         cached = self._palette_cache
         if cached is not None and self._palette_theme == theme:
             return cached
@@ -1012,10 +1042,11 @@ class TerminalView(QWidget):
         return out
 
     def _build_palette(self) -> dict:
-        from .theme import is_dark_theme
+        from .terminal_schemes import get_scheme
         from .theme import palette as ui_palette
 
-        if self.native_colors:
+        override = bool(getattr(self.settings, "terminal_override_remote", False))
+        if self.native_colors and not override:
             # Classic VGA / Linux console / xterm defaults — the palette a
             # remote VM actually emits. Theme settings must not recolor this.
             base = {
@@ -1032,39 +1063,29 @@ class TerminalView(QWidget):
             base["16"] = [QColor(c) for c in _VGA16]
             return base
 
+        # Local shells (and SSH tabs when the user overrides remote colors)
+        # render in the selected terminal color scheme.
         ui = ui_palette(self.settings.theme)
-        dark = is_dark_theme(self.settings.theme)
+        scheme = get_scheme(getattr(self.settings, "terminal_color_scheme", "mobaxterm"))
+        dark = bool(scheme.get("dark", True))
         if dark:
-            base = {
-                "fg": QColor(ui["term_fg"]),
-                "bg": QColor(ui["term_bg"]),
-                "cursor": QColor(ui["accent"]),
-                "sel": QColor(ui["sel"]),
-                "match": QColor(251, 191, 106, 75),
-                "match_active": QColor(251, 191, 106, 170),
-                "match_border": QColor(ui.get("warn", "#fbbf6a")),
-            }
-            palette16 = [
-                "#1a1f2e", "#ff7a7a", "#6ee7a5", "#fbbf6a", "#7cc4ff", "#c4a7ff", "#6c8bff", "#e6eaf2",
-                "#5c677e", "#ff9a9a", "#8ff0b8", "#ffd08a", "#9cd6ff", "#d4bfff", "#8aa4ff", "#f6f7fb"
-            ]
+            match = QColor(251, 191, 106, 75)
+            match_active = QColor(251, 191, 106, 170)
         else:
-            base = {
-                "fg": QColor(ui["term_fg"]),
-                "bg": QColor(ui["term_bg"]),
-                "cursor": QColor(ui["accent"]),
-                "sel": QColor(ui["sel"]),
-                "match": QColor(255, 230, 100, 100),
-                "match_active": QColor(255, 210, 50, 190),
-                "match_border": QColor(ui.get("warn", "#d97706")),
-            }
-            palette16 = [
-                "#000000", "#e02424", "#0e9f6e", "#c07a00", "#1a73e8", "#7c3aed", "#4f6ef7", "#5c677e",
-                "#6b768f", "#ff6b6b", "#34d399", "#fbbf24", "#60a5fa", "#a78bfa", "#818cf8", "#eef1f8"
-            ]
-        base["16"] = [QColor(c.lower()) for c in palette16]
-        base["fg_dim"] = QColor("#8a94ac") if dark else QColor("#6b768f")
-        base["named"] = dict(_NAMED)
+            match = QColor(255, 230, 100, 100)
+            match_active = QColor(255, 210, 50, 190)
+        base = {
+            "fg": QColor(scheme["fg"]),
+            "bg": QColor(scheme["bg"]),
+            "cursor": QColor(scheme["cursor"]),
+            "sel": QColor(scheme["sel"]),
+            "match": match,
+            "match_active": match_active,
+            "match_border": QColor(ui.get("warn", "#d97706")),
+            "fg_dim": QColor(scheme.get("fg_dim") or scheme["fg"]),
+            "named": _named_from_16(scheme["16"], scheme["fg"]),
+        }
+        base["16"] = [QColor(c) for c in scheme["16"]]
         return base
 
     def _font_for(self, bold: bool, italic: bool) -> QFont:
@@ -1332,6 +1353,22 @@ class TerminalView(QWidget):
                 event.accept()
                 return
 
+        # MobaXterm-style zoom: Ctrl+Plus / Ctrl+Minus / Ctrl+0 (reset).
+        # On ISO layouts "+" arrives as Shift+Equal — accept either form.
+        if ctrl and not alt:
+            if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+                self._zoom_font(1)
+                event.accept()
+                return
+            if key == Qt.Key.Key_Minus:
+                self._zoom_font(-1)
+                event.accept()
+                return
+            if key == Qt.Key.Key_0:
+                self._zoom_reset()
+                event.accept()
+                return
+
         data = encode_key_event(event, self.core.screen)
         if data:
             self.write_user(data)
@@ -1362,6 +1399,10 @@ class TerminalView(QWidget):
         size = max(6, min(48, self._font_size + step))
         self._font_size = size
         self.apply_font(self._font.family(), size)
+
+    def _zoom_reset(self) -> None:
+        self._font_size = self.settings.font_size
+        self.apply_font(self._font.family(), self.settings.font_size)
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         self._blink_state = True
@@ -1715,6 +1756,21 @@ _NAMED: dict[str, str | QColor] = {
     "brightwhite": "#eceff4",
     "default": "#d8dee9",
 }
+
+
+def _named_from_16(colors16: list[str], default_fg: str) -> dict[str, str]:
+    """ANSI name → hex mapping derived from a scheme's 16 colors."""
+    names = (
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+        "brightblack", "brightred", "brightgreen", "brightyellow",
+        "brightblue", "brightmagenta", "brightcyan", "brightwhite",
+    )
+    out = {name: colors16[i] for i, name in enumerate(names) if i < len(colors16)}
+    out.setdefault("default", default_fg)
+    # Fill any gap from the legacy table so exotic schemes never KeyError.
+    for name, value in _NAMED.items():
+        out.setdefault(name, str(value))
+    return out
 
 
 def _xterm256(idx: int, pal) -> QColor:

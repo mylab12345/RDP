@@ -90,6 +90,12 @@ class Settings:
     paste_on_middle_click: bool = True
     confirm_multiline_paste: bool = True
     cursor_style: str = "block"  # block | underline | bar
+    cursor_blink: bool = True
+    terminal_line_spacing: int = 0  # extra pixels between terminal rows
+    terminal_color_scheme: str = "mobaxterm"  # see ui.terminal_schemes
+    # SSH tabs keep the remote host's native console palette by default;
+    # opt in here to paint them in the selected scheme instead.
+    terminal_override_remote: bool = False
     bell_flash: bool = True
     # automatic = native QTermWidget on a displayed Linux desktop when
     # installed, otherwise the pure-Python pyte renderer.  ``native`` and
@@ -113,6 +119,10 @@ class Settings:
 
     # files
     default_download_dir: str = ""
+    # SFTP browser transfer engine: sftp (default) | scp. SCP has no
+    # directory listing, so browsing still uses SFTP — only the byte
+    # transfer runs over the scp wire protocol.
+    transfer_protocol: str = "sftp"
 
     # file sharing — the built-in SFTP share server (see
     # rdpstudio.tools.share_server). Off by default: it is a real network
@@ -133,6 +143,8 @@ class Settings:
     geometry: dict = field(default_factory=dict)
     # command palette: recently executed commands (titles, newest first)
     palette_recents: list = field(default_factory=list)
+    # recently connected session ids (newest first, capped at 10)
+    recent_session_ids: list = field(default_factory=list)
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -170,9 +182,12 @@ class Settings:
         s.font_family = as_text(s.font_family)
         s.cursor_style = as_text(s.cursor_style, "block")
         s.terminal_backend = as_text(s.terminal_backend, "auto")
+        s.terminal_color_scheme = as_text(s.terminal_color_scheme, "mobaxterm")
         s.host_key_policy = as_text(s.host_key_policy, "accept-new")
         s.rdp_client = as_text(s.rdp_client, "auto")
         s.default_download_dir = as_text(s.default_download_dir)
+        s.transfer_protocol = as_text(s.transfer_protocol, "sftp")
+        s.terminal_line_spacing = as_int(s.terminal_line_spacing, 0, minimum=0, maximum=12)
 
         if s.theme not in THEME_IDS:
             s.theme = DEFAULT_THEME
@@ -186,6 +201,13 @@ class Settings:
             s.cursor_style = "block"
         if s.terminal_backend not in ("auto", "native", "pyte"):
             s.terminal_backend = "auto"
+        if s.terminal_color_scheme not in (
+            "mobaxterm", "dracula", "monokai", "nord",
+            "solarized-dark", "solarized-light", "light",
+        ):
+            s.terminal_color_scheme = "mobaxterm"
+        if s.transfer_protocol not in ("sftp", "scp"):
+            s.transfer_protocol = "sftp"
 
         bool_defaults = {
             "toolbar_labels": True,
@@ -193,6 +215,8 @@ class Settings:
             "copy_on_select": True,
             "paste_on_middle_click": True,
             "confirm_multiline_paste": True,
+            "cursor_blink": True,
+            "terminal_override_remote": False,
             "bell_flash": True,
             "default_auto_reconnect": True,
         }
@@ -215,9 +239,20 @@ class Settings:
         if not isinstance(s.palette_recents, list):
             s.palette_recents = []
         s.palette_recents = [t for t in s.palette_recents if isinstance(t, str)][:8]
+        if not isinstance(s.recent_session_ids, list):
+            s.recent_session_ids = []
+        s.recent_session_ids = [t for t in s.recent_session_ids if isinstance(t, str)][:10]
         if not isinstance(s.geometry, dict):
             s.geometry = {}
         return s
+
+    def touch_recent_session(self, session_id: str) -> None:
+        """Record a connect: newest-first, de-duplicated, capped at 10."""
+        if not session_id:
+            return
+        recents = [s for s in self.recent_session_ids if s != session_id]
+        recents.insert(0, session_id)
+        self.recent_session_ids = recents[:10]
 
     @classmethod
     def load(cls, path: Path) -> Settings:
