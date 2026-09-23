@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added — MobaXterm left-sidebar parity (2026-09)
+- **The Sessions panel now mirrors MobaXterm's left sidebar**, presentation
+  layer only — no session/protocol/store changes. The vertical rail gained
+  MobaXterm's **collapse chevron** on top (`«`/`»`, pointing at the dock
+  edge; wired to the same path as Ctrl+B) and **coloured glyphs** on the
+  *Sessions* / *Tools* tabs (re-tinted on live theme switches).
+- **Quick connect at the head of the panel** — MobaXterm's signature
+  top-of-panel `user@host[:port]` box; Enter feeds the exact same
+  parse/upsert/open path as the toolbar and dashboard inputs (port 3389 ⇒
+  RDP), and success clears only the sidebar box.
+- **Tools tab mirrors the Tools menu**: Local terminal, New session/folder,
+  Network tools, SSH key utility, File sharing, RDP servers, Command palette
+  and Settings — one click from the rail.
+- Docking preserved: the chevron/rail column follows the panel when it is
+  dragged or flipped to the right edge (the chevron mirrors to `»`), the ⠿
+  grip, count badge, search, empty states and tree behaviour are untouched.
+- Regression tests: `test_sidebar_moba_rail_chrome` (icons, chevron emit +
+  side flip, quick-connect emit, Tools pane contents) and
+  `test_sidebar_chrome_wired_into_main_window` (collapse passes explicit
+  `False`; quick-connect shares `_quick_connect_from`).
+
 ### Fixed — dead features and store consistency (production-readiness pass, round 2)
 - **Sidebar “Connect & SFTP” works again.** `MainWindow.connect_session()` now
   returns the opened tab; `_connect_and_sftp()` chained off that return value,

@@ -45,6 +45,15 @@ class SessionTree(QWidget):
     newSessionRequested = Signal()
     localTerminalRequested = Signal()
     sideFlipRequested = Signal()  # Ctrl+Shift+B / double-click the grip
+    collapseRequested = Signal()  # rail chevron → collapse the whole panel
+    quickConnectRequested = Signal()  # Enter in the sidebar quick-connect box
+    # Tools-page rows (MobaXterm's Tools pane mirrors the Tools menu)
+    networkToolsRequested = Signal()
+    keyUtilityRequested = Signal()
+    sharingRequested = Signal()
+    rdpServerRequested = Signal()
+    paletteRequested = Signal()
+    settingsRequested = Signal()
 
     def __init__(self, store: SessionStore, parent: QWidget | None = None, settings=None) -> None:
         super().__init__(parent)
@@ -55,12 +64,37 @@ class SessionTree(QWidget):
         # Buttons whose icons are re-tinted on a live theme switch
         self._themed_buttons: list[tuple[QPushButton, str]] = []
 
-        # MobaXterm layout: a vertical tab rail on the far left ("Sessions",
-        # "Tools") next to a white panel holding a search box, a compact
-        # icon button row and the Explorer-style session tree.
+        # MobaXterm layout: a vertical tab rail on the far left — collapse
+        # chevron on top, then icon + rotated-label tabs ("Sessions",
+        # "Tools") — next to a white panel holding the quick-connect box, a
+        # compact icon button row, a search box and the Explorer-style tree.
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        self._rail_column = QWidget()
+        self._rail_column.setObjectName("railColumn")
+        rc = QVBoxLayout(self._rail_column)
+        rc.setContentsMargins(0, 2, 0, 0)
+        rc.setSpacing(2)
+        rc.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        # Collapse chevron — MobaXterm's « / » button above the rail tabs.
+        # It points at the window edge the panel folds into (left-docked
+        # panels show «, right-docked ones »). Wired to MainWindow's
+        # _toggle_sidebar(False) — the same path as Ctrl+B.
+        self.collapse_btn = QPushButton("«")
+        self.collapse_btn.setObjectName("railCollapse")
+        self.collapse_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.collapse_btn.setToolTip(
+            "Collapse the sidebar (Ctrl+B)\n"
+            "Bring it back with Ctrl+B, View → Toggle Sidebar, or the Sessions toolbar button"
+        )
+        self.collapse_btn.setAccessibleName("Collapse sidebar")
+        self.collapse_btn.setFixedSize(24, 20)
+        self.collapse_btn.clicked.connect(self.collapseRequested.emit)
+        rc.addWidget(self.collapse_btn, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.rail = QTabBar()
         self.rail.setObjectName("sideRail")
@@ -69,11 +103,17 @@ class SessionTree(QWidget):
         self.rail.setExpanding(False)
         self.rail.setUsesScrollButtons(False)
         self.rail.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rail.setIconSize(QSize(15, 15))
         self.rail.addTab("Sessions")
         self.rail.addTab("Tools")
+        # Coloured rail glyphs, MobaXterm-style: blue sessions/server tile,
+        # gray tools gear (toolbar_icon re-tints on a live theme switch).
+        self.rail.setTabIcon(0, toolbar_icon("server"))
+        self.rail.setTabIcon(1, toolbar_icon("gear"))
         self.rail.setTabToolTip(0, "Saved sessions")
         self.rail.setTabToolTip(1, "Tools & utilities")
-        outer.addWidget(self.rail, 0, Qt.AlignmentFlag.AlignTop)
+        rc.addWidget(self.rail, 0)
+        outer.addWidget(self._rail_column, 0, Qt.AlignmentFlag.AlignTop)
 
         self.pages = QStackedWidget()
         outer.addWidget(self.pages, 1)
@@ -118,6 +158,26 @@ class SessionTree(QWidget):
         self._count_label.setToolTip("Number of saved sessions")
         hl.addWidget(self._count_label)
         layout.addWidget(header)
+
+        # Quick connect — MobaXterm's signature top-of-panel box: type
+        # user@host[:port] and hit Enter. Shares MainWindow's parse/connect
+        # path with the toolbar and dashboard inputs (port 3389 ⇒ RDP).
+        self.side_quick = QLineEdit()
+        self.side_quick.setObjectName("sideQuick")
+        self.side_quick.setPlaceholderText("Quick connect…  user@host")
+        self.side_quick.setClearButtonEnabled(True)
+        self.side_quick.setMinimumWidth(0)
+        self.side_quick.setFixedHeight(26)
+        self.side_quick.setAccessibleName("Quick connect from sidebar")
+        self.side_quick.setToolTip(
+            "Open user@host[:port] — port 3389 opens RDP (Enter)"
+        )
+        self._side_quick_action = self.side_quick.addAction(
+            icon("connect"), QLineEdit.ActionPosition.LeadingPosition
+        )
+        self._side_quick_action.setToolTip("Quick connect (Enter)")
+        self.side_quick.returnPressed.connect(self.quickConnectRequested.emit)
+        layout.addWidget(self.side_quick)
 
         # Icon toolbar row (new session · local terminal · new folder) —
         # MobaXterm's small 16 px buttons above the sessions tree.
@@ -238,20 +298,29 @@ class SessionTree(QWidget):
         self.tools_list.setRootIsDecorated(False)
         self.tools_list.setIconSize(QSize(16, 16))
         self._tool_items: list[tuple[QTreeWidgetItem, str]] = []
+        # MobaXterm's Tools pane mirrors the Tools menu: session actions
+        # first, then the standalone utilities (double- or single-click).
         for label, icon_name, signal_name in (
             ("Local terminal", "console", "localTerminalRequested"),
             ("New session…", "plus", "newSessionRequested"),
             ("New folder…", "folder", "newFolderRequested"),
+            ("Network tools…", "server", "networkToolsRequested"),
+            ("SSH key utility…", "key", "keyUtilityRequested"),
+            ("File sharing…", "transfer", "sharingRequested"),
+            ("RDP servers…", "windows", "rdpServerRequested"),
+            ("Command palette…", "search", "paletteRequested"),
+            ("Settings…", "gear", "settingsRequested"),
         ):
             it = QTreeWidgetItem([label])
             it.setIcon(0, toolbar_icon(icon_name))
             it.setData(0, ROLE_GROUP, signal_name)
+            it.setToolTip(0, label.rstrip("…"))
             self.tools_list.addTopLevelItem(it)
             self._tool_items.append((it, icon_name))
         self.tools_list.itemDoubleClicked.connect(self._tool_activated)
         self.tools_list.itemClicked.connect(self._tool_activated)
         tl.addWidget(self.tools_list, 1)
-        t_hint = QLabel("More tools live in the toolbar and the Tools menu.")
+        t_hint = QLabel("Click a tool — everything here is also in the Tools menu.")
         t_hint.setObjectName("caption")
         t_hint.setWordWrap(True)
         tl.addWidget(t_hint)
@@ -280,12 +349,15 @@ class SessionTree(QWidget):
         self.rail.setShape(
             QTabBar.Shape.RoundedEast if side == "right" else QTabBar.Shape.RoundedWest
         )
+        # The chevron points at the edge the panel folds into.
+        if hasattr(self, "collapse_btn"):
+            self.collapse_btn.setText("»" if side == "right" else "«")
         outer = self.layout()
         if outer is not None:
             # addWidget moves an item that is already in the layout to the end
-            outer.addWidget(self.rail, 0, Qt.AlignmentFlag.AlignTop)
+            outer.addWidget(self._rail_column, 0, Qt.AlignmentFlag.AlignTop)
             if side == "left":
-                outer.insertWidget(0, self.rail, 0, Qt.AlignmentFlag.AlignTop)
+                outer.insertWidget(0, self._rail_column, 0, Qt.AlignmentFlag.AlignTop)
         self.setProperty("side", side)
         style = self.style()
         style.unpolish(self)
@@ -426,7 +498,10 @@ class SessionTree(QWidget):
         # the new palette's colours.
         self.reload()
         self._search_action.setIcon(icon("search"))
+        self._side_quick_action.setIcon(icon("connect"))
         self.dock_grip.setIcon(icon("grip"))
+        self.rail.setTabIcon(0, toolbar_icon("server"))
+        self.rail.setTabIcon(1, toolbar_icon("gear"))
         for btn, icon_name in self._themed_buttons:
             btn.setIcon(toolbar_icon(icon_name))
         for it, icon_name in getattr(self, "_tool_items", []):

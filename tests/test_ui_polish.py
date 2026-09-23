@@ -259,6 +259,81 @@ def test_sidebar_has_rail_and_pages(home, qtapp) -> None:
     sb.close()
 
 
+def test_sidebar_moba_rail_chrome(home, qtapp) -> None:  # noqa: ARG001
+    """MobaXterm sidebar anatomy: iconed rail tabs, collapse chevron on top,
+    quick-connect box at the head of the Sessions page, full Tools pane."""
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.sidebar import SessionTree
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    sb = SessionTree(SessionStore(home / "sessions.json"))
+    # Rail tabs carry their coloured glyphs (never a null icon).
+    assert not sb.rail.tabIcon(0).isNull()
+    assert not sb.rail.tabIcon(1).isNull()
+    assert sb.rail.iconSize().width() > 0
+    # The collapse chevron sits above the tabs and points at the dock edge.
+    assert sb.collapse_btn.objectName() == "railCollapse"
+    assert sb.collapse_btn.text() == "«"  # left-docked by default
+    fired: list[str] = []
+    sb.collapseRequested.connect(lambda: fired.append("collapse"))
+    sb.collapse_btn.click()
+    # Quick connect — MobaXterm's top-of-panel box, Enter emits the request.
+    assert sb.side_quick.objectName() == "sideQuick"
+    assert "Quick connect" in sb.side_quick.placeholderText()
+    sb.quickConnectRequested.connect(lambda: fired.append("quick"))
+    sb.side_quick.setText("root@10.0.0.5")
+    sb.side_quick.returnPressed.emit()
+    assert fired == ["collapse", "quick"]
+    # Flipping the panel mirrors the chevron and moves the rail column.
+    sb.set_side("right")
+    assert sb.collapse_btn.text() == "»"
+    assert sb.layout().itemAt(1).widget() is sb._rail_column
+    sb.set_side("left")
+    assert sb.collapse_btn.text() == "«"
+    assert sb.layout().itemAt(0).widget() is sb._rail_column
+    # Tools page mirrors the Tools menu (not just session creation).
+    sb.rail.setCurrentIndex(1)
+    labels = [sb.tools_list.topLevelItem(i).text(0) for i in range(sb.tools_list.topLevelItemCount())]
+    for expected in (
+        "Local terminal",
+        "Network tools…",
+        "SSH key utility…",
+        "File sharing…",
+        "RDP servers…",
+        "Settings…",
+    ):
+        assert expected in labels, expected
+    sb.close()
+
+
+def test_sidebar_chrome_wired_into_main_window(home, qtapp) -> None:  # noqa: ARG001
+    """The chevron collapses via _toggle_sidebar(False) (never a toggle) and
+    the sidebar quick-connect feeds the shared parse/connect path."""
+    from rdpstudio.app import build_context
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.main_window import MainWindow
+
+    ctx = build_context()
+    theme.apply_theme(qtapp, ctx.settings.theme, animations=False)
+    win = MainWindow(ctx)
+    try:
+        toggles: list = []
+        quick_srcs: list = []
+        win._toggle_sidebar = lambda checked=None: toggles.append(checked)
+        win._quick_connect_from = lambda src: quick_srcs.append(src.text())
+
+        win.sidebar.collapse_btn.click()
+        assert toggles == [False]  # explicit False — collapse, don't invert
+
+        win.sidebar.side_quick.setText("user@host.example")
+        win.sidebar.side_quick.returnPressed.emit()
+        assert quick_srcs == ["user@host.example"]
+    finally:
+        win.close()
+        qtapp.processEvents()
+
+
 def _wcag_ratio(a: str, b: str) -> float:
     def chan(c: float) -> float:
         return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4

@@ -1,5 +1,19 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 9 — MobaXterm left-sidebar parity (2026-09)
+
+Presentation-layer only, again: the Sessions panel was rebuilt to the MobaXterm
+left-sidebar anatomy without touching sessions, protocols, docking or the store.
+
+| Area | Change |
+|---|---|
+| **Rail chevron** | MobaXterm's collapse button sits on top of the vertical rail (`«` when docked left, `»` when right — it points at the edge the panel folds into). `SessionTree.collapseRequested` → `MainWindow._toggle_sidebar(False)` — *explicit* False so the signal can never invert and re-expand (Ctrl+B / View / the Sessions toolbar button remain the restore paths). New `#railCollapse` QSS (accent glyph, subtle hover pill). |
+| **Rail tab glyphs** | `QTabBar#sideRail` tabs now carry coloured icons — blue `server` for Sessions, gray `gear` for Tools (`toolbar_icon`, so live theme switches re-tint them). Tab `min-height` 56 → 64 px and `min-width` 14 → 16 px so icon + rotated label fit; `setIconSize(15)`. |
+| **Quick connect in the panel** | MobaXterm's signature top-of-panel box: `#sideQuick` (styled with `#search`) sits between the header and the icon row. Enter emits `quickConnectRequested` → `MainWindow._quick_connect_from(sidebar.side_quick)` — the exact parse/upsert/open path shared with the toolbar and dashboard inputs. |
+| **Tools tab mirrors the Tools menu** | The Tools page listed three session actions; it now lists all nine launchers (Local terminal, New session…, New folder…, Network tools…, SSH key utility…, File sharing…, RDP servers…, Command palette…, Settings…), each a new `Signal` on `SessionTree` wired in `_build_body` to the existing openers. |
+| **Docking intact** | Rail + chevron live in a new `_rail_column` widget; `set_side()` reorders *that* (addWidget → append, insertWidget(0) → prepend) and mirrors the chevron glyph, so drag/double-click/Ctrl+Shift+B flipping keeps working. Grip, count badge, search, empty states, pin/recents/context menus untouched. |
+| **Tests** | `test_sidebar_moba_rail_chrome`, `test_sidebar_chrome_wired_into_main_window` added; the pre-existing rail contract (`count()==2`, tab texts, page switching) still holds. Full suite + ruff green. |
+
 ## Round 8 — MobaXterm Dark (new default) + mouse-driven docking (2026-09)
 
 Presentation-layer only, again: no core/protocol changes. Two user requests —

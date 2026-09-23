@@ -489,6 +489,20 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.sidebar.newSessionRequested.connect(self.new_session)
         self.sidebar.newFolderRequested.connect(self.sidebar.prompt_new_folder)
         self.sidebar.localTerminalRequested.connect(self.open_local_terminal)
+        # MobaXterm sidebar chrome: rail chevron collapses the panel (the
+        # Ctrl+B path — pass False explicitly so the signal never *toggles*);
+        # the top-of-panel quick-connect box shares the toolbar's parse path.
+        self.sidebar.collapseRequested.connect(lambda: self._toggle_sidebar(False))
+        self.sidebar.quickConnectRequested.connect(
+            lambda: self._quick_connect_from(self.sidebar.side_quick)
+        )
+        # Tools page — the pane mirrors the Tools menu (MobaXterm's Tools tab).
+        self.sidebar.networkToolsRequested.connect(self.open_network_tools)
+        self.sidebar.keyUtilityRequested.connect(self.open_key_utility)
+        self.sidebar.sharingRequested.connect(self.open_share_server)
+        self.sidebar.rdpServerRequested.connect(self.open_rdp_server_manager)
+        self.sidebar.paletteRequested.connect(self.open_command_palette)
+        self.sidebar.settingsRequested.connect(self.open_settings)
 
         # Track manual splitter drag so the sidebar width survives a
         # hide/show toggle and persists across restarts.
