@@ -380,17 +380,17 @@ QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
     color: {fg_muted};
     border-color: {border_subtle};
 }}
-QLineEdit#search {{
+QLineEdit#search, QLineEdit#sideQuick {{
     border-radius: 6px;
     padding: 4px 8px 4px 8px;
     background: {bg2};
     border: 1px solid {border_strong};
     font-size: 12.5px;
 }}
-QLineEdit#search:focus {{
+QLineEdit#search:focus, QLineEdit#sideQuick:focus {{
     border-color: {accent};
 }}
-QLineEdit#search:hover {{
+QLineEdit#search:hover, QLineEdit#sideQuick:hover {{
     border-color: {fg_muted};
 }}
 QLineEdit#invalid, QSpinBox#invalid, QComboBox#invalid {{
@@ -555,7 +555,23 @@ QTabBar[dock="left"]::scroller, QTabBar[dock="right"]::scroller {{
     height: 30px;
 }}
 
-/* Vertical tab strip (sidebar left rail: Sessions / Tools / Macros) */
+/* Vertical tab strip (sidebar left rail: chevron + Sessions / Tools) */
+QPushButton#railCollapse {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: {accent};
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0px;
+}}
+QPushButton#railCollapse:hover {{
+    background: {accent_subtle};
+    border-color: {border};
+}}
+QPushButton#railCollapse:pressed {{
+    background: {bg3};
+}}
 QTabBar#sideRail {{
     border: none;
 }}
@@ -564,10 +580,10 @@ QTabBar#sideRail::tab {{
     color: {fg_dim};
     border: 1px solid transparent;
     border-radius: 6px;
-    padding: 12px 4px 12px 3px;
+    padding: 10px 4px 10px 3px;
     margin: 3px 4px 3px 2px;
-    min-height: 56px;
-    min-width: 14px;
+    min-height: 64px;
+    min-width: 16px;
     font-size: 11px;
 }}
 QTabBar#sideRail::tab:selected {{
