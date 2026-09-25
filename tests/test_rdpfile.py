@@ -32,6 +32,18 @@ def test_gateway():
     assert "gatewayusername:s:gwd" in text
 
 
+def test_control_characters_rejected_from_rdp_strings():
+    import pytest
+
+    s = Session(
+        protocol="rdp",
+        host="win",
+        rdp_gateway_user="evil\nauthentication level:i:0",
+    )
+    with pytest.raises(ValueError):
+        build_rdp_text(s)
+
+
 def test_write_file(tmp_path):
     s = Session(id="abc123", name="win box", protocol="rdp", host="w")
     path = write_rdp_file(s, tmp_path)

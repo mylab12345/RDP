@@ -417,3 +417,55 @@ def test_controllers_have_stop_blocking(home, qtapp):
     for c in (ssh, local):
         assert callable(getattr(c, "stop_blocking", None))
         c.stop_blocking("test exit")  # must not raise even with nothing running
+
+
+def test_share_password_rejects_unbounded_kdf():
+    from rdpstudio.tools.share_server import verify_password
+
+    huge = "pbkdf2-sha256$1099511627776$AAAA$BBBB"
+    assert verify_password("secret", huge) is False
+
+
+def test_known_host_exact_match_is_accepted_without_prompt(tmp_path):
+    import paramiko
+
+    from rdpstudio.protocols.ssh.knownhosts import KnownHostsVerifier
+
+    key = paramiko.RSAKey.generate(1024)
+    path = tmp_path / "known_hosts"
+    keys = paramiko.HostKeys()
+    keys.add("example.test", key.get_name(), key)
+    keys.save(str(path))
+
+    class NoPrompt:
+        def ask_host_key(self, *args, **kwargs):
+            raise AssertionError("must not prompt for a known matching key")
+
+    verifier = KnownHostsVerifier(path, "strict", NoPrompt())
+    verifier.missing_host_key(None, "example.test", key)
+
+
+def test_log_redacts_exception_traceback(tmp_path):
+    import io
+    import logging
+
+    from rdpstudio.core import log as logmod
+
+    logmod.forget_secrets()
+    logmod.redact_secret("super-secret-password")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logmod._RedactingFormatter("%(message)s"))
+    handler.addFilter(logmod._RedactingFilter())
+    logger = logging.getLogger("rdpstudio.test_redact")
+    logger.handlers[:] = [handler]
+    logger.setLevel(logging.ERROR)
+    logger.propagate = False
+    try:
+        raise RuntimeError("login failed with super-secret-password")
+    except RuntimeError:
+        logger.exception("boom")
+    text = stream.getvalue()
+    assert "super-secret-password" not in text
+    assert "***REDACTED***" in text
+    logmod.forget_secrets()

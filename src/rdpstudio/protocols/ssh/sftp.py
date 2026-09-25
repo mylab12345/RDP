@@ -384,7 +384,12 @@ class SftpEngine(QObject):
         part = local_path.with_name(local_path.name + ".part")
         resume_from = 0
         try:
-            existing = part.stat().st_size
+            existing_st = os.lstat(part)
+            if stat.S_ISLNK(existing_st.st_mode) or not stat.S_ISREG(existing_st.st_mode):
+                os.unlink(part)
+                existing = 0
+            else:
+                existing = existing_st.st_size
         except OSError:
             existing = 0
         remote_size = int(st.st_size or 0)
@@ -392,12 +397,19 @@ class SftpEngine(QObject):
             resume_from = existing
         elif existing >= remote_size and remote_size > 0:
             try:
-                part.unlink()
+                os.unlink(part)
             except OSError:
                 pass
-        # Bytes already on disk from an interrupted run count immediately.
         job.done_bytes += resume_from
-        with open(part, "ab" if resume_from else "wb") as out:
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(part, flags, 0o600)
+        with os.fdopen(fd, "rb+") as out:
+            if resume_from:
+                out.seek(resume_from)
+            else:
+                out.truncate(0)
             with self._sftp.open(remote, "rb") as src:
                 prefetch = getattr(src, "prefetch", None)
                 if callable(prefetch):
@@ -421,6 +433,11 @@ class SftpEngine(QObject):
                     out.write(data)
                     job.done_bytes += len(data)
                     self._progress(job)
+        got = os.lstat(part).st_size
+        if remote_size > 0 and got != remote_size:
+            raise RuntimeError(
+                f"download size mismatch for {remote}: got {got}, expected {remote_size}"
+            )
         os.replace(part, local_path)
         job.files_done += 1
         try:

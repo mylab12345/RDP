@@ -153,6 +153,16 @@ def test_unique_share_names_are_suffixed():
     assert unique_share_names(existing, "Tools") == "Tools-3"
 
 
+@pytest.mark.unit
+def test_unique_share_names_max_length_does_not_loop():
+    long_name = "A" * 64
+    existing = [Share(long_name, "/a"), Share(long_name, "/b")]
+    name = unique_share_names(existing, long_name)
+    assert name != long_name
+    assert len(name) <= 64
+    assert name.lower() not in {long_name.lower()}
+
+
 # ----------------------------------------------------------------------
 # registry: scopes, collisions, dynamic updates
 # ----------------------------------------------------------------------

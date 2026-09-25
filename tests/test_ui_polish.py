@@ -299,7 +299,6 @@ def test_sidebar_moba_rail_chrome(home, qtapp) -> None:  # noqa: ARG001
         "Local terminal",
         "Network tools…",
         "SSH key utility…",
-        "File sharing…",
         "RDP servers…",
         "Settings…",
     ):

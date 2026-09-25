@@ -164,15 +164,6 @@ class SessionTab(QWidget):
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             h.addWidget(b)
 
-        if caps.file_sharing:
-            b = make_action_btn(
-                "Share",
-                "transfer",
-                "Share local folders with this machine over SFTP",
-                lambda: self.main.open_share_for_session(controller.definition),
-            )
-            h.addWidget(b)
-
         # Close button for the tab
         close_btn = QPushButton()
         close_btn.setIcon(icon("close"))
@@ -327,11 +318,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._lock_timer.setInterval(30_000)
         self._lock_timer.timeout.connect(self._autolock)
         self._lock_timer.start()
-
-        # Opt-in: bring the share listener up with the app. Deferred so a
-        # socket error surfaces as a toast after the window is visible rather
-        # than during construction.
-        QTimer.singleShot(400, self._autostart_share_server)
 
         geo = ctx.settings.geometry
         if isinstance(geo, dict) and geo.get("size"):
@@ -499,7 +485,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # Tools page — the pane mirrors the Tools menu (MobaXterm's Tools tab).
         self.sidebar.networkToolsRequested.connect(self.open_network_tools)
         self.sidebar.keyUtilityRequested.connect(self.open_key_utility)
-        self.sidebar.sharingRequested.connect(self.open_share_server)
         self.sidebar.rdpServerRequested.connect(self.open_rdp_server_manager)
         self.sidebar.paletteRequested.connect(self.open_command_palette)
         self.sidebar.settingsRequested.connect(self.open_settings)
@@ -1077,11 +1062,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if caps.sftp:
             menu.addSeparator()
             menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
-        if caps.file_sharing:
-            menu.addAction(
-                "Share Local Folders\u2026",
-                lambda: self.open_share_for_session(widget.controller.definition),
-            )
 
         menu.exec(tab_bar.mapToGlobal(pos))
 
@@ -1149,48 +1129,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
 
         KeyUtilityDialog(self.ctx, self).show()
 
-    # ------------------------------------------------------------------
-    # Built-in SFTP share server
-    # ------------------------------------------------------------------
-    def share_service(self):
-        """The app-wide share service (built lazily when the context lacks one)."""
-        service = getattr(self.ctx, "share_service", None)
-        if service is None:
-            from ..tools.share_server import ShareService
-
-            service = ShareService(self.ctx.settings)
-            self.ctx.share_service = service
-        return service
-
-    def open_share_server(self):
-        from .share_server_dialog import open_share_dialog
-
-        return open_share_dialog(self, self.share_service())
-
-    def open_share_for_session(self, definition: Session):
-        """Share manager scoped to one machine: global folders + its own."""
-        from .share_server_dialog import open_share_dialog
-
-        return open_share_dialog(self, self.share_service(), definition)
-
     def save_settings(self) -> None:
         """Persist settings now (used by tool dialogs that edit them live)."""
         self.ctx.settings.save(paths.settings_file())
-
-    def _autostart_share_server(self) -> None:
-        """Bring the share listener up if the user enabled autostart."""
-        service = self.share_service()
-        settings = self.ctx.settings
-        if not (settings.share_server_enabled or settings.share_server_autostart):
-            return
-        if service.server.running:
-            return
-        try:
-            service.start()
-            toast(self, f"File share listening on {service.server.display_address()}", "info")
-        except Exception as exc:  # a failed listener must never block startup
-            log.warning("share server autostart failed: %s", exc)
-            toast(self, f"Share server could not start: {exc}", "warn")
 
     # ------------------------------------------------------------------
     # Session lifecycle

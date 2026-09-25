@@ -30,9 +30,9 @@ dependencies = [
   #  - paramiko  >= 3.4.0 : CVE-2023-48795 (Terrapin SSH prefix truncation)
   #  - cryptography >= 44.0.1 : CVE-2024-12797 (OpenSSL RFC7250 handshake)
   "PySide6-Essentials>=6.6",
-  "paramiko>=3.4.1",
+  "paramiko>=3.5.1",
   "pyte>=0.8.2",
-  "cryptography>=44.0.1",
+  "cryptography>=44.0.2",
 ]
 
 [project.optional-dependencies]
