@@ -791,8 +791,8 @@ def test_rdp_capabilities_advertise_file_sharing(qtapp, home, tmp_path):
 
 
 @pytest.mark.gui
-def test_rdp_tab_offers_a_share_button(qtapp, home, tmp_path):
-    """The RDP tab header must expose the share manager (the entry point users click)."""
+def test_rdp_tab_does_not_offer_a_share_button(qtapp, home, tmp_path):
+    """File-sharing UI was removed; the RDP tab must not expose a Share action."""
     from PySide6.QtWidgets import QPushButton
 
     from rdpstudio.core.events import EventBus
@@ -816,21 +816,14 @@ def test_rdp_tab_offers_a_share_button(qtapp, home, tmp_path):
         ctx.store.upsert(session)
         tab = main.open_session(ctx.store.get(session.id))
         labels = [b.text() for b in tab.findChildren(QPushButton)]
-        assert "Share" in labels
-
-        # ...and it opens the manager for that machine
-        share_btn = next(b for b in tab.findChildren(QPushButton) if b.text() == "Share")
-        share_btn.click()
-        dialog = getattr(main, "_share_dialog", None)
-        assert dialog is not None and dialog.session.id == session.id
-        dialog._timer.stop()
-        dialog.close()
+        assert "Share" not in labels
+        assert not hasattr(main, "open_share_server")
     finally:
         main.close()
 
 
 @pytest.mark.gui
-def test_session_dialog_edits_rdp_shares(qtapp, home, share_tree, tmp_path):
+def test_session_dialog_has_no_rdp_shares_editor(qtapp, home, share_tree, tmp_path):
     from rdpstudio.core.events import EventBus
     from rdpstudio.core.models import PROTOCOL_RDP, Session
     from rdpstudio.core.plugin import SessionContext
@@ -853,17 +846,16 @@ def test_session_dialog_edits_rdp_shares(qtapp, home, share_tree, tmp_path):
     )
     dialog = SessionDialog(ctx, session)
     try:
-        assert dialog.share_list.count() == 1
-        dialog.share_list.setCurrentRow(0)
-        dialog._remove_shared_folder()
+        assert not hasattr(dialog, "share_list")
         collected = dialog._collect_session()
-        assert collected.rdp_shares == []
+        # Existing share records are left intact; the editor no longer mutates them.
+        assert [s.name for s in collected.rdp_shares] == ["Builds"]
     finally:
         dialog.close()
 
 
 @pytest.mark.gui
-def test_settings_dialog_exposes_share_defaults(qtapp, home, share_tree, tmp_path):
+def test_settings_dialog_has_no_share_controls(qtapp, home, share_tree, tmp_path):
     from rdpstudio.core.settings import Settings
     from rdpstudio.ui.settings_dialog import SettingsDialog
 
@@ -873,11 +865,12 @@ def test_settings_dialog_exposes_share_defaults(qtapp, home, share_tree, tmp_pat
     settings.share_server_shares = [{"name": "Tools", "path": str(share_tree["tools"])}]
     dialog = SettingsDialog(settings)
     try:
-        assert dialog.share_port.value() == 2211
-        assert dialog.share_user.text() == "lab"
-        assert dialog.share_folders.count() == 1
+        assert not hasattr(dialog, "share_port")
+        assert not hasattr(dialog, "share_folders")
         dialog._save()
+        # Saving other settings must not wipe persisted share-server config.
         assert settings.share_server_port == 2211
+        assert settings.share_server_user == "lab"
         assert settings.share_server_shares[0]["path"] == str(share_tree["tools"])
     finally:
         dialog.close()

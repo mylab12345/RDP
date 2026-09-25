@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import copy
-import os
 import threading
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -46,7 +45,6 @@ from ..core.models import (
 )
 from ..core.plugin import SessionContext, registry
 from ..core.session_check import check_session_connectivity
-
 
 RDP_RESOLUTIONS = ((1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440))
 _RDP_STEP = 8

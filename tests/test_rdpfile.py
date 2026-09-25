@@ -1,5 +1,7 @@
 """RDP file generation for mstsc."""
 
+import pytest
+
 from rdpstudio.core.models import Session
 from rdpstudio.protocols.rdp.rdpfile import build_rdp_text, write_rdp_file
 
@@ -33,8 +35,6 @@ def test_gateway():
 
 
 def test_control_characters_rejected_from_rdp_strings():
-    import pytest
-
     s = Session(
         protocol="rdp",
         host="win",

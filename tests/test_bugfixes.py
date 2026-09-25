@@ -70,7 +70,7 @@ def test_known_fingerprint(tmp_path):
 
     path = tmp_path / "known_hosts"
     verifier = KnownHostsVerifier(path, "accept-new", prompter=None)
-    key = paramiko.RSAKey.generate(1024)
+    key = paramiko.RSAKey.generate(2048)
     verifier.host_keys.add("example.com", key.get_name(), key)
 
     fp = verifier.known_fingerprint("example.com")
@@ -431,7 +431,7 @@ def test_known_host_exact_match_is_accepted_without_prompt(tmp_path):
 
     from rdpstudio.protocols.ssh.knownhosts import KnownHostsVerifier
 
-    key = paramiko.RSAKey.generate(1024)
+    key = paramiko.RSAKey.generate(2048)
     path = tmp_path / "known_hosts"
     keys = paramiko.HostKeys()
     keys.add("example.test", key.get_name(), key)

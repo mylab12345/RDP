@@ -901,7 +901,6 @@ class SettingsDialog(QDialog):
         self.btn_xwayland.setVisible(self._xwayland_useful)
 
     def _restart_via_xwayland(self) -> None:
-        from PySide6.QtWidgets import QMessageBox
 
         from ..protocols.rdp.embed import relaunch_under_x11
 
