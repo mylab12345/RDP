@@ -333,6 +333,13 @@ class SshWorker(QObject):
         client = paramiko.SSHClient()
         verifier = KnownHostsVerifier(self.known_hosts_path, self.host_key_policy, self.prompter)
         client.set_missing_host_key_policy(verifier)
+        # Load the same cache the policy uses so a known matching key is not
+        # treated as missing (SR-09).
+        if self.known_hosts_path.exists():
+            try:
+                client.load_host_keys(str(self.known_hosts_path))
+            except OSError:
+                pass
         kwargs: dict = dict(
             hostname=host,
             port=port,
@@ -375,55 +382,68 @@ class SshWorker(QObject):
                             f"cannot load key {material.key_path}: {exc}"
                         ) from exc
             agent_pkeys: list[paramiko.PKey] = []
+            agent = None
             if material.allow_agent:
                 try:
                     agent = paramiko.Agent()
                     agent_pkeys = list(agent.get_keys() or ())
-                    agent.close()
                 except Exception:  # noqa: BLE001
                     agent_pkeys = []
+                    if agent is not None:
+                        try:
+                            agent.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        agent = None
 
-            tried = []
-            for candidate in [*agent_pkeys, *([pkey] if pkey else [])]:
-                kwargs["pkey"] = candidate
-                kwargs.pop("password", None)
-                tried.append(candidate.get_name())
-                try:
-                    client.connect(**kwargs)
-                    self._announce(client)
-                    return client
-                except paramiko.AuthenticationException:
-                    continue
-                except Exception:
-                    raise
-            kwargs.pop("pkey", None)
-            if material.password:
-                redact_secret(material.password)
-                kwargs["password"] = material.password
-                try:
-                    client.connect(**kwargs)
-                    self._announce(client)
-                    return client
-                except paramiko.AuthenticationException:
-                    material.password = None
+            try:
+                tried = []
+                for candidate in [*agent_pkeys, *([pkey] if pkey else [])]:
+                    kwargs["pkey"] = candidate
+                    kwargs.pop("password", None)
+                    tried.append(candidate.get_name())
+                    try:
+                        client.connect(**kwargs)
+                        self._announce(client)
+                        return client
+                    except paramiko.AuthenticationException:
+                        continue
+                    except Exception:
+                        raise
+                kwargs.pop("pkey", None)
+                if material.password:
+                    redact_secret(material.password)
+                    kwargs["password"] = material.password
+                    try:
+                        client.connect(**kwargs)
+                        self._announce(client)
+                        return client
+                    except paramiko.AuthenticationException:
+                        material.password = None
 
-            # Nothing worked: interactive password prompt (max 3 rounds).
-            if password_attempts >= 3:
-                tried_txt = ", ".join(dict.fromkeys(tried)) or "none"
-                raise paramiko.AuthenticationException(
-                    f"authentication failed (tried: {tried_txt})"
+                # Nothing worked: interactive password prompt (max 3 rounds).
+                if password_attempts >= 3:
+                    tried_txt = ", ".join(dict.fromkeys(tried)) or "none"
+                    raise paramiko.AuthenticationException(
+                        f"authentication failed (tried: {tried_txt})"
+                    )
+                password_attempts += 1
+                self.stateInfo.emit("authentication required…")
+                answer = self.prompter.ask_secret(
+                    "SSH password", f"Password for {material.username or 'user'}@{host}:{port}",
+                    secret=True,
                 )
-            password_attempts += 1
-            self.stateInfo.emit("authentication required…")
-            answer = self.prompter.ask_secret(
-                "SSH password", f"Password for {material.username or 'user'}@{host}:{port}",
-                secret=True,
-            )
-            if answer is None:
-                raise paramiko.AuthenticationException("password entry cancelled")
-            redact_secret(answer)
-            material.password = answer
-            kwargs["password"] = answer
+                if answer is None:
+                    raise paramiko.AuthenticationException("password entry cancelled")
+                redact_secret(answer)
+                material.password = answer
+                kwargs["password"] = answer
+            finally:
+                if agent is not None:
+                    try:
+                        agent.close()
+                    except Exception:  # noqa: BLE001
+                        pass
 
     def _announce(self, client: paramiko.SSHClient) -> None:
         transport = client.get_transport()

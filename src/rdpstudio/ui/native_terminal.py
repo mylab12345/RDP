@@ -479,7 +479,7 @@ class NativeTerminalView(QWidget):
             # clipboard, leaving bare Ctrl+C and Ctrl+V for the remote shell.
             if ctrl and shift and not alt:
                 if key == Qt.Key.Key_V:
-                    self.paste_clipboard(confirm=False)
+                    self.paste_clipboard(confirm=True)
                     return True
                 if key == Qt.Key.Key_C:
                     self.copy_selection()
@@ -834,7 +834,7 @@ class NativeTerminalView(QWidget):
         if not text:
             return
         if confirm and bool(getattr(self.settings, "confirm_multiline_paste", True)) and (
-            "\n" in text or len(text) > 200
+            "\n" in text or "\r" in text or len(text) > 200
         ):
             preview = text if len(text) < 400 else text[:400] + "…"
             answer = QMessageBox.question(

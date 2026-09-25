@@ -50,7 +50,6 @@ class SessionTree(QWidget):
     # Tools-page rows (MobaXterm's Tools pane mirrors the Tools menu)
     networkToolsRequested = Signal()
     keyUtilityRequested = Signal()
-    sharingRequested = Signal()
     rdpServerRequested = Signal()
     paletteRequested = Signal()
     settingsRequested = Signal()
@@ -306,7 +305,6 @@ class SessionTree(QWidget):
             ("New folder…", "folder", "newFolderRequested"),
             ("Network tools…", "server", "networkToolsRequested"),
             ("SSH key utility…", "key", "keyUtilityRequested"),
-            ("File sharing…", "transfer", "sharingRequested"),
             ("RDP servers…", "windows", "rdpServerRequested"),
             ("Command palette…", "search", "paletteRequested"),
             ("Settings…", "gear", "settingsRequested"),

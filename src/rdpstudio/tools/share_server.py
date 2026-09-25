@@ -118,14 +118,16 @@ def verify_password(password: str, stored: str) -> bool:
         return False
     try:
         iterations = int(parts[1])
-        salt = base64.b64decode(parts[2])
-        expected = base64.b64decode(parts[3])
+        salt = base64.b64decode(parts[2], validate=True)
+        expected = base64.b64decode(parts[3], validate=True)
     except (ValueError, TypeError):
         return False
-    if iterations < 100_000 or not salt or not expected:
+    if iterations < 100_000 or iterations > 10_000_000:
+        return False
+    if len(salt) != _SALT_BYTES or len(expected) != _KEY_BYTES:
         return False
     digest = hashlib.pbkdf2_hmac(
-        "sha256", (password or "").encode("utf-8"), salt, iterations, dklen=len(expected)
+        "sha256", (password or "").encode("utf-8"), salt, iterations, dklen=_KEY_BYTES
     )
     return hmac.compare_digest(digest, expected)
 
@@ -284,8 +286,10 @@ class _ShareHandle(SFTPHandle):
         if self.readfile is None:
             return SFTP_PERMISSION_DENIED
         try:
+            # Cap a single SFTP read so a hostile length cannot allocate GiB.
+            n = max(0, min(int(length or 0), 1024 * 1024))
             self.readfile.seek(offset)
-            data = self.readfile.read(length)
+            data = self.readfile.read(n)
         except OSError:
             return SFTP_FAILURE
         if len(data) == 0:
@@ -445,8 +449,11 @@ class _ShareSFTPBackend(SFTPServerInterface):
             return SFTP_NO_SUCH_FILE
         share, real = found
         creating = bool(flags & os.O_CREAT)
+        truncating = bool(flags & os.O_TRUNC)
+        appending = bool(flags & os.O_APPEND)
         writing = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_APPEND))
-        if writing and not share.writable:
+        mutating = writing or creating or truncating or appending
+        if mutating and not share.writable:
             self.note("error", f"write refused (share {share.name} is read-only): {real.name}")
             return SFTP_PERMISSION_DENIED
         if creating and real.is_dir():

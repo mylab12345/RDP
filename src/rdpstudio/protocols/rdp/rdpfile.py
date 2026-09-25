@@ -9,16 +9,26 @@ from pathlib import Path
 
 from ...core.models import Session
 
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _rdp_str(value: object) -> str:
+    """Reject CR/LF/NUL so a field cannot inject extra .rdp records (SR-02)."""
+    text = str(value or "")
+    if _CTRL.search(text):
+        raise ValueError("RDP field contains control characters")
+    return text
+
 
 def build_rdp_text(defn: Session) -> str:
     width = defn.rdp_width or 1600
     height = defn.rdp_height or 900
     full = defn.rdp_fullscreen
     lines = [
-        f"full address:s:{defn.host}",
+        f"full address:s:{_rdp_str(defn.host)}",
         f"server port:i:{defn.endpoint()[1]}",
-        f"username:s:{defn.username}",
-        f"domain:s:{defn.domain}",
+        f"username:s:{_rdp_str(defn.username)}",
+        f"domain:s:{_rdp_str(defn.domain)}",
         f"desktopwidth:i:{'0' if full else width}",
         f"desktopheight:i:{'0' if full else height}",
         f"session bpp:i:{defn.rdp_color_depth}",
@@ -51,11 +61,11 @@ def build_rdp_text(defn: Session) -> str:
         "remoteapplicationmode:i:0",
         "alternate shell:s:",
         "shell working directory:s:",
-        "gatewayhostname:s:" + defn.rdp_gateway_host,
+        "gatewayhostname:s:" + _rdp_str(defn.rdp_gateway_host),
         f"gatewayusagemethod:i:{4 if defn.rdp_gateway_host else 0}",
         "gatewaycredentialssource:i:4" if defn.rdp_gateway_host else "gatewaycredentialssource:i:0",
         "gatewayprofileusagemethod:i:1" if defn.rdp_gateway_host else "gatewayprofileusagemethod:i:0",
-        f"gatewayusername:s:{defn.rdp_gateway_user}",
+        f"gatewayusername:s:{_rdp_str(defn.rdp_gateway_user)}",
         f"smart sizing:i:{1 if defn.rdp_fit_screen else 0}",
         "use multimon:i:0",
     ]

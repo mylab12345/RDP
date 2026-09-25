@@ -1,5 +1,7 @@
 """RDP file generation for mstsc."""
 
+import pytest
+
 from rdpstudio.core.models import Session
 from rdpstudio.protocols.rdp.rdpfile import build_rdp_text, write_rdp_file
 
@@ -30,6 +32,16 @@ def test_gateway():
     assert "gatewayhostname:s:gw.corp" in text
     assert "gatewayusagemethod:i:4" in text
     assert "gatewayusername:s:gwd" in text
+
+
+def test_control_characters_rejected_from_rdp_strings():
+    s = Session(
+        protocol="rdp",
+        host="win",
+        rdp_gateway_user="evil\nauthentication level:i:0",
+    )
+    with pytest.raises(ValueError):
+        build_rdp_text(s)
 
 
 def test_write_file(tmp_path):

@@ -201,11 +201,7 @@ class ShareRegistry:
                 continue
             if not share.enabled:
                 continue
-            name = share.name
-            n = 2
-            while name.lower() in used:
-                name = sanitize_share_name(f"{share.name}-{n}")
-                n += 1
+            name = _unique_truncated_name(share.name, used)
             used.add(name.lower())
             root = Path(os.path.expanduser(share.path))
             if not include_missing and not root.is_dir():
@@ -284,15 +280,24 @@ def shares_from_dicts(raw: object) -> list[Share]:
     return out[:MAX_SHARES]
 
 
+def _unique_truncated_name(wanted: str, taken: set[str], *, limit: int = 10_000) -> str:
+    """Pick a unique name that still fits ``_NAME_MAX`` after suffixing."""
+    base = sanitize_share_name(wanted)
+    if base.lower() not in taken:
+        return base
+    for n in range(2, limit + 2):
+        suffix = f"-{n}"
+        stem = base[: max(1, _NAME_MAX - len(suffix))].rstrip("._") or "share"
+        candidate = sanitize_share_name(stem + suffix)
+        if candidate.lower() not in taken:
+            return candidate
+    raise ShareError("Could not allocate a unique share name.")
+
+
 def unique_share_names(existing: list[Share], wanted: str) -> str:
     """Return ``wanted``, suffixed if a share in ``existing`` already uses it."""
     taken = {s.name.lower() for s in existing}
-    if wanted.lower() not in taken:
-        return wanted
-    n = 2
-    while f"{wanted}-{n}".lower() in taken:
-        n += 1
-    return f"{wanted}-{n}"
+    return _unique_truncated_name(wanted, taken)
 
 
 __all__ = [

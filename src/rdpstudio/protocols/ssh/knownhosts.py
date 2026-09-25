@@ -46,9 +46,15 @@ class KnownHostsVerifier(paramiko.MissingHostKeyPolicy):
         fingerprint = fingerprint_sha64(key)
         existing = self.host_keys.lookup(hostname)
         existing_keys = list(existing.values()) if existing else []
-        changed = bool(existing_keys) and not any(k == key for k in existing_keys)
+        known_match = any(k == key for k in existing_keys)
+        changed = bool(existing_keys) and not known_match
         self.last_fingerprint = fingerprint
         self.last_changed = changed
+
+        if known_match:
+            # Exact pinned match: never re-prompt (SR-09). Paramiko still
+            # calls this policy when the client's in-memory cache was empty.
+            return
 
         if changed:
             # Changed keys are serious (possible MITM). Require explicit consent.

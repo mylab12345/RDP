@@ -45,16 +45,30 @@ def forget_secrets() -> None:
         _SECRETS.clear()
 
 
+def _redact_text(text: str) -> str:
+    if not text:
+        return text
+    with _LOCK:
+        for secret in _SECRETS:
+            if secret in text:
+                text = text.replace(secret, _MASK)
+    return text
+
+
 class _RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        with _LOCK:
-            for secret in _SECRETS:
-                if secret in msg:
-                    msg = msg.replace(secret, _MASK)
-        record.msg = msg
+        record.msg = _redact_text(record.getMessage())
         record.args = ()
+        if record.exc_text:
+            record.exc_text = _redact_text(record.exc_text)
+        if getattr(record, "stack_info", None):
+            record.stack_info = _redact_text(record.stack_info)
         return True
+
+
+class _RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return _redact_text(super().format(record))
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
@@ -101,7 +115,7 @@ def setup_logging(log_dir: Path, verbose: bool = False, quiet: bool = False) -> 
         return
     root = logging.getLogger(_LOGGER_NAME)
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    fmt = _RedactingFormatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
 
     file_handler = logging.handlers.RotatingFileHandler(
         log_dir / "rdpstudio.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
@@ -110,7 +124,7 @@ def setup_logging(log_dir: Path, verbose: bool = False, quiet: bool = False) -> 
     file_handler.addFilter(_RedactingFilter())
 
     console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    console.setFormatter(_RedactingFormatter("%(levelname)s %(name)s: %(message)s"))
     console.addFilter(_RedactingFilter())
     if quiet:
         console.setLevel(logging.WARNING)

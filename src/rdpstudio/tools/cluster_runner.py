@@ -117,9 +117,13 @@ class ClusterRunner:
 
         client = paramiko.SSHClient()
         kh_path = Path(paths.known_hosts_file())
-        client.set_missing_host_key_policy(
-            KnownHostsVerifier(kh_path, policy=self.ctx.settings.host_key_policy, prompter=None)
-        )
+        verifier = KnownHostsVerifier(kh_path, policy=self.ctx.settings.host_key_policy, prompter=None)
+        client.set_missing_host_key_policy(verifier)
+        if kh_path.exists():
+            try:
+                client.load_host_keys(str(kh_path))
+            except OSError:
+                pass
 
         try:
             client.connect(

@@ -1290,7 +1290,9 @@ class TerminalView(QWidget):
             self.paste_text(text, confirm=False)
 
     def paste_text(self, text: str, confirm: bool = True) -> None:
-        if confirm and self.settings.confirm_multiline_paste and ("\n" in text or len(text) > 200):
+        if confirm and self.settings.confirm_multiline_paste and (
+            "\n" in text or "\r" in text or len(text) > 200
+        ):
             from PySide6.QtWidgets import QMessageBox
 
             preview = text if len(text) < 400 else text[:400] + "…"
@@ -1341,7 +1343,7 @@ class TerminalView(QWidget):
         # quoted-insert command for the remote shell.
         if ctrl and shift and not alt:
             if key == Qt.Key.Key_V:
-                self.paste_clipboard(confirm=False)
+                self.paste_clipboard(confirm=True)
                 event.accept()
                 return
             if key == Qt.Key.Key_C:

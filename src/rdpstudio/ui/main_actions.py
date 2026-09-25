@@ -135,14 +135,6 @@ class MainActionsMixin:
         a.triggered.connect(self.open_key_utility)
         m_tools.addAction(a)
 
-        a = QAction(icon("transfer"), "&File sharing server…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+S"))
-        a.setStatusTip("Share local folders with remote machines over SFTP")
-        a.triggered.connect(self.open_share_server)
-        m_tools.addAction(a)
-
-        m_tools.addSeparator()
-
         a = QAction(icon("windows"), "RDP server &manager…", self)
         a.triggered.connect(self.open_rdp_server_manager)
         m_tools.addAction(a)
@@ -271,7 +263,6 @@ class MainActionsMixin:
         add_tool("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
         add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
         add_tool("transfer", "Tunneling", "SSH tunnels / port forwarding for the active session", self.open_tunnels_dialog)
-        add_tool("folder", "Sharing", "Serve local folders to remote machines (Ctrl+Shift+S)", self.open_share_server)
 
         bar.addSeparator()
 
