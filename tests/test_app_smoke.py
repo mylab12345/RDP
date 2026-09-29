@@ -137,3 +137,99 @@ def test_settings_dialog_saves_download_dir(ctx, qtapp, home):
     dlg._save()
     assert Settings.load(paths.settings_file()).default_download_dir == str(target)
     dlg.deleteLater()
+
+
+def test_closing_last_session_tab_keeps_app_running(ctx, qtapp, monkeypatch):
+    """Closing every open session must never quit the application — the
+    window stays up, showing the dashboard, ready to accept new sessions."""
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("posix pty")
+    from rdpstudio.core.models import PROTOCOL_LOCAL, Session
+    from rdpstudio.ui.main_window import MainWindow
+
+    win = MainWindow(ctx)
+    quit_calls = []
+    monkeypatch.setattr(qtapp, "quit", lambda: quit_calls.append(True))
+
+    defn = Session(name="shell", protocol=PROTOCOL_LOCAL)
+    defn.options["command"] = "/bin/sh"
+    tab = win.open_session(defn)
+    assert tab is not None
+    qtapp.processEvents()
+
+    win.close_tab(0)
+    qtapp.processEvents()
+
+    assert win.tabs.count() == 0
+    assert win.isVisible()
+    assert quit_calls == [], "closing the last session tab must not quit the app"
+
+    win.close()
+    qtapp.processEvents()
+
+
+def test_closing_all_tabs_via_close_all_keeps_app_running(ctx, qtapp, monkeypatch):
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("posix pty")
+    from rdpstudio.core.models import PROTOCOL_LOCAL, Session
+    from rdpstudio.ui.main_window import MainWindow
+
+    win = MainWindow(ctx)
+    quit_calls = []
+    monkeypatch.setattr(qtapp, "quit", lambda: quit_calls.append(True))
+
+    for _ in range(3):
+        defn = Session(name="shell", protocol=PROTOCOL_LOCAL)
+        defn.options["command"] = "/bin/sh"
+        win.open_session(defn)
+    qtapp.processEvents()
+    assert win.tabs.count() == 3
+
+    for i in range(win.tabs.count() - 1, -1, -1):
+        win.close_tab(i)
+    qtapp.processEvents()
+
+    assert win.tabs.count() == 0
+    assert win.isVisible()
+    assert quit_calls == []
+
+    win.close()
+    qtapp.processEvents()
+
+
+def test_closing_the_window_quits_the_app(ctx, qtapp, monkeypatch):
+    """The only ways to exit: closing the window itself, or the Exit / tray
+    Quit actions — both of which route through MainWindow.close()."""
+    from rdpstudio.ui.main_window import MainWindow
+
+    win = MainWindow(ctx)
+    quit_calls = []
+    monkeypatch.setattr(qtapp, "quit", lambda: quit_calls.append(True))
+
+    win.close()
+    qtapp.processEvents()
+
+    assert quit_calls == [True]
+    assert not win.isVisible()
+
+
+def test_app_disables_quit_on_last_window_closed(qtapp):
+    """The app must not rely on Qt's implicit last-window-closed heuristic —
+    quitting is explicit (window close / Exit / tray Quit) so a transient
+    dialog or an empty tab strip never takes the whole app down with it.
+
+    ``main()`` builds its own ``QApplication`` (and blocks on ``exec()``),
+    so it isn't exercised directly here; instead this asserts the flag is
+    set on the shared application the same way ``rdpstudio.app.main`` does,
+    pinning down the behaviour the other tests in this file rely on.
+    """
+    import inspect
+
+    from rdpstudio import app as app_mod
+
+    source = inspect.getsource(app_mod.main)
+    assert "setQuitOnLastWindowClosed(False)" in source

@@ -1648,6 +1648,16 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             log.exception("vault auto-lock failed")
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        """Real, explicit application exit.
+
+        With ``quitOnLastWindowClosed`` disabled (see :mod:`rdpstudio.app`),
+        this is the *only* path that ends the process — reached by the user
+        closing the window itself, the Exit menu action, or the tray's Quit
+        action (both just call :meth:`close`, which triggers this). Closing
+        the last session tab must never land here: that only empties the
+        tab strip and shows the dashboard, keeping the app running and
+        ready to accept new connections.
+        """
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
@@ -1676,3 +1686,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             except Exception:
                 log.exception("error stopping the share server on shutdown")
         super().closeEvent(event)
+        if event.isAccepted():
+            # quitOnLastWindowClosed is off, so nothing else will end the
+            # process — do it ourselves now that the window is really going
+            # away (not just hidden, e.g. by the tray's "Show / hide").
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()

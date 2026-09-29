@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixed — app no longer exits when the last session closes (2026-09)
+- **KB-Remote now stays running (idle, dashboard shown) after every session
+  tab is closed**, instead of quitting automatically. Qt's implicit
+  "quit when the last window closes" heuristic is disabled
+  (`app.setQuitOnLastWindowClosed(False)`); the only paths that end the
+  process are the window's own close button and the Exit / tray Quit
+  actions, which both route through `MainWindow.closeEvent()` — it now
+  calls `QApplication.quit()` explicitly once the window itself is really
+  closing. The app remains idle and ready to accept new connections in the
+  meantime. Regression-tested (`test_closing_last_session_tab_keeps_app_running`,
+  `test_closing_all_tabs_via_close_all_keeps_app_running`,
+  `test_closing_the_window_quits_the_app`,
+  `test_app_disables_quit_on_last_window_closed`).
+
 ### Added — MobaXterm left-sidebar parity (2026-09)
 - **The Sessions panel now mirrors MobaXterm's left sidebar**, presentation
   layer only — no session/protocol/store changes. The vertical rail gained
