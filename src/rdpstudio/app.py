@@ -112,6 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setApplicationVersion(__version__)
+    # The app must stay alive — idle and ready for new connections — while
+    # remote sessions come and go: closing the last session tab must never
+    # exit KB-Remote. Qt's default heuristic (quit once the last *primary*
+    # top-level window closes) is disabled so the only way to quit is the
+    # explicit ones MainWindow implements: the window's own close button
+    # (or its Exit / tray Quit actions, which both route through it).
+    app.setQuitOnLastWindowClosed(False)
     ctx = build_context(verbose=verbose > 0, quiet=verbose < 0)
     theme.apply_theme(
         app,
