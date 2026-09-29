@@ -232,6 +232,91 @@ class SnippetStore:
             return True
         return False
 
+    def duplicate(self, snippet_id: str) -> Snippet | None:
+        """Create a separately editable copy of a saved snippet."""
+        source = self.get(snippet_id)
+        if source is None:
+            return None
+        duplicate = Snippet.from_dict(source.to_dict())
+        duplicate.id = uuid.uuid4().hex[:10]
+        existing_names = {snippet.name for snippet in self._snippets.values()}
+        duplicate.name = self._unique_copy_name(source.name, existing_names)
+        self._snippets[duplicate.id] = duplicate
+        try:
+            self.save()
+        except Exception:
+            self._snippets.pop(duplicate.id, None)
+            raise
+        return duplicate
+
+    def export_dict(self) -> dict[str, Any]:
+        """Return a portable, versioned snippet library.
+
+        The explicit envelope leaves room for future metadata while still
+        letting :meth:`import_dict` accept the original list-only file format.
+        """
+        return {
+            "format": 1,
+            "snippets": [snippet.to_dict() for snippet in self.snippets()],
+        }
+
+    def import_dict(self, data: object) -> int:
+        """Merge a snippet-library payload without replacing local entries.
+
+        Invalid entries are ignored.  A colliding id receives a new id and a
+        colliding name is given a stable ``(imported N)`` suffix, so importing
+        the same library twice never overwrites a locally edited command.
+        """
+        if isinstance(data, dict):
+            raw_snippets = data.get("snippets", [])
+        else:
+            raw_snippets = data
+        if not isinstance(raw_snippets, list):
+            return 0
+
+        candidates = [Snippet.from_dict(item) for item in raw_snippets if isinstance(item, dict)]
+        candidates = [snippet for snippet in candidates if snippet.name.strip() and snippet.command.strip()]
+        if not candidates:
+            return 0
+
+        previous = dict(self._snippets)
+        existing_names = {snippet.name for snippet in self._snippets.values()}
+        imported = 0
+        for snippet in candidates:
+            while not snippet.id or snippet.id in self._snippets:
+                snippet.id = uuid.uuid4().hex[:10]
+            if snippet.name in existing_names:
+                snippet.name = self._unique_import_name(snippet.name, existing_names)
+            self._snippets[snippet.id] = snippet
+            existing_names.add(snippet.name)
+            imported += 1
+        try:
+            self.save()
+        except Exception:
+            self._snippets = previous
+            raise
+        return imported
+
+    @staticmethod
+    def _unique_import_name(name: str, existing_names: set[str]) -> str:
+        candidate = f"{name} (imported)"
+        if candidate not in existing_names:
+            return candidate
+        index = 2
+        while f"{name} (imported {index})" in existing_names:
+            index += 1
+        return f"{name} (imported {index})"
+
+    @staticmethod
+    def _unique_copy_name(name: str, existing_names: set[str]) -> str:
+        candidate = f"{name} (copy)"
+        if candidate not in existing_names:
+            return candidate
+        index = 2
+        while f"{name} (copy {index})" in existing_names:
+            index += 1
+        return f"{name} (copy {index})"
+
     def categories(self) -> list[str]:
         cats = {s.category for s in self._snippets.values() if s.category}
         return sorted(cats, key=str.lower)

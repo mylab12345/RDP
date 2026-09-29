@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added — portable command-snippet libraries
+- **Command Snippets can now be imported and exported as JSON libraries.**
+  Import merges safely: existing snippets are never overwritten, conflicting
+  names receive an ``(imported)`` suffix, and invalid entries are ignored.
+  This makes it easy to share operational runbooks between KB-Remote installs.
+- **Duplicate Snippet** creates an independent, safely named copy directly
+  from a snippet's context menu, making it quick to tailor a shared command.
+
 ### Fixed — app no longer exits when the last session closes (2026-09)
 - **KB-Remote now stays running (idle, dashboard shown) after every session
   tab is closed**, instead of quitting automatically. Qt's implicit

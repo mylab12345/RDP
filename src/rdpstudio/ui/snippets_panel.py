@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -153,6 +156,18 @@ class SnippetsPanel(QWidget):
         btn_defaults.setToolTip("Reset snippets to default system administration macros")
         btn_defaults.clicked.connect(self._on_reset_defaults)
         act_row.addWidget(btn_defaults)
+
+        btn_import = QPushButton("Import…")
+        btn_import.setObjectName("ghost")
+        btn_import.setToolTip("Merge snippets from a JSON library")
+        btn_import.clicked.connect(self._on_import)
+        act_row.addWidget(btn_import)
+
+        btn_export = QPushButton("Export…")
+        btn_export.setObjectName("ghost")
+        btn_export.setToolTip("Save this snippet library as portable JSON")
+        btn_export.clicked.connect(self._on_export)
+        act_row.addWidget(btn_export)
         layout.addLayout(act_row)
 
         self._refresh_categories()
@@ -264,6 +279,15 @@ class SnippetsPanel(QWidget):
             self._reload_tree()
             toast(self, f"Saved “{s.name}”", "good")
 
+    def _on_duplicate(self, s: Snippet) -> None:
+        duplicate = self.store.duplicate(s.id)
+        if duplicate is None:
+            toast(self, "Snippet is no longer available", "warn")
+            return
+        self._refresh_categories()
+        self._reload_tree()
+        toast(self, f"Created “{duplicate.name}”", "good")
+
     def _on_delete(self, s: Snippet) -> None:
         self.store.delete(s.id)
         self._refresh_categories()
@@ -285,6 +309,40 @@ class SnippetsPanel(QWidget):
             self._reload_tree()
             toast(self, "Reset to default snippets", "good")
 
+    def _on_import(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import snippets", "", "JSON files (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as handle:
+                imported = self.store.import_dict(json.load(handle))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            toast(self, f"Import failed: {exc}", "bad")
+            return
+        if not imported:
+            toast(self, "No valid snippets found in that file", "warn")
+            return
+        self._refresh_categories()
+        self._reload_tree()
+        toast(self, f"Imported {imported} snippet(s)", "good")
+
+    def _on_export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export snippets", "kb-remote-snippets.json", "JSON files (*.json)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(self.store.export_dict(), handle, indent=2, ensure_ascii=False)
+                handle.write("\n")
+        except OSError as exc:
+            toast(self, f"Export failed: {exc}", "bad")
+            return
+        toast(self, f"Exported {len(self.store.snippets())} snippet(s)", "good")
+
     def _context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
         if item is None:
@@ -295,5 +353,6 @@ class SnippetsPanel(QWidget):
         menu = QMenu(self)
         menu.addAction("▶ Run in Active Terminal", lambda: self._execute_snippet(s))
         menu.addAction(icon("edit"), "Edit Snippet…", lambda: self._on_edit(s))
+        menu.addAction("Duplicate Snippet", lambda: self._on_duplicate(s))
         menu.addAction(icon("trash"), "Delete Snippet", lambda: self._on_delete(s))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
