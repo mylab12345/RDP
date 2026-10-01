@@ -985,7 +985,7 @@ def _bind_hint(bind: str, port: int, exc: OSError) -> str:
             f"Cannot bind {bind}:{port} — permission denied. "
             "Use a port above 1024, or start the service with elevated rights."
         )
-    if errno == 98 or errno == 10048:  # EADDRINUSE (POSIX / Windows)
+    if errno in (98, 10048):  # EADDRINUSE (POSIX / Windows)
         return (
             f"Port {port} is already in use. Another program (or another KB-Remote "
             "instance) is listening on it — pick a different port in Settings → File sharing."

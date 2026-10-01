@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths
+from ..core.naming import COPY_SUFFIX, IMPORT_SUFFIX, unique_name
 from ..core.persistence import atomic_write_text
 
 
@@ -240,7 +241,7 @@ class SnippetStore:
         duplicate = Snippet.from_dict(source.to_dict())
         duplicate.id = uuid.uuid4().hex[:10]
         existing_names = {snippet.name for snippet in self._snippets.values()}
-        duplicate.name = self._unique_copy_name(source.name, existing_names)
+        duplicate.name = unique_name(source.name, existing_names, COPY_SUFFIX)
         self._snippets[duplicate.id] = duplicate
         try:
             self.save()
@@ -286,7 +287,7 @@ class SnippetStore:
             while not snippet.id or snippet.id in self._snippets:
                 snippet.id = uuid.uuid4().hex[:10]
             if snippet.name in existing_names:
-                snippet.name = self._unique_import_name(snippet.name, existing_names)
+                snippet.name = unique_name(snippet.name, existing_names, IMPORT_SUFFIX)
             self._snippets[snippet.id] = snippet
             existing_names.add(snippet.name)
             imported += 1
@@ -296,26 +297,6 @@ class SnippetStore:
             self._snippets = previous
             raise
         return imported
-
-    @staticmethod
-    def _unique_import_name(name: str, existing_names: set[str]) -> str:
-        candidate = f"{name} (imported)"
-        if candidate not in existing_names:
-            return candidate
-        index = 2
-        while f"{name} (imported {index})" in existing_names:
-            index += 1
-        return f"{name} (imported {index})"
-
-    @staticmethod
-    def _unique_copy_name(name: str, existing_names: set[str]) -> str:
-        candidate = f"{name} (copy)"
-        if candidate not in existing_names:
-            return candidate
-        index = 2
-        while f"{name} (copy {index})" in existing_names:
-            index += 1
-        return f"{name} (copy {index})"
 
     def categories(self) -> list[str]:
         cats = {s.category for s in self._snippets.values() if s.category}

@@ -18,7 +18,6 @@ from __future__ import annotations
 import base64
 import binascii
 import re
-import time
 from pathlib import Path
 
 import pyte
@@ -35,6 +34,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.settings import Settings
+from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste
+from .session_log import SessionLogMixin
 
 
 # ----------------------------------------------------------------------
@@ -541,7 +542,7 @@ class TerminalSearchBar(QWidget):
 # ----------------------------------------------------------------------
 # Qt view
 # ----------------------------------------------------------------------
-class TerminalView(QWidget):
+class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
     """Renders a :class:`TerminalCore` and ships input as ``dataWritten``."""
 
     dataWritten = Signal(bytes)
@@ -735,31 +736,7 @@ class TerminalView(QWidget):
     def apply_theme(self) -> None:
         self.apply_terminal_prefs()
 
-    # -- session logging ---------------------------------------------------
-    def start_logging(self, path: str | Path) -> None:
-        """Log all terminal output to a local text/log file."""
-        self.stop_logging()
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        self._log_file = open(p, "a", encoding="utf-8", buffering=1)
-        self._log_path = p
-        self._log_file.write(f"\n--- KB-Remote Session Log Started: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-
-    def stop_logging(self) -> None:
-        if self._log_file is not None:
-            try:
-                self._log_file.write(f"\n--- KB-Remote Session Log Ended: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                self._log_file.close()
-            except Exception:
-                pass
-            self._log_file = None
-            self._log_path = None
-
-    def is_logging(self) -> bool:
-        return self._log_file is not None
-
-    def log_path(self) -> Path | None:
-        return self._log_path
+    # -- session logging: see SessionLogMixin -----------------------------
 
     # -- search flow -------------------------------------------------------
     def open_search(self) -> None:
@@ -848,15 +825,7 @@ class TerminalView(QWidget):
 
     # -- data flow --------------------------------------------------------
     def feed(self, data: bytes) -> None:
-        # Write to session log if active
-        if self._log_file is not None:
-            try:
-                # Strip raw ESC control sequences for clean log readability
-                clean = re.sub(r"\x1b\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]", "", data.decode("utf-8", "replace"))
-                clean = re.sub(r"\x1b\].*?(\x07|\x1b\\)", "", clean)
-                self._log_file.write(clean)
-            except Exception:
-                pass
+        self._log_output(data)
 
         screen = self.core.screen
         prev_y = screen.cursor.y
@@ -1271,39 +1240,16 @@ class TerminalView(QWidget):
             QGuiApplication.clipboard().setText(text, QClipboard.Mode.Selection)
             QGuiApplication.clipboard().setText(text, QClipboard.Mode.Clipboard)
 
-    def paste_clipboard(self, confirm: bool = True) -> None:
-        text = QGuiApplication.clipboard().text()
-        if not text:
-            return
-        self.paste_text(text, confirm=confirm)
-
-    def paste_middle_click(self) -> None:
-        """Middle-click paste: PRIMARY-selection-first, never confirmed.
-
-        Middle-click is an explicit paste gesture, so the multi-line guard
-        stays off here (it still protects Ctrl+Shift+V and the context
-        menu). The text source follows the platform convention — see
-        :func:`middle_click_text`.
-        """
-        text = middle_click_text()
-        if text:
-            self.paste_text(text, confirm=False)
+    def _middle_click_text(self) -> str:
+        return middle_click_text()
 
     def paste_text(self, text: str, confirm: bool = True) -> None:
-        if confirm and self.settings.confirm_multiline_paste and (
-            "\n" in text or "\r" in text or len(text) > 200
+        if not text:
+            return
+        if not confirm_multiline_paste(
+            self, text, enabled=confirm and bool(self.settings.confirm_multiline_paste)
         ):
-            from PySide6.QtWidgets import QMessageBox
-
-            preview = text if len(text) < 400 else text[:400] + "…"
-            btn = QMessageBox.question(
-                self,
-                "Paste multiple lines?",
-                f"Paste the following to the remote host?\n\n{preview}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if btn != QMessageBox.StandardButton.Yes:
-                return
+            return
         if self.core.bracketed_paste:
             self.write_user(b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~")
         else:
@@ -1492,11 +1438,11 @@ def encode_key_event(event, screen) -> bytes | None:
             return b"\x00"
         if key == Qt.Key.Key_3:
             return b"\x1b"
-        if key == Qt.Key.Key_4 or key == Qt.Key.Key_Backslash:
+        if key in (Qt.Key.Key_4, Qt.Key.Key_Backslash):
             return b"\x1c"
-        if key == Qt.Key.Key_5 or key == Qt.Key.Key_BracketRight:
+        if key in (Qt.Key.Key_5, Qt.Key.Key_BracketRight):
             return b"\x1d"
-        if key == Qt.Key.Key_6 or key == Qt.Key.Key_AsciiCircum:
+        if key in (Qt.Key.Key_6, Qt.Key.Key_AsciiCircum):
             return b"\x1e"
         if key in (Qt.Key.Key_7, Qt.Key.Key_Underscore, Qt.Key.Key_Slash, Qt.Key.Key_Minus):
             return b"\x1f"

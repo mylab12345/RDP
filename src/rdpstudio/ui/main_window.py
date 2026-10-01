@@ -747,7 +747,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
-    def _toggle_sidebar(self, checked: bool = None) -> None:
+    def _toggle_sidebar(self, checked: bool | None = None) -> None:
         """checked=True shows the sidebar, checked=False collapses it.
 
         Called with the action's new state; if None (plain trigger), invert.
@@ -815,7 +815,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             except Exception:  # never let a session break the chrome
                 log.exception("set_ui_layout_busy failed")
 
-    def _sync_sidebar_actions(self, visible: bool = None) -> None:
+    def _sync_sidebar_actions(self, visible: bool | None = None) -> None:
         if visible is None:
             visible = not self._sidebar_collapsed
         flip = getattr(self, "_act_flip_sidebar", None)
@@ -1335,7 +1335,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if dlg.exec():
             self.sidebar.reload()
             self._refresh_dashboard()
-            if dlg.session.id:
+            if dlg.connect_requested and dlg.session.id:
                 self.connect_session(dlg.session.id)
 
     def open_local_terminal(self, *args) -> SessionTab | None:
@@ -1354,6 +1354,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if dlg.exec():
             self.sidebar.reload()
             self._refresh_dashboard()
+            if dlg.connect_requested and dlg.session.id:
+                self.connect_session(dlg.session.id)
 
     def _delete_session(self, session_id: str) -> None:
         defn = self.ctx.store.get(session_id)

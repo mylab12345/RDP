@@ -184,7 +184,7 @@ class _ThemeCard(QFrame):
         dot.setStyleSheet(f"color: {accent}; font-size: 14px; background: transparent; border: none;")
         top.addWidget(dot)
 
-        name = QLabel(label.split("—")[0].strip() if "—" in label else label.split("·")[0].strip())
+        name = QLabel(label.split("—", 1)[0].strip() if "—" in label else label.split("·", 1)[0].strip())
         name.setStyleSheet(
             f"color: {fg}; font-size: 12px; font-weight: 600; background: transparent; border: none;"
         )

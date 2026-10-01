@@ -1,4 +1,4 @@
-.PHONY: dev venv test lint screenshots build dist clean
+.PHONY: dev venv test lint format screenshots build dist clean help
 
 VENV ?= .venv
 PY := $(VENV)/bin/python

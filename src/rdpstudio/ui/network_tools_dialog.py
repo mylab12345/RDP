@@ -40,8 +40,9 @@ from ..tools.network_scanner import (
     parse_target_hosts,
     tcp_ping,
 )
+from .file_filters import apply_selected_suffix
 from .theme import icon
-from .widgets import Sparkline, toast
+from .widgets import Sparkline, card, tab_page, toast
 
 
 class _ScannerThread(QThread):
@@ -180,17 +181,10 @@ class NetworkToolsDialog(QDialog):
     # TAB 1: Port Scanner
     # ------------------------------------------------------------------
     def _build_scanner_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        page, layout = tab_page()
 
         # Controls row
-        ctrl = QWidget()
-        ctrl.setObjectName("card")
-        cl = QVBoxLayout(ctrl)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(8)
+        ctrl, cl = card(QVBoxLayout)
 
         r1 = QHBoxLayout()
         r1.addWidget(QLabel("Target:"))
@@ -456,9 +450,13 @@ class NetworkToolsDialog(QDialog):
         if not self._scan_results:
             toast(self, "No scan results to export", "warn")
             return
-        path, filt = QFileDialog.getSaveFileName(self, "Export Results", "scan-results.json", "JSON (*.json);;CSV (*.csv)")
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export Results", "scan-results.json", "JSON (*.json);;CSV (*.csv)"
+        )
         if not path:
             return
+        # Honour the type the user picked even if they typed a bare filename.
+        path = apply_selected_suffix(path, selected)
         try:
             if path.endswith(".csv"):
                 with open(path, "w", newline="", encoding="utf-8") as fh:
@@ -477,16 +475,9 @@ class NetworkToolsDialog(QDialog):
     # TAB 2: Ping && Latency
     # ------------------------------------------------------------------
     def _build_ping_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        page, layout = tab_page()
 
-        ctrl = QWidget()
-        ctrl.setObjectName("card")
-        cl = QHBoxLayout(ctrl)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(8)
+        ctrl, cl = card()
 
         cl.addWidget(QLabel("Host:"))
         self.ping_host = QLineEdit("8.8.8.8")
@@ -511,10 +502,7 @@ class NetworkToolsDialog(QDialog):
         layout.addWidget(ctrl)
 
         # Summary cards
-        stats_card = QWidget()
-        stats_card.setObjectName("card")
-        sl = QHBoxLayout(stats_card)
-        sl.setContentsMargins(16, 12, 16, 12)
+        stats_card, sl = card(margins=(16, 12, 16, 12))
 
         def make_stat_box(title: str):
             w = QWidget()
@@ -591,16 +579,9 @@ class NetworkToolsDialog(QDialog):
     # TAB 3: DNS && IP Lookup
     # ------------------------------------------------------------------
     def _build_dns_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        page, layout = tab_page()
 
-        ctrl = QWidget()
-        ctrl.setObjectName("card")
-        cl = QHBoxLayout(ctrl)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(8)
+        ctrl, cl = card()
 
         cl.addWidget(QLabel("Hostname / IP:"))
         self.dns_input = QLineEdit("google.com")

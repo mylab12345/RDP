@@ -21,7 +21,6 @@ import importlib
 import os
 import re
 import sys
-import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -34,11 +33,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QTextEdit,
     QWidget,
 )
 
+from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste
+from .session_log import SessionLogMixin
 from .terminal import encode_key_event, middle_click_text
 
 # QTermWidget's public API is intentionally small.  Keep the import lazy and
@@ -170,7 +170,7 @@ def _default_mono() -> str:
     return "DejaVu Sans Mono" if sys.platform != "win32" else "Consolas"
 
 
-class NativeTerminalView(QWidget):
+class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
     """QTermWidget-backed terminal view with KB-Remote's small public API.
 
     QTermWidget's ``startTerminalTeletype`` creates an empty PTY and exposes
@@ -796,22 +796,8 @@ class NativeTerminalView(QWidget):
         except Exception:  # noqa: BLE001 - clipboard access is best effort
             pass
 
-    def paste_clipboard(self, confirm: bool = True) -> None:
-        text = QGuiApplication.clipboard().text()
-        if text:
-            self.paste_text(text, confirm=confirm)
-
-    def paste_middle_click(self) -> None:
-        """Middle-click paste: PRIMARY-selection-first, never confirmed.
-
-        Middle-click is an explicit paste gesture, so the multi-line guard
-        stays off here (it still protects Ctrl+Shift+V and the context
-        menu). The text source follows the platform convention — see
-        :func:`rdpstudio.ui.terminal.middle_click_text`.
-        """
-        text = middle_click_text()
-        if text:
-            self.paste_text(text, confirm=False)
+    def _middle_click_text(self) -> str:
+        return middle_click_text()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         # Fallback for clicks landing on the container itself (layout
@@ -833,18 +819,9 @@ class NativeTerminalView(QWidget):
     def paste_text(self, text: str, confirm: bool = True) -> None:
         if not text:
             return
-        if confirm and bool(getattr(self.settings, "confirm_multiline_paste", True)) and (
-            "\n" in text or "\r" in text or len(text) > 200
-        ):
-            preview = text if len(text) < 400 else text[:400] + "…"
-            answer = QMessageBox.question(
-                self,
-                "Paste multiple lines?",
-                f"Paste the following to the remote host?\n\n{preview}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
+        enabled = confirm and bool(getattr(self.settings, "confirm_multiline_paste", True))
+        if not confirm_multiline_paste(self, text, enabled=enabled):
+            return
         payload = text.encode("utf-8")
         if self._bracketed_paste:
             payload = b"\x1b[200~" + payload + b"\x1b[201~"
@@ -911,44 +888,7 @@ class NativeTerminalView(QWidget):
         # compatibility and intentionally avoids synthesizing wheel events.
         return
 
-    def start_logging(self, path: str | Path) -> None:
-        self.stop_logging()
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        self._log_file = open(p, "a", encoding="utf-8", buffering=1)
-        self._log_path = p
-        self._log_file.write(
-            f"\n--- KB-Remote Session Log Started: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n"
-        )
-
-    def _log_output(self, data: bytes) -> None:
-        if self._log_file is None:
-            return
-        try:
-            text = data.decode("utf-8", "replace")
-            clean = re.sub(r"\x1b\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]", "", text)
-            clean = re.sub(r"\x1b\].*?(\x07|\x1b\\)", "", clean)
-            self._log_file.write(clean)
-        except Exception:
-            pass
-
-    def stop_logging(self) -> None:
-        if self._log_file is not None:
-            try:
-                self._log_file.write(
-                    f"\n--- KB-Remote Session Log Ended: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n"
-                )
-                self._log_file.close()
-            except Exception:
-                pass
-            self._log_file = None
-            self._log_path = None
-
-    def is_logging(self) -> bool:
-        return self._log_file is not None
-
-    def log_path(self) -> Path | None:
-        return self._log_path
+    # -- session logging: see SessionLogMixin -----------------------------
 
     def close(self) -> None:
         self._closed = True

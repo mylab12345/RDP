@@ -404,6 +404,27 @@ def _pump(qtapp, seconds: float) -> None:
         time.sleep(0.005)
 
 
+def _wait_running(ctrl, qtapp, timeout: float = 5.0) -> None:
+    """Block until the fake client process is actually Running.
+
+    A fixed number of ``processEvents()`` spins is not a wait: on a loaded
+    machine the child may not have been scheduled yet, and the test then
+    proceeds against a not-yet-running client and fails spuriously. Wait on
+    a wall-clock deadline instead.
+    """
+    import time
+
+    from PySide6.QtCore import QProcess
+
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        qtapp.processEvents()
+        if ctrl._proc is not None and ctrl._proc.state() == QProcess.ProcessState.Running:
+            return
+        time.sleep(0.005)
+    raise AssertionError("the fake RDP client never reached the Running state")
+
+
 @posix_shell_client
 def test_sidebar_toggle_keeps_embedded_session_alive(tmp_path, qtapp, monkeypatch):
     """Regression: hiding/showing the sidebar killed the RDP session.
@@ -581,10 +602,7 @@ def test_settled_user_resize_refits_once_and_relaunches(tmp_path, qtapp, monkeyp
     monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)
     ctrl._surface.resize(1200, 800)
     ctrl.start()
-    for _ in range(100):
-        qtapp.processEvents()
-        if ctrl._proc is not None and ctrl._proc.state() == ctrl._proc.ProcessState.Running:
-            break
+    _wait_running(ctrl, qtapp)
     ctrl._mark_connected()
     assert len(launches) == 1
     first = ctrl._proc
@@ -626,10 +644,7 @@ def test_settled_user_resize_follows_tab_without_relaunch(tmp_path, qtapp, monke
     monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)
     ctrl._surface.resize(1200, 800)
     ctrl.start()
-    for _ in range(100):
-        qtapp.processEvents()
-        if ctrl._proc is not None and ctrl._proc.state() == ctrl._proc.ProcessState.Running:
-            break
+    _wait_running(ctrl, qtapp)
     ctrl._mark_connected()
     assert len(launches) == 1
     assert "/dynamic-resolution" in launches[0]
@@ -747,10 +762,7 @@ def test_stop_is_a_clean_close_not_a_crash(tmp_path, qtapp, monkeypatch):
     monkeypatch.setattr(type(ctrl._surface), "winId", lambda self: 0xABC)
     ctrl._surface.resize(1200, 800)
     ctrl.start()
-    for _ in range(100):
-        qtapp.processEvents()
-        if ctrl._proc is not None and ctrl._proc.state() == ctrl._proc.ProcessState.Running:
-            break
+    _wait_running(ctrl, qtapp)
     ctrl._mark_connected()
     errors = []
     ctrl.statusInfo.connect(lambda info: errors.append(info.get("error")))

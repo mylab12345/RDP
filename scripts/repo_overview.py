@@ -46,7 +46,7 @@ LEVEL_BUDGETS = {
 
 def run(cmd: list[str], cwd: Path) -> str:
     try:
-        out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10)
+        out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10, check=False)
         return (out.stdout or "").strip()
     except Exception:
         return ""

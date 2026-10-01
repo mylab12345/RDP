@@ -24,6 +24,7 @@ from .auth import (
     normalize_auth_for_protocol,
 )
 from .coerce import as_bool, as_float, as_int
+from .naming import COPY_SUFFIX
 from .shares import Share, shares_from_dicts
 
 __all__ = [
@@ -187,7 +188,7 @@ class Session:
         dup.id = new_id()
         dup.created_at = dup.updated_at = time.time()
         if dup.name:
-            dup.name = f"{dup.name} (copy)"
+            dup.name = f"{dup.name} ({COPY_SUFFIX})"
         return dup
 
     def to_dict(self) -> dict[str, Any]:
