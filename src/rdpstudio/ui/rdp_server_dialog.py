@@ -97,11 +97,19 @@ class RdpServerDialog(QDialog):
                 if _sh.which("pkexec"):
                     cmd = command.replace("sudo ", "")
                     proc = subprocess.run(
-                        ["pkexec", "sh", "-c", cmd], capture_output=True, text=True, timeout=120
+                        ["pkexec", "sh", "-c", cmd],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        check=False,
                     )
                 else:
                     proc = subprocess.run(
-                        ["sh", "-c", command], capture_output=True, text=True, timeout=120
+                        ["sh", "-c", command],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        check=False,
                     )
                 if proc.returncode != 0:
                     QMessageBox.warning(

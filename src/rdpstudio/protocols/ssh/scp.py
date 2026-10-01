@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import stat as _stat
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -232,6 +233,30 @@ def _with_stderr(chan, exc: ScpError) -> ScpError:
 # ----------------------------------------------------------------------
 # Client
 # ----------------------------------------------------------------------
+def _apply_metadata(
+    target: Path,
+    mode: int,
+    mtime: int | None,
+    atime: int | None,
+    preserve_times: bool,
+) -> None:
+    """Apply a received entry's timestamps and permission bits.
+
+    Both are best-effort: a destination filesystem that refuses utime/chmod
+    (FAT, a read-only mount, a foreign owner) must not fail a transfer whose
+    payload already landed intact.
+    """
+    if preserve_times and mtime is not None and atime is not None:
+        try:
+            os.utime(target, (atime, mtime))
+        except OSError:
+            log.debug("scp could not set times on %s", target, exc_info=True)
+    try:
+        os.chmod(target, mode & 0o7777)
+    except OSError:
+        log.debug("scp could not set mode on %s", target, exc_info=True)
+
+
 class ScpClient:
     """SCP sender/receiver multiplexed over one SSH transport."""
 
@@ -258,24 +283,10 @@ class ScpClient:
         started = time.monotonic()
         stats = ScpStats()
         local_path = Path(local)
-        cmd = f"scp -f {'-r ' if recursive else ''}{'-p ' if preserve_times else ''}{quote_remote_path(remote)}"
-        chan = self._open(cmd)
-        try:
+        with self._session("-f", remote, recursive=recursive, preserve_times=preserve_times) as chan:
             _send_all(chan, b"\x00")  # kick the sender off
             self._receive_into(chan, local_path, stats, progress, depth=0,
                                  preserve_times=preserve_times, recursive=recursive)
-        except ScpError as exc:
-            raise _with_stderr(chan, exc) from exc
-        except (TimeoutError, EOFError) as exc:
-            # Channel-level transport failure (paramiko raises socket.timeout
-            # / EOFError): keep the ScpError contract while preserving the
-            # transient markers the engine's retry classifier keys on.
-            raise _with_stderr(chan, ScpError(f"scp transfer failed ({type(exc).__name__}): {exc}")) from exc
-        finally:
-            try:
-                chan.close()
-            except Exception:  # noqa: BLE001 — teardown must not mask results
-                pass
         stats.elapsed_s = time.monotonic() - started
         return stats
 
@@ -299,15 +310,33 @@ class ScpClient:
         # No `-d`: measured against OpenSSH's sink, omitting it gives cp-like
         # semantics in every case (missing target becomes the dir, existing
         # dir nests inside it), while `-d` refuses missing targets outright.
-        cmd = f"scp -t {'-r ' if recursive else ''}{'-p ' if preserve_times else ''}{quote_remote_path(remote)}"
-        chan = self._open(cmd)
-        try:
+        with self._session("-t", remote, recursive=recursive, preserve_times=preserve_times) as chan:
             _read_ack(chan)  # sink ready?
             if src.is_dir():
                 # Send the directory itself (like `scp -r dir remote:`).
                 self._send_dir(chan, src, stats, progress, preserve_times)
             else:
                 self._send_file(chan, src, stats, progress, preserve_times)
+        stats.elapsed_s = time.monotonic() - started
+        return stats
+
+    # -- transport ---------------------------------------------------
+    @contextmanager
+    def _session(self, direction: str, remote: str, *, recursive: bool, preserve_times: bool):
+        """Run one remote ``scp`` for the duration of the ``with`` block.
+
+        Centralises what ``download`` and ``upload`` previously duplicated:
+        building the remote command line, translating channel-level failures
+        into :class:`ScpError` (enriched with the remote's stderr), and
+        closing the channel on every exit path.
+
+        ``direction`` is scp's own flag — ``-f`` to read from the remote,
+        ``-t`` to write to it.
+        """
+        flags = f"{'-r ' if recursive else ''}{'-p ' if preserve_times else ''}"
+        chan = self._open(f"scp {direction} {flags}{quote_remote_path(remote)}")
+        try:
+            yield chan
         except ScpError as exc:
             raise _with_stderr(chan, exc) from exc
         except (TimeoutError, EOFError) as exc:
@@ -318,12 +347,9 @@ class ScpClient:
         finally:
             try:
                 chan.close()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — teardown must not mask results
                 pass
-        stats.elapsed_s = time.monotonic() - started
-        return stats
 
-    # -- transport ---------------------------------------------------
     def _open(self, cmd: str):
         try:
             chan = self._transport.open_session(timeout=self._timeout)
@@ -370,15 +396,7 @@ class ScpClient:
                 self._receive_file(chan, target, size, stats, progress)
                 _read_ack(chan)  # sender's end-of-file marker... actually sender sends \0
                 _send_ok(chan)
-                if preserve_times and mtime is not None and atime is not None:
-                    try:
-                        os.utime(target, (atime, mtime))
-                    except OSError:
-                        pass
-                try:
-                    os.chmod(target, mode & 0o7777)
-                except OSError:
-                    pass
+                _apply_metadata(target, mode, mtime, atime, preserve_times)
                 return
             if kind == "D":
                 mode, name = parse_dir_header(line)
@@ -400,15 +418,7 @@ class ScpClient:
                         break
                     self._receive_entry(chan, target, peek, stats, progress, depth=depth + 1,
                                         preserve_times=preserve_times)
-                if preserve_times and mtime is not None and atime is not None:
-                    try:
-                        os.utime(target, (atime, mtime))
-                    except OSError:
-                        pass
-                try:
-                    os.chmod(target, mode & 0o7777)
-                except OSError:
-                    pass
+                _apply_metadata(target, mode, mtime, atime, preserve_times)
                 return
             if kind == "E":
                 # End of the current directory level (recursive receive).
@@ -437,15 +447,7 @@ class ScpClient:
             self._receive_file(chan, target, size, stats, progress)
             _read_ack(chan)
             _send_ok(chan)
-            if preserve_times and mtime is not None and atime is not None:
-                try:
-                    os.utime(target, (atime, mtime))
-                except OSError:
-                    pass
-            try:
-                os.chmod(target, mode & 0o7777)
-            except OSError:
-                pass
+            _apply_metadata(target, mode, mtime, atime, preserve_times)
             return
         if kind == "D":
             mode, name = parse_dir_header(line)
@@ -459,15 +461,7 @@ class ScpClient:
                     break
                 self._receive_entry(chan, target, child, stats, progress, depth=depth + 1,
                                     preserve_times=preserve_times)
-            if preserve_times and mtime is not None and atime is not None:
-                try:
-                    os.utime(target, (atime, mtime))
-                except OSError:
-                    pass
-            try:
-                os.chmod(target, mode & 0o7777)
-            except OSError:
-                pass
+            _apply_metadata(target, mode, mtime, atime, preserve_times)
             return
         if kind in ("\x01", "\x02"):
             raise ScpError(line[1:] or "remote scp error")
@@ -537,33 +531,11 @@ class ScpClient:
             if child.is_dir() and not child.is_symlink():
                 self._send_dir(chan, child, stats, progress, preserve_times)
             elif child.is_file() and not child.is_symlink():
-                # Nested files are sent relative to their own directory:
-                # temporarily chdir the *name* by sending from the child dir.
-                self._send_file_at(chan, child, stats, progress, preserve_times)
+                # Nested files are sent by name only, relative to the
+                # directory header already on the wire — exactly what
+                # _send_file emits, so it serves both cases.
+                self._send_file(chan, child, stats, progress, preserve_times)
             else:
                 log.warning("scp skipping non-regular %s", child)
         _send_all(chan, b"E\n")
         _read_ack(chan)
-
-    def _send_file_at(self, chan, src: Path, stats: ScpStats, progress, preserve_times: bool) -> None:
-        """Send one file inside a directory tree (name only, no path)."""
-        st = src.stat()
-        if preserve_times:
-            _send_all(chan, format_time_header(int(st.st_mtime), int(st.st_atime)))
-            _read_ack(chan)
-        _send_all(chan, format_file_header(_stat.S_IMODE(st.st_mode), st.st_size, src.name))
-        _read_ack(chan)
-        with open(src, "rb") as fh:
-            while True:
-                chunk = fh.read(_CHUNK)
-                if not chunk:
-                    break
-                _send_all(chan, chunk)
-                stats.bytes += len(chunk)
-                if progress is not None:
-                    progress(stats.bytes, None)
-        _send_all(chan, b"\x00")
-        _read_ack(chan)
-        stats.files += 1
-
-

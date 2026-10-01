@@ -99,6 +99,8 @@ class FileTree(QTreeWidget):
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802
+        # Same acceptance rule as dragEnterEvent; Qt requires both so the
+        # drop cursor stays valid while the pointer moves over the pane.
         if self._can_accept(event.mimeData()):
             event.acceptProposedAction()
         else:
@@ -458,22 +460,37 @@ class SftpDialog(QDialog):
         self._raw_remote_entries = entries
         self._render_remote_entries()
 
-    def _render_remote_entries(self) -> None:
-        self.remote.list.clear()
+    @staticmethod
+    def _entry_item(entry: dict) -> QTreeWidgetItem:
+        """One row — name, human size (directories blank), local mtime."""
+        mtime = entry["mtime"]
+        item = QTreeWidgetItem(
+            [
+                entry["name"],
+                "" if entry["is_dir"] else format_bytes(entry["size"]),
+                time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)) if mtime else "",
+            ]
+        )
+        item.setIcon(0, icon("folder" if entry["is_dir"] else "file"))
+        item.setData(0, Qt.ItemDataRole.UserRole, entry)
+        return item
+
+    def _render_entries(self, pane, entries: list[dict], *, keep_dot_entries: bool) -> None:
+        """Repopulate ``pane`` from ``entries``, honouring "show hidden".
+
+        ``keep_dot_entries`` preserves the remote listing's "." and ".."
+        navigation rows, which are not dotfiles in the hidden-files sense.
+        """
+        pane.list.clear()
         show_hidden = self.chk_hidden.isChecked()
-        for e in self._raw_remote_entries:
-            if not show_hidden and e["name"].startswith(".") and e["name"] not in (".", ".."):
-                continue
-            item = QTreeWidgetItem(
-                [
-                    e["name"],
-                    "" if e["is_dir"] else format_bytes(e["size"]),
-                    time.strftime("%Y-%m-%d %H:%M", time.localtime(e["mtime"])) if e["mtime"] else "",
-                ]
-            )
-            item.setIcon(0, icon("folder" if e["is_dir"] else "file"))
-            item.setData(0, Qt.ItemDataRole.UserRole, e)
-            self.remote.list.addTopLevelItem(item)
+        for e in entries:
+            if not show_hidden and e["name"].startswith("."):
+                if not (keep_dot_entries and e["name"] in (".", "..")):
+                    continue
+            pane.list.addTopLevelItem(self._entry_item(e))
+
+    def _render_remote_entries(self) -> None:
+        self._render_entries(self.remote, self._raw_remote_entries, keep_dot_entries=True)
 
     def _on_listed_local(self, path: str, entries: list[dict]) -> None:
         self.local.path.setText(path)
@@ -481,21 +498,7 @@ class SftpDialog(QDialog):
         self._render_local_entries()
 
     def _render_local_entries(self) -> None:
-        self.local.list.clear()
-        show_hidden = self.chk_hidden.isChecked()
-        for e in self._raw_local_entries:
-            if not show_hidden and e["name"].startswith("."):
-                continue
-            item = QTreeWidgetItem(
-                [
-                    e["name"],
-                    "" if e["is_dir"] else format_bytes(e["size"]),
-                    time.strftime("%Y-%m-%d %H:%M", time.localtime(e["mtime"])) if e["mtime"] else "",
-                ]
-            )
-            item.setIcon(0, icon("folder" if e["is_dir"] else "file"))
-            item.setData(0, Qt.ItemDataRole.UserRole, e)
-            self.local.list.addTopLevelItem(item)
+        self._render_entries(self.local, self._raw_local_entries, keep_dot_entries=False)
 
     def _on_item_double_click(self, pane: _Pane, item: QTreeWidgetItem) -> None:
         entry = item.data(0, Qt.ItemDataRole.UserRole)

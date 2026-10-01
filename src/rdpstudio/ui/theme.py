@@ -279,7 +279,7 @@ def toolbar_icon(name: str) -> QIcon:
         return icon(name, tint)
     if tint:
         # Charcoal glyphs read as "off" on dark chrome — use the theme fg.
-        if tint in ("#3a3a3a",):
+        if tint == "#3a3a3a":
             return icon(name, palette()["fg"])
         # Neutral charcoal chrome needs a gentler lift than the saturated
         # night palettes, and a ceiling keeps "session green" out of neon.
@@ -384,9 +384,9 @@ def solid_on(hex_fg: str, base: str) -> str:
     bg = QColor(base)
     a = fg.alphaF()
     out = QColor(
-        int(round(bg.red() + (fg.red() - bg.red()) * a)),
-        int(round(bg.green() + (fg.green() - bg.green()) * a)),
-        int(round(bg.blue() + (fg.blue() - bg.blue()) * a)),
+        round(bg.red() + (fg.red() - bg.red()) * a),
+        round(bg.green() + (fg.green() - bg.green()) * a),
+        round(bg.blue() + (fg.blue() - bg.blue()) * a),
     )
     return out.name()
 
@@ -425,7 +425,7 @@ def _lift_for_dark(hex_color: str, factor: float) -> str:
     if peak <= _DARK_GLYPH_CEILING:
         return lifted
     scale = _DARK_GLYPH_CEILING / peak
-    return "#" + "".join(f"{min(255, max(0, int(round(c * scale)))):02x}" for c in rgb)
+    return "#" + "".join(f"{min(255, max(0, round(c * scale))):02x}" for c in rgb)
 
 
 def _shade(hex_color: str, factor: float) -> str:
@@ -434,7 +434,7 @@ def _shade(hex_color: str, factor: float) -> str:
     if len(h) != 6:
         return hex_color
     r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
-    r, g, b = (min(255, max(0, int(round(c * factor))) ) for c in (r, g, b))
+    r, g, b = (min(255, max(0, round(c * factor))) for c in (r, g, b))
     return f"#{r:02x}{g:02x}{b:02x}"
 
 

@@ -193,7 +193,7 @@ class SnippetsPanel(QWidget):
         by_cat: dict[str, list[Snippet]] = {}
 
         for s in all_snippets:
-            if cat_filter != "All Categories" and s.category != cat_filter:
+            if cat_filter not in ("All Categories", s.category):
                 continue
             if query:
                 combined = f"{s.name} {s.command} {s.category} {s.description}".lower()

@@ -75,6 +75,9 @@ class SessionDialog(QDialog):
         self.ctx = ctx
         self.session = session or Session(protocol=PROTOCOL_SSH)
         self.is_new = session is None
+        #: True when the dialog was accepted via "Connect" rather than "Save".
+        #: Callers use it to decide whether to open the session afterwards.
+        self.connect_requested = False
         if self.is_new:
             self.session.port = default_port_for(self.session.protocol)
         self.setWindowTitle("New session" if self.is_new else f"Edit \u201c{self.session.display_name()}\u201d")
@@ -924,19 +927,23 @@ class SessionDialog(QDialog):
             self.ctx.store.ensure_group(s.group)
         return s
 
-    def _on_save(self) -> None:
+    def _accept_with_save(self, *, connect: bool) -> None:
+        """Validate, persist, and close — recording what the user asked for.
+
+        ``Save`` and ``Connect`` differ only in :attr:`connect_requested`,
+        which the caller reads to decide whether to open the session.
+        """
         if not self._validate_fields():
             return
-        s = self._collect_session()
-        self.ctx.store.upsert(s)
+        self.ctx.store.upsert(self._collect_session())
+        self.connect_requested = connect
         self.accept()
 
+    def _on_save(self) -> None:
+        self._accept_with_save(connect=False)
+
     def _on_connect(self) -> None:
-        if not self._validate_fields():
-            return
-        s = self._collect_session()
-        self.ctx.store.upsert(s)
-        self.accept()
+        self._accept_with_save(connect=True)
 
     def _on_test(self) -> None:
         if not self._validate_fields() or (self._test_thread is not None and self._test_thread.is_alive()):

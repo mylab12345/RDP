@@ -36,6 +36,7 @@ def _win_reg_query(path: str, value: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if out.returncode != 0:
@@ -91,7 +92,11 @@ def status() -> RdpServerStatus:
     if has_xrdp:
         try:
             out = subprocess.run(
-                ["systemctl", "is-active", "xrdp"], capture_output=True, text=True, timeout=10
+                ["systemctl", "is-active", "xrdp"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             active = out.stdout.strip() == "active"
         except (OSError, subprocess.SubprocessError):

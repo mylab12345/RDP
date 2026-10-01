@@ -191,7 +191,7 @@ class CredentialVault:
         observe state that was reported as unsuccessfully persisted.
         """
         self._require_unlocked()
-        if not cred.id or cred.id in ("new",):
+        if not cred.id or cred.id == "new":
             cred.id = uuid.uuid4().hex[:12]
         cred.updated_at = time.time()
         missing = object()

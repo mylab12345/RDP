@@ -206,6 +206,6 @@ class ForwardListEditor(QWidget):
         current = self._current()
         if not current:
             return
-        idx, fwd = current
+        _idx, fwd = current
         fwd.enabled = not fwd.enabled
         self.set_forwards(self.get_forwards())

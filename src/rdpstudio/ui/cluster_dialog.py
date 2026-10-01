@@ -32,6 +32,7 @@ from ..core.models import Session
 from ..core.plugin import SessionContext
 from ..tools.cluster_runner import ClusterHostResult, ClusterRunner
 from ..tools.snippets import DEFAULT_SNIPPETS
+from .file_filters import apply_selected_suffix
 from .widgets import toast
 
 
@@ -418,9 +419,13 @@ class ClusterDialog(QDialog):
         if not self._results:
             toast(self, "No execution results to export", "warn")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export Results", "cluster-results.json", "JSON (*.json);;CSV (*.csv);;Markdown (*.md)")
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export Results", "cluster-results.json", "JSON (*.json);;CSV (*.csv);;Markdown (*.md)"
+        )
         if not path:
             return
+        # Honour the type the user picked even if they typed a bare filename.
+        path = apply_selected_suffix(path, selected)
         try:
             if path.endswith(".csv"):
                 with open(path, "w", newline="", encoding="utf-8") as fh:

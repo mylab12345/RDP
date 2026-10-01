@@ -9,6 +9,9 @@ them without touching session state.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -144,7 +147,7 @@ STATE_COLORS = {
 def format_bytes(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if abs(n) < 1024:
-            return f"{n:.0f} {unit}" if unit in ("B",) else f"{n:.1f} {unit}"
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} PB"
 
@@ -613,7 +616,7 @@ class SectionHeader(QWidget):
         self,
         title: str,
         action_text: str = "",
-        action_callback: callable = None,
+        action_callback: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -792,7 +795,7 @@ class EmptyState(QWidget):
         title: str = "",
         subtitle: str = "",
         action_text: str = "",
-        action_callback: callable = None,
+        action_callback: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1229,6 +1232,50 @@ class ConnectionStatusBar(QWidget):
 
 
 # ----------------------------------------------------------------------
+# Dialog scaffolding — the page/card chrome every tool dialog repeats
+# ----------------------------------------------------------------------
+#: Margins and spacing shared by every tabbed tool page.
+PAGE_MARGINS = (8, 8, 8, 8)
+PAGE_SPACING = 10
+#: Margins and spacing shared by every "card" surface inside a page.
+CARD_MARGINS = (12, 10, 12, 10)
+CARD_SPACING = 8
+
+
+def tab_page(*, spacing: int = PAGE_SPACING) -> tuple[QWidget, QVBoxLayout]:
+    """A blank page for a ``QTabWidget`` plus its vertical layout.
+
+    Returns ``(page, layout)``; the tool dialogs build their content into
+    ``layout`` instead of restating the same margins six times over.
+    """
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(*PAGE_MARGINS)
+    layout.setSpacing(spacing)
+    return page, layout
+
+
+def card(
+    layout_cls: type = QHBoxLayout,
+    *,
+    margins: tuple[int, int, int, int] = CARD_MARGINS,
+    spacing: int = CARD_SPACING,
+) -> tuple[QWidget, Any]:
+    """A ``card``-styled container widget plus its layout.
+
+    ``card`` is the object name the stylesheet paints as a raised surface;
+    pass ``layout_cls`` to pick the arrangement (``QHBoxLayout`` by default,
+    ``QVBoxLayout``/``QFormLayout`` where a dialog needs them).
+    """
+    widget = QWidget()
+    widget.setObjectName("card")
+    layout = layout_cls(widget)
+    layout.setContentsMargins(*margins)
+    layout.setSpacing(spacing)
+    return widget, layout
+
+
+# ----------------------------------------------------------------------
 # Motion, shadows and shimmer — polish layer (all optional via
 # Settings → UI; see theme.MOTIONS_ENABLED)
 # ----------------------------------------------------------------------
@@ -1238,25 +1285,30 @@ def _motion_on() -> bool:
     return MOTIONS_ENABLED
 
 
-def animate_in(widget: QWidget, duration: int = 140) -> None:
-    """Fade a dialog/panel in (opacity 0.55 → 1, ease-out).
+def _run_opacity_animation(
+    widget: QWidget, duration: int, configure, *, initial_opacity: float | None = None
+) -> None:
+    """Drive one opacity animation on ``widget`` and clean up after itself.
 
-    Skipped entirely when animations are disabled in Settings.
+    ``configure`` receives the :class:`QPropertyAnimation` and sets the
+    keyframes that distinguish a fade-in from a pulse. ``initial_opacity``
+    pre-dims the widget so the very first painted frame already matches the
+    animation's start value.
 
     Lifetime: the animation is a child of ``widget`` and is *not*
     deleteLater()'d — a deferred deletion of an animation whose parent was
     already torn down by the Python GC is a use-after-free. It simply stops
-    when done and is released with the widget.
+    when done, drops the graphics effect, and is released with the widget.
     """
     if not _motion_on():
         return
     effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(effect)
-    effect.setOpacity(0.55)
+    if initial_opacity is not None:
+        effect.setOpacity(initial_opacity)
     anim = QPropertyAnimation(effect, b"opacity", widget)
     anim.setDuration(duration)
-    anim.setStartValue(0.55)
-    anim.setEndValue(1.0)
+    configure(anim)
     anim.setEasingCurve(QEasingCurve.Type.OutCubic)
     widget._kb_anim = anim  # keep a reference so the loop owns it
 
@@ -1273,35 +1325,28 @@ def animate_in(widget: QWidget, duration: int = 140) -> None:
     anim.start()
 
 
-def pulse(widget: QWidget, duration: int = 320) -> None:
-    """One soft opacity pulse — used when a session connects.
+def animate_in(widget: QWidget, duration: int = 140) -> None:
+    """Fade a dialog/panel in (opacity 0.55 → 1, ease-out).
 
-    Lifetime rules match :func:`animate_in` (child animation, no
-    deleteLater).
+    Skipped entirely when animations are disabled in Settings.
     """
-    if not _motion_on():
-        return
-    effect = QGraphicsOpacityEffect(widget)
-    widget.setGraphicsEffect(effect)
-    anim = QPropertyAnimation(effect, b"opacity", widget)
-    anim.setDuration(duration)
-    anim.setKeyValueAt(0.0, 1.0)
-    anim.setKeyValueAt(0.5, 0.45)
-    anim.setKeyValueAt(1.0, 1.0)
-    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-    widget._kb_anim = anim
 
-    def _cleanup() -> None:
-        try:
-            anim.disconnect(_cleanup)
-        except (TypeError, RuntimeError):
-            pass
-        if widget.graphicsEffect() is effect:
-            widget.setGraphicsEffect(None)
-        widget._kb_anim = None
+    def configure(anim: QPropertyAnimation) -> None:
+        anim.setStartValue(0.55)
+        anim.setEndValue(1.0)
 
-    anim.finished.connect(_cleanup)
-    anim.start()
+    _run_opacity_animation(widget, duration, configure, initial_opacity=0.55)
+
+
+def pulse(widget: QWidget, duration: int = 320) -> None:
+    """One soft opacity pulse — used when a session connects."""
+
+    def configure(anim: QPropertyAnimation) -> None:
+        anim.setKeyValueAt(0.0, 1.0)
+        anim.setKeyValueAt(0.5, 0.45)
+        anim.setKeyValueAt(1.0, 1.0)
+
+    _run_opacity_animation(widget, duration, configure)
 
 
 def soft_shadow(widget: QWidget, blur: int = 14, dy: int = 3, alpha: int = 90) -> None:

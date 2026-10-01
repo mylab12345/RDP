@@ -25,7 +25,7 @@ from ..core import paths
 from ..core.plugin import SessionContext
 from ..protocols.ssh import keys
 from ..tools.key_converter import openssh_to_ppk, parse_key_details
-from .widgets import toast
+from .widgets import card, tab_page, toast
 
 
 class KeyUtilityDialog(QDialog):
@@ -59,16 +59,9 @@ class KeyUtilityDialog(QDialog):
     # TAB 1: Inspector & Randomart
     # ------------------------------------------------------------------
     def _build_inspector_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        page, layout = tab_page()
 
-        ctrl = QWidget()
-        ctrl.setObjectName("card")
-        cl = QHBoxLayout(ctrl)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(8)
+        ctrl, cl = card()
 
         self.key_path_input = QLineEdit()
         self.key_path_input.setPlaceholderText("Select private or public key file…")
@@ -89,11 +82,7 @@ class KeyUtilityDialog(QDialog):
         content = QHBoxLayout()
 
         # Left info
-        info_card = QWidget()
-        info_card.setObjectName("card")
-        il = QFormLayout(info_card)
-        il.setContentsMargins(14, 12, 14, 12)
-        il.setSpacing(8)
+        info_card, il = card(QFormLayout, margins=(14, 12, 14, 12))
 
         self.lbl_algo = QLabel("—")
         self.lbl_sha256 = QLabel("—")
@@ -120,11 +109,7 @@ class KeyUtilityDialog(QDialog):
         content.addWidget(info_card, 3)
 
         # Right randomart
-        art_card = QWidget()
-        art_card.setObjectName("card")
-        al = QVBoxLayout(art_card)
-        al.setContentsMargins(14, 12, 14, 12)
-        al.setSpacing(6)
+        art_card, al = card(QVBoxLayout, margins=(14, 12, 14, 12), spacing=6)
         al.addWidget(QLabel("<b>Visual Randomart:</b>"))
         self.art_view = QPlainTextEdit()
         self.art_view.setReadOnly(True)
@@ -161,16 +146,9 @@ class KeyUtilityDialog(QDialog):
     # TAB 2: Generator
     # ------------------------------------------------------------------
     def _build_generator_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
+        page, layout = tab_page(spacing=12)
 
-        card = QWidget()
-        card.setObjectName("card")
-        form = QFormLayout(card)
-        form.setContentsMargins(16, 16, 16, 16)
-        form.setSpacing(12)
+        card_widget, form = card(QFormLayout, margins=(16, 16, 16, 16), spacing=12)
 
         self.gen_type = QComboBox()
         self.gen_type.addItem("Ed25519 (Recommended — fast, compact, modern)", "ed25519")
@@ -191,7 +169,7 @@ class KeyUtilityDialog(QDialog):
         btn_gen.clicked.connect(self._run_generate)
         form.addRow("", btn_gen)
 
-        layout.addWidget(card)
+        layout.addWidget(card_widget)
         layout.addStretch(1)
         return page
 
@@ -222,16 +200,9 @@ class KeyUtilityDialog(QDialog):
     # TAB 3: PPK Converter
     # ------------------------------------------------------------------
     def _build_converter_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
+        page, layout = tab_page(spacing=12)
 
-        card = QWidget()
-        card.setObjectName("card")
-        form = QFormLayout(card)
-        form.setContentsMargins(16, 16, 16, 16)
-        form.setSpacing(12)
+        card_widget, form = card(QFormLayout, margins=(16, 16, 16, 16), spacing=12)
 
         desc = QLabel(
             "Convert OpenSSH private keys to PuTTY's <code>.ppk</code> format for use with PuTTY, WinSCP, or FileZilla."
@@ -258,7 +229,7 @@ class KeyUtilityDialog(QDialog):
         btn_convert.clicked.connect(self._run_convert_ppk)
         form.addRow("", btn_convert)
 
-        layout.addWidget(card)
+        layout.addWidget(card_widget)
         layout.addStretch(1)
         return page
 

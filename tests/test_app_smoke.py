@@ -150,6 +150,10 @@ def test_closing_last_session_tab_keeps_app_running(ctx, qtapp, monkeypatch):
     from rdpstudio.ui.main_window import MainWindow
 
     win = MainWindow(ctx)
+    # The window must be shown for isVisible() to mean anything — an unshown
+    # window is never visible, which would make the assertion below vacuous.
+    win.show()
+    qtapp.processEvents()
     quit_calls = []
     monkeypatch.setattr(qtapp, "quit", lambda: quit_calls.append(True))
 
@@ -179,6 +183,8 @@ def test_closing_all_tabs_via_close_all_keeps_app_running(ctx, qtapp, monkeypatc
     from rdpstudio.ui.main_window import MainWindow
 
     win = MainWindow(ctx)
+    win.show()
+    qtapp.processEvents()
     quit_calls = []
     monkeypatch.setattr(qtapp, "quit", lambda: quit_calls.append(True))
 

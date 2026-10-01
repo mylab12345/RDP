@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .log import get_logger
 from .models import Session, new_id
+from .naming import IMPORT_SUFFIX, unique_name
 from .persistence import atomic_write_text
 
 log = get_logger("store")
@@ -237,7 +238,7 @@ class SessionStore:
                     session.id = new_id()
                 name = session.display_name()
                 if name in existing_names and on_conflict == "rename":
-                    session.name = self._unique_import_name(name, existing_names)
+                    session.name = unique_name(name, existing_names, IMPORT_SUFFIX)
                 self._sessions[session.id] = session
                 existing_names.add(session.display_name())
                 if session.group and session.group not in self._groups:
@@ -245,16 +246,6 @@ class SessionStore:
                 added += 1
             self.save()
         return added
-
-    @staticmethod
-    def _unique_import_name(name: str, existing_names: set[str]) -> str:
-        candidate = f"{name} (imported)"
-        if candidate not in existing_names:
-            return candidate
-        index = 2
-        while f"{name} (imported {index})" in existing_names:
-            index += 1
-        return f"{name} (imported {index})"
 
     def jump_hops(self, session: Session, *, max_hops: int = 16) -> list[Session]:
         """Return the ProxyJump chain for ``session``, stopping on cycles.
