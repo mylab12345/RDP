@@ -361,6 +361,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # NB: setDocumentMode() above re-enables expanding, so this must stay
         # *after* it.
         self.tabs.tabBar().setExpanding(False)
+        # Keep Qt's overflow scroller enabled: tab labels remain readable when
+        # a power user has many sessions open instead of shrinking indefinitely.
+        self.tabs.tabBar().setUsesScrollButtons(True)
+        self.tabs.tabBar().setAccessibleName("Open session tabs")
+        self.tabs.setAccessibleName("Session workspace")
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
         # Protocol badges render on a 16px tile
         self.tabs.setIconSize(QSize(16, 16))
@@ -396,6 +401,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             b.setObjectName("ghost")
             b.setProperty("iconOnly", True)  # square variant: no min-width
             b.setToolTip(tip)
+            b.setAccessibleName(tip.split(" (")[0])
+            b.setStatusTip(tip)
             b.setFixedSize(26, 26)
             b.setIconSize(QSize(16, 16))
             b.clicked.connect(cb)
