@@ -213,6 +213,9 @@ class RdpSessionController(SessionController):
         self._stopping = False
         self._probe_thread: threading.Thread | None = None
         self._args_file: Path | None = None  # /args-from:file: (holds the secret)
+        # FreeRDP 2 has no private argument-file transport.  It can read the
+        # password from stdin, avoiding exposure in argv/ps.
+        self._stdin_password: str | None = None
         self._embed_retry: bool = False
         self._proc_stderr: str = ""
         self._proc_stdout: str = ""
@@ -590,11 +593,15 @@ class RdpSessionController(SessionController):
                     log.info("client launched via private args file (%s)", self._args_file.name)
                     self._proc.start(path, ["/args-from:file:" + str(self._args_file)])
                 elif password:
-                    # FreeRDP 2.x: /args-from not supported, use /p: directly
-                    log.info("FreeRDP 2.x detected — password delivered via /p: (ps-visible)")
-                    full_args = list(args)
-                    full_args.append(f"/p:{password}")
-                    self._proc.start(path, full_args)
+                    # FreeRDP 2.x supports /from-stdin:force.  Sending the
+                    # secret after the process starts keeps it out of argv and
+                    # also works when the password contains spaces or shell
+                    # metacharacters.  /from-stdin:force is intentionally used
+                    # instead of /p: so the client cannot fall back to a
+                    # visible command-line credential.
+                    log.info("FreeRDP 2.x detected — password delivered via stdin")
+                    self._stdin_password = password
+                    self._proc.start(path, list(args) + ["/from-stdin:force"])
                 else:
                     # No password — launch without credentials (server may prompt)
                     self._proc.start(path, args)
@@ -800,6 +807,18 @@ class RdpSessionController(SessionController):
             pass
 
     def _on_proc_started(self) -> None:
+        # FreeRDP 2 reads one password line from stdin.  Write it only after
+        # the child exists, then close the channel so it cannot wait for more
+        # input.  QProcess.write is safe here because this slot runs in the
+        # controller's GUI thread.
+        password = self._stdin_password
+        self._stdin_password = None
+        if password and self._proc is not None:
+            try:
+                self._proc.write((password + "\\n").encode("utf-8"))
+                self._proc.closeWriteChannel()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("could not deliver FreeRDP password via stdin: %s", exc)
         # Give the client a moment to parse /args-from, then shred the file.
         QTimer.singleShot(4000, self._cleanup_args_file)
         # QProcess.started only means the local executable spawned. Keep the

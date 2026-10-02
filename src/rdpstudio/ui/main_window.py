@@ -1462,6 +1462,16 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         dlg = SettingsDialog(self.ctx.settings, self)
         animate_in(dlg)
         if dlg.exec():
+            # SettingsDialog edits a detached candidate (and Reset creates a
+            # fresh defaults object).  Publish that candidate to every live
+            # service only after it has been persisted successfully.
+            self.ctx.settings = dlg.result_settings
+            share_service = getattr(self.ctx, "share_service", None)
+            if share_service is not None:
+                try:
+                    share_service.reload_settings(self.ctx.settings)
+                except Exception as exc:  # noqa: BLE001
+                    toast(self, f"File-sharing settings could not be applied: {exc}", "error")
             self._apply_ui_prefs()
             self._sync_theme_actions()
             self._apply_terminal_prefs()

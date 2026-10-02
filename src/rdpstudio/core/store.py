@@ -182,37 +182,57 @@ class SessionStore:
 
     def ensure_group(self, name: str) -> None:
         with self._lock:
-            if name and name not in self._groups:
-                self._groups.append(name)
+            if not name or name in self._groups:
+                return
+            old_groups = list(self._groups)
+            self._groups.append(name)
+            try:
                 self.save()
+            except Exception:
+                self._groups = old_groups
+                raise
 
     def rename_group(self, old: str, new: str) -> None:
         with self._lock:
             if not new or old == new:
                 return
-            for s in self._sessions.values():
-                if s.group == old:
-                    s.group = new
-            if old in self._groups:
-                if new in self._groups:
-                    # Target group already exists: merge into it instead of
-                    # ending up with the same group listed twice.
-                    self._groups.remove(old)
-                else:
-                    self._groups[self._groups.index(old)] = new
-            elif new not in self._groups:
-                self._groups.append(new)
-            self.save()
+            old_sessions = copy.deepcopy(self._sessions)
+            old_groups = list(self._groups)
+            try:
+                for s in self._sessions.values():
+                    if s.group == old:
+                        s.group = new
+                if old in self._groups:
+                    if new in self._groups:
+                        # Target group already exists: merge into it instead of
+                        # ending up with the same group listed twice.
+                        self._groups.remove(old)
+                    else:
+                        self._groups[self._groups.index(old)] = new
+                elif new not in self._groups:
+                    self._groups.append(new)
+                self.save()
+            except Exception:
+                self._sessions = old_sessions
+                self._groups = old_groups
+                raise
 
     def delete_group(self, name: str, move_to: str = "") -> None:
         """Remove a group; its sessions move to ``move_to`` (top level if empty)."""
         with self._lock:
-            for s in self._sessions.values():
-                if s.group == name:
-                    s.group = move_to
-            if name in self._groups:
-                self._groups.remove(name)
-            self.save()
+            old_sessions = copy.deepcopy(self._sessions)
+            old_groups = list(self._groups)
+            try:
+                for s in self._sessions.values():
+                    if s.group == name:
+                        s.group = move_to
+                if name in self._groups:
+                    self._groups.remove(name)
+                self.save()
+            except Exception:
+                self._sessions = old_sessions
+                self._groups = old_groups
+                raise
 
     def import_sessions(self, sessions: list[Session], on_conflict: str = "rename") -> int:
         """Bulk import without mutating inputs or replacing saved sessions.
@@ -223,28 +243,35 @@ class SessionStore:
         """
         added = 0
         with self._lock:
-            existing_names = {s.display_name() for s in self._sessions.values()}
-            for source in sessions:
-                if not isinstance(source, Session):
-                    continue
-                # The store owns imported objects.  Without this copy, a
-                # caller retaining ``source`` could silently mutate persisted
-                # state after the import returned.
-                session = copy.deepcopy(source)
-                # An import must never silently replace an existing session:
-                # exports (and third-party files) carry their own ids, so a
-                # colliding id gets a fresh one instead of overwriting.
-                while not session.id or session.id in self._sessions:
-                    session.id = new_id()
-                name = session.display_name()
-                if name in existing_names and on_conflict == "rename":
-                    session.name = unique_name(name, existing_names, IMPORT_SUFFIX)
-                self._sessions[session.id] = session
-                existing_names.add(session.display_name())
-                if session.group and session.group not in self._groups:
-                    self._groups.append(session.group)
-                added += 1
-            self.save()
+            old_sessions = copy.deepcopy(self._sessions)
+            old_groups = list(self._groups)
+            try:
+                existing_names = {s.display_name() for s in self._sessions.values()}
+                for source in sessions:
+                    if not isinstance(source, Session):
+                        continue
+                    # The store owns imported objects.  Without this copy, a
+                    # caller retaining ``source`` could silently mutate persisted
+                    # state after the import returned.
+                    session = copy.deepcopy(source)
+                    # An import must never silently replace an existing session:
+                    # exports (and third-party files) carry their own ids, so a
+                    # colliding id gets a fresh one instead of overwriting.
+                    while not session.id or session.id in self._sessions:
+                        session.id = new_id()
+                    name = session.display_name()
+                    if name in existing_names and on_conflict == "rename":
+                        session.name = unique_name(name, existing_names, IMPORT_SUFFIX)
+                    self._sessions[session.id] = session
+                    existing_names.add(session.display_name())
+                    if session.group and session.group not in self._groups:
+                        self._groups.append(session.group)
+                    added += 1
+                self.save()
+            except Exception:
+                self._sessions = old_sessions
+                self._groups = old_groups
+                raise
         return added
 
     def jump_hops(self, session: Session, *, max_hops: int = 16) -> list[Session]:

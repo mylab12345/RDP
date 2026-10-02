@@ -1048,14 +1048,31 @@ class ShareService:
         )
 
     def reload_settings(self, settings=None) -> None:
-        """Pick up edits made in Settings; a running listener is restarted."""
+        """Apply settings to the registry and listener as one operation.
+
+        Binding, authentication and write-policy changes must not languish in
+        the settings object while an old listener remains active.  Preserve
+        the running state across a reload, but leave a deliberately disabled
+        service stopped.
+        """
+        was_running = self.server.running
         if settings is not None:
             self.settings = settings
         from ..core.shares import shares_from_dicts
 
+        if was_running:
+            self.server.stop()
         self._global_shares = shares_from_dicts(getattr(self.settings, "share_server_shares", []))
         self.server.config = self._config_from_settings()
         self.registry.set_global(self._global_shares, self.server.config.allow_write)
+        if was_running and self.server.config.enabled:
+            try:
+                self.server.start()
+            except Exception:
+                # The old listener is already stopped; surface the failure to
+                # callers instead of pretending the old policy is still live.
+                log.exception("share server could not restart after settings reload")
+                raise
 
     def save_settings(self) -> None:
         """Write the live configuration back into the Settings object."""
