@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -59,6 +60,7 @@ class SessionTree(QWidget):
         self.store = store
         self._settings = settings
         self._filter = ""
+        self._tag_filter = ""
         self.setObjectName("sidebar")
         # Buttons whose icons are re-tinted on a live theme switch
         self._themed_buttons: list[tuple[QPushButton, str]] = []
@@ -230,6 +232,18 @@ class SessionTree(QWidget):
         self.search.textChanged.connect(self._on_search)
         self.search.setFixedHeight(28)
         bl.addWidget(self.search, 1)
+
+        # Tag/category filter — keeps large connection inventories scannable
+        # without replacing the folder tree. Hidden until at least one tag
+        # exists, so empty/new installs keep the compact MobaXterm chrome.
+        self.tag_filter = QComboBox()
+        self.tag_filter.setObjectName("tagFilter")
+        self.tag_filter.setMinimumHeight(28)
+        self.tag_filter.setMinimumWidth(88)
+        self.tag_filter.setToolTip("Filter sessions by tag/category")
+        self.tag_filter.setAccessibleName("Filter sessions by tag")
+        self.tag_filter.currentIndexChanged.connect(self._on_tag_filter)
+        bl.addWidget(self.tag_filter)
         layout.addWidget(bar_wrap)
 
         # Debounce typing
@@ -383,10 +397,14 @@ class SessionTree(QWidget):
         reg = registry()
         sessions = self.store.sessions()
         total = len(sessions)
+        self._sync_tag_filter(sessions)
 
         # Count badge — styled by the global QSS (#sideCount)
         self._count_label.setText(str(total) if total else "")
         self._count_label.setVisible(bool(total))
+
+        if self._tag_filter:
+            sessions = [s for s in sessions if self._tag_filter in set(s.tags)]
 
         if self._filter:
             needle = self._filter.lower()
@@ -465,6 +483,25 @@ class SessionTree(QWidget):
             self._empty_state.setVisible(show_empty)
             self._no_match_state.setVisible(False)
 
+    def _sync_tag_filter(self, sessions: list[Session]) -> None:
+        """Refresh the tag/category dropdown while preserving the selection."""
+        tags = sorted({tag for s in sessions for tag in s.tags if tag})
+        blocker = self.tag_filter.blockSignals(True)
+        try:
+            current = self._tag_filter
+            self.tag_filter.clear()
+            self.tag_filter.addItem("All tags", "")
+            for tag in tags:
+                self.tag_filter.addItem(f"#{tag}", tag)
+            idx = self.tag_filter.findData(current)
+            if idx < 0:
+                self._tag_filter = ""
+                idx = 0
+            self.tag_filter.setCurrentIndex(idx)
+            self.tag_filter.setVisible(bool(tags))
+        finally:
+            self.tag_filter.blockSignals(blocker)
+
     def _add_session_item(self, parent, s: Session, reg) -> None:
         pinned = bool(s.options.get("pinned", False))
         label = f"★ {s.display_name()}" if pinned else s.display_name()
@@ -485,6 +522,10 @@ class SessionTree(QWidget):
             tooltip += "\nPinned — right-click to unpin"
         item.setToolTip(0, tooltip)
         parent.addChild(item)
+
+    def _on_tag_filter(self, _index: int) -> None:
+        self._tag_filter = self.tag_filter.currentData() or ""
+        self.reload()
 
     def _on_search(self, text: str) -> None:
         self._filter = text.strip()

@@ -306,6 +306,20 @@ class CommandPaletteDialog(QDialog):
                 )
             )
 
+        snapshot_entries = getattr(main, "_snapshot_entries", lambda: [])()
+        for idx, snap in enumerate(snapshot_entries):
+            ids = [sid for sid in snap.get("session_ids", []) if isinstance(sid, str)]
+            name = str(snap.get("name") or "Snapshot")
+            self._items.append(
+                PaletteItem(
+                    category="Session Snapshots",
+                    title=f"Restore snapshot: {name}",
+                    subtitle=f"Reopen {len(ids)} saved session{'s' if len(ids) != 1 else ''}",
+                    action=lambda i=idx: (main.restore_session_snapshot(i), self.accept()),
+                    icon_name="clock",
+                )
+            )
+
         self._items.extend(
             [
                 PaletteItem(
@@ -356,6 +370,14 @@ class CommandPaletteDialog(QDialog):
                     subtitle=f"Current: {ctx.settings.theme} — explore natural palettes",
                     action=lambda: (main.cycle_theme(), self.accept()),
                     icon_name="gear",
+                ),
+                PaletteItem(
+                    category="Actions",
+                    title="Save Session Snapshot…",
+                    subtitle="Remember the current saved tabs for quick reconnection",
+                    action=lambda: (main.save_session_snapshot(), self.accept()),
+                    icon_name="clock",
+                    shortcut="Ctrl+Alt+S",
                 ),
                 PaletteItem(
                     category="Actions",

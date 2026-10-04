@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -26,6 +27,62 @@ THEME_IDS = {tid for tid, _ in THEME_CHOICES}
 DARK_THEMES = {"mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
 # Fallback for a missing/unknown theme id (hand-edited or older settings.json).
 DEFAULT_THEME = "mobaxterm_dark"
+
+_HEX_COLOR_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
+
+
+def normalize_hex_color(value: object) -> str:
+    """Return a canonical ``#rrggbb`` colour or ``""`` for invalid input."""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    if not _HEX_COLOR_RE.fullmatch(text):
+        return ""
+    if not text.startswith("#"):
+        text = f"#{text}"
+    return text.lower()
+
+
+def _coerce_session_snapshots(value: object) -> list[dict]:
+    """Repair the tab-snapshot list loaded from settings.json.
+
+    Snapshots intentionally store only saved-session ids, not copied session
+    definitions, so settings never become a second place for credentials.
+    """
+    if not isinstance(value, list):
+        return []
+    out: list[dict] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        name = as_text(raw.get("name"), "").strip()
+        ids = raw.get("session_ids", [])
+        if not isinstance(ids, list):
+            ids = []
+        session_ids: list[str] = []
+        seen: set[str] = set()
+        for sid in ids:
+            if not isinstance(sid, str) or not sid or sid in seen:
+                continue
+            seen.add(sid)
+            session_ids.append(sid)
+            if len(session_ids) >= 20:
+                break
+        if not name or not session_ids:
+            continue
+        out.append(
+            {
+                "name": name[:80],
+                "session_ids": session_ids,
+                "created_at": as_float(raw.get("created_at"), 0.0, minimum=0.0),
+            }
+        )
+        if len(out) >= 12:
+            break
+    return out
+
 
 # Curated terminal typefaces (system-installed only; nothing is bundled).
 FONT_PRESETS: tuple[str, ...] = (
@@ -81,6 +138,8 @@ class Settings:
     density: str = "comfortable"  # comfortable | compact
     toolbar_labels: bool = True  # icon+label vs icon-only toolbar
     animations: bool = True  # disable for reduced motion
+    # Optional app-wide accent override. Empty = use the selected theme's accent.
+    accent_color: str = ""
     font_family: str = ""  # auto-detect when empty
     font_size: int = 10  # points
 
@@ -145,6 +204,9 @@ class Settings:
     palette_recents: list = field(default_factory=list)
     # recently connected session ids (newest first, capped at 10)
     recent_session_ids: list = field(default_factory=list)
+    # named sets of saved session ids for restoring a working tab layout
+    # [{"name": str, "session_ids": [str], "created_at": float}]
+    session_snapshots: list = field(default_factory=list)
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -179,6 +241,7 @@ class Settings:
 
         s.theme = as_text(s.theme, DEFAULT_THEME)
         s.density = as_text(s.density, "comfortable")
+        s.accent_color = normalize_hex_color(s.accent_color)
         s.font_family = as_text(s.font_family)
         s.cursor_style = as_text(s.cursor_style, "block")
         s.terminal_backend = as_text(s.terminal_backend, "auto")
@@ -242,6 +305,7 @@ class Settings:
         if not isinstance(s.recent_session_ids, list):
             s.recent_session_ids = []
         s.recent_session_ids = [t for t in s.recent_session_ids if isinstance(t, str)][:10]
+        s.session_snapshots = _coerce_session_snapshots(s.session_snapshots)
         if not isinstance(s.geometry, dict):
             s.geometry = {}
         return s

@@ -842,7 +842,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         """Apply density / toolbar-labels / animation settings to the chrome."""
         s = self.ctx.settings
         theme.apply_theme(
-            QApplication.instance(), s.theme, density=s.density, animations=s.animations
+            QApplication.instance(),
+            s.theme,
+            density=s.density,
+            animations=s.animations,
+            accent_color=getattr(s, "accent_color", ""),
         )
         if hasattr(self, "_toolbar"):
             if s.toolbar_labels:
@@ -1110,6 +1114,127 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._toggle_tab_logging(widget)
         else:
             toast(self, "Open a terminal session first to start logging", "warn")
+
+    # ------------------------------------------------------------------
+    # Session snapshots
+    # ------------------------------------------------------------------
+    def _active_saved_session_ids(self) -> list[str]:
+        """Saved, non-local session ids currently open, de-duplicated in tab order."""
+        ids: list[str] = []
+        seen: set[str] = set()
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if not isinstance(tab, SessionTab):
+                continue
+            defn = tab.controller.definition
+            if defn.protocol == "local" or not defn.id or defn.id in seen:
+                continue
+            if self.ctx.store.get(defn.id) is None:
+                continue
+            seen.add(defn.id)
+            ids.append(defn.id)
+        return ids
+
+    def _save_session_snapshot_named(self, name: str) -> bool:
+        """Persist a named snapshot; public UI wraps this with a prompt."""
+        session_ids = self._active_saved_session_ids()
+        if not session_ids:
+            toast(self, "Open at least one saved SSH or RDP session before saving a snapshot.", "warn")
+            return False
+        name = (name or "").strip()
+        if not name:
+            return False
+        entries = [
+            e for e in (getattr(self.ctx.settings, "session_snapshots", []) or [])
+            if isinstance(e, dict) and e.get("name") != name
+        ]
+        entries.insert(
+            0,
+            {
+                "name": name[:80],
+                "session_ids": session_ids,
+                "created_at": time.time(),
+            },
+        )
+        self.ctx.settings.session_snapshots = entries[:12]
+        self.ctx.settings.save(paths.settings_file())
+        toast(self, f"Saved snapshot “{name}” ({len(session_ids)} session{'s' if len(session_ids) != 1 else ''})", "good")
+        return True
+
+    def save_session_snapshot(self) -> None:
+        session_ids = self._active_saved_session_ids()
+        if not session_ids:
+            toast(self, "Open at least one saved SSH or RDP session before saving a snapshot.", "warn")
+            return
+        default = f"Workspace {time.strftime('%Y-%m-%d %H:%M')}"
+        name, ok = QInputDialog.getText(self, "Save session snapshot", "Snapshot name:", text=default)
+        if ok:
+            self._save_session_snapshot_named(name)
+
+    def _snapshot_entries(self) -> list[dict]:
+        entries = getattr(self.ctx.settings, "session_snapshots", []) or []
+        return [e for e in entries if isinstance(e, dict) and e.get("session_ids")]
+
+    def _populate_snapshot_menu(self) -> None:
+        menu = getattr(self, "_snapshot_restore_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        entries = self._snapshot_entries()
+        if not entries:
+            empty = menu.addAction("No snapshots yet")
+            empty.setEnabled(False)
+            return
+        for idx, entry in enumerate(entries):
+            ids = [sid for sid in entry.get("session_ids", []) if isinstance(sid, str)]
+            label = f"{entry.get('name', 'Snapshot')}  ({len(ids)} session{'s' if len(ids) != 1 else ''})"
+            act = menu.addAction(icon("connect"), label, lambda _=False, i=idx: self.restore_session_snapshot(i))
+            created = entry.get("created_at")
+            if created:
+                act.setToolTip(time.strftime("Saved %Y-%m-%d %H:%M", time.localtime(float(created))))
+        menu.addSeparator()
+        menu.addAction(icon("trash"), "Clear snapshots", self.clear_session_snapshots)
+
+    def restore_session_snapshot(self, index: int) -> None:
+        entries = self._snapshot_entries()
+        if not (0 <= index < len(entries)):
+            return
+        entry = entries[index]
+        opened = 0
+        missing = 0
+        for sid in entry.get("session_ids", []):
+            if not isinstance(sid, str):
+                continue
+            if self.ctx.store.get(sid) is None:
+                missing += 1
+                continue
+            if self.connect_session(sid) is not None:
+                opened += 1
+        name = entry.get("name", "Snapshot")
+        if opened:
+            msg = f"Restored “{name}” ({opened} session{'s' if opened != 1 else ''})"
+            if missing:
+                msg += f" · {missing} missing"
+            toast(self, msg, "good" if not missing else "warn")
+        elif missing:
+            toast(self, f"No sessions from “{name}” still exist.", "warn")
+
+    def clear_session_snapshots(self) -> None:
+        if not self._snapshot_entries():
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Clear session snapshots")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Delete all saved session snapshots?")
+        box.setInformativeText("Saved sessions themselves will not be changed.")
+        yes = box.addButton("Clear Snapshots", QMessageBox.ButtonRole.YesRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is yes:
+            self.ctx.settings.session_snapshots = []
+            self.ctx.settings.save(paths.settings_file())
+            toast(self, "Session snapshots cleared", "info")
 
     # ------------------------------------------------------------------
     # Command Palette
@@ -1517,6 +1642,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             theme_id,
             density=self.ctx.settings.density,
             animations=self.ctx.settings.animations,
+            accent_color=getattr(self.ctx.settings, "accent_color", ""),
         )
         self._sync_theme_actions()
         self._apply_terminal_prefs()

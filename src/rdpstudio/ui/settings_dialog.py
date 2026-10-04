@@ -30,6 +30,7 @@ from ..core import paths
 from ..core.settings import (
     FONT_PRESETS,
     THEME_CHOICES,
+    normalize_hex_color,
 )
 from .theme import PALETTE, icon, palette
 
@@ -70,6 +71,16 @@ def collect_terminal_fonts() -> list[str]:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+_ACCENT_PRESETS: tuple[tuple[str, str], ...] = (
+    ("Theme default", ""),
+    ("Moba blue", "#1670c6"),
+    ("Emerald", "#2e9e44"),
+    ("Amber", "#c47f00"),
+    ("Violet", "#8b5cf6"),
+    ("Custom…", "custom"),
+)
+
 
 def _make_label(text: str, *, pal: dict[str, str] | None = None, bold: bool = False, dim: bool = False, muted: bool = False, size: float = 13) -> QLabel:
     lbl = QLabel(text)
@@ -355,6 +366,43 @@ class SettingsDialog(QDialog):
         )
         grp_lay.addWidget(note)
         lay.addWidget(grp)
+
+        # -- accent colour --
+        grp_accent, accent_lay = _make_group("Accent Colour", pal)
+        accent_row = QHBoxLayout()
+        accent_row.setSpacing(12)
+        accent_row.addWidget(_make_row_label("Primary accent", pal))
+        self.accent_color = QComboBox()
+        self.accent_color.setMinimumHeight(24)
+        self.accent_color.setToolTip("Personalise focus rings, primary buttons and selected items")
+        self.accent_color.setAccessibleName("Primary accent colour")
+        for label, value in _ACCENT_PRESETS:
+            self.accent_color.addItem(label, value)
+        saved_accent = normalize_hex_color(getattr(settings, "accent_color", ""))
+        preset_idx = self.accent_color.findData(saved_accent)
+        if saved_accent and preset_idx < 0:
+            preset_idx = self.accent_color.findData("custom")
+        self.accent_color.setCurrentIndex(preset_idx if preset_idx >= 0 else 0)
+        accent_row.addWidget(self.accent_color, 1)
+        self.accent_custom = QLineEdit(saved_accent)
+        self.accent_custom.setPlaceholderText("#1670c6")
+        self.accent_custom.setMinimumHeight(24)
+        self.accent_custom.setFixedWidth(104)
+        self.accent_custom.setToolTip("Custom hex colour, for example #0078d7")
+        self.accent_custom.setAccessibleName("Custom accent colour")
+        accent_row.addWidget(self.accent_custom)
+        accent_lay.addLayout(accent_row)
+        self._accent_preview = QLabel("Aa  Primary action  Focus ring")
+        self._accent_preview.setMinimumHeight(34)
+        accent_lay.addWidget(self._accent_preview)
+        accent_lay.addWidget(_make_hint(
+            "Choose a preset or enter a custom #RRGGBB colour. Text contrast is adjusted automatically.",
+            pal,
+        ))
+        self.accent_color.currentIndexChanged.connect(lambda _i: self._refresh_accent_controls())
+        self.accent_custom.textChanged.connect(lambda _t: self._refresh_accent_controls())
+        self._refresh_accent_controls()
+        lay.addWidget(grp_accent)
 
         # -- font --
         grp2, grp2_lay = _make_group("Typography", pal)
@@ -845,6 +893,37 @@ class SettingsDialog(QDialog):
                 }}
                 """
             )
+        self._refresh_accent_controls()
+
+    def _selected_accent_color(self) -> str:
+        data = self.accent_color.currentData() if hasattr(self, "accent_color") else ""
+        if data == "custom":
+            return normalize_hex_color(self.accent_custom.text())
+        return normalize_hex_color(data)
+
+    def _refresh_accent_controls(self) -> None:
+        """Update custom colour visibility and the inline accent preview."""
+        if not hasattr(self, "accent_color"):
+            return
+        is_custom = self.accent_color.currentData() == "custom"
+        self.accent_custom.setVisible(is_custom)
+        chosen = self._selected_accent_color()
+        accent = chosen or PALETTE.get(self._selected_theme, PALETTE["mobaxterm"])["accent"]
+        rgb = accent.lstrip("#")
+        try:
+            r, g, b = (int(rgb[i : i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            r, g, b = (22, 112, 198)
+        luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+        text = "#000000" if luminance > 0.58 else "#ffffff"
+        border = accent if chosen or not is_custom else self._pal["bad"]
+        self._accent_preview.setStyleSheet(
+            f"background: {accent}; color: {text}; border: 1px solid {border}; "
+            "border-radius: 6px; padding: 7px 10px; font-weight: 700;"
+        )
+        self._accent_preview.setToolTip(
+            "Theme default accent" if not chosen else f"Custom accent {chosen}"
+        )
 
     def _refresh_font_preview(self) -> None:
         family = self.font_family.currentText().strip() or "monospace"
@@ -924,6 +1003,9 @@ class SettingsDialog(QDialog):
         self.density.setCurrentIndex(self.density.findData(defaults.density))
         self.toolbar_labels.setChecked(defaults.toolbar_labels)
         self.animations.setChecked(defaults.animations)
+        self.accent_color.setCurrentIndex(self.accent_color.findData(defaults.accent_color))
+        self.accent_custom.setText(defaults.accent_color)
+        self._refresh_accent_controls()
         self.font_family.setCurrentText(defaults.font_family or "")
         self.font_size.setValue(defaults.font_size)
         self.cursor.setCurrentIndex(self.cursor.findData(defaults.cursor_style))
@@ -957,6 +1039,7 @@ class SettingsDialog(QDialog):
         s.density = self.density.currentData() or "comfortable"
         s.toolbar_labels = self.toolbar_labels.isChecked()
         s.animations = self.animations.isChecked()
+        s.accent_color = self._selected_accent_color()
         s.font_family = self.font_family.currentText()
         s.font_size = self.font_size.value()
         s.cursor_style = self.cursor_tab.currentData() or self.cursor.currentData()

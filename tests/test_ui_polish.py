@@ -116,14 +116,21 @@ def test_settings_new_fields_defaults_and_coercion() -> None:
     assert s.density == "comfortable"
     assert s.toolbar_labels is True
     assert s.animations is True
+    assert s.accent_color == ""
     assert s.palette_recents == []
+    assert s.session_snapshots == []
 
     s2 = Settings.from_dict(
         {
             "density": "bogus",
             "toolbar_labels": "yes",
             "animations": None,
+            "accent_color": "2E9E44",
             "palette_recents": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+            "session_snapshots": [
+                {"name": "Ops", "session_ids": ["a", "a", "b"], "created_at": "5"},
+                {"name": "empty", "session_ids": []},
+            ],
             "theme": "contrast",
             "font_size": 99,
         }
@@ -131,8 +138,10 @@ def test_settings_new_fields_defaults_and_coercion() -> None:
     assert s2.density == "comfortable"  # unknown value falls back
     assert s2.toolbar_labels is True
     assert s2.animations is False
+    assert s2.accent_color == "#2e9e44"
     assert len(s2.palette_recents) == 8  # capped
     assert s2.palette_recents[0] == "a"
+    assert s2.session_snapshots == [{"name": "Ops", "session_ids": ["a", "b"], "created_at": 5.0}]
     assert s2.theme == "contrast"
 
     # High-contrast palette must be a registered, dark theme.
@@ -167,6 +176,17 @@ def test_density_switches_compact_qss(qtapp) -> None:  # noqa: ARG001
     assert theme.current_density() == "compact"
     assert len(compact_qss) > len(comfy_qss)  # compact block appended
     theme.apply_theme(qtapp, "midnight", density="comfortable", animations=False)
+
+
+def test_custom_accent_color_overrides_theme_at_runtime(qtapp) -> None:  # noqa: ARG001
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "mobaxterm_dark", animations=False, accent_color="#2E9E44")
+    assert theme.current_accent_color() == "#2e9e44"
+    assert theme.palette()["accent"] == "#2e9e44"
+    assert "outline: 2px solid #2e9e44" in qtapp.styleSheet()
+    theme.apply_theme(qtapp, "mobaxterm_dark", animations=False)
+    assert theme.current_accent_color() == ""
 
 
 def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
@@ -480,6 +500,32 @@ def test_dashboard_has_hero_quick_connect(home, qtapp) -> None:  # noqa: ARG001
         qtapp.processEvents()
 
 
+def test_session_snapshots_persist_and_restore(home, qtapp, monkeypatch) -> None:  # noqa: ARG001
+    from rdpstudio.app import build_context
+    from rdpstudio.core.models import PROTOCOL_SSH, Session
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.main_window import MainWindow
+
+    ctx = build_context()
+    first = Session(id="s1", name="prod-web", protocol=PROTOCOL_SSH, host="10.0.0.1")
+    second = Session(id="s2", name="prod-db", protocol=PROTOCOL_SSH, host="10.0.0.2")
+    ctx.store.upsert(first)
+    ctx.store.upsert(second)
+    theme.apply_theme(qtapp, ctx.settings.theme, animations=False)
+    win = MainWindow(ctx)
+    try:
+        monkeypatch.setattr(win, "_active_saved_session_ids", lambda: ["s1", "s2"])
+        assert win._save_session_snapshot_named("Ops")
+        assert ctx.settings.session_snapshots[0]["session_ids"] == ["s1", "s2"]
+        restored: list[str] = []
+        monkeypatch.setattr(win, "connect_session", lambda sid: restored.append(sid) or object())
+        win.restore_session_snapshot(0)
+        assert restored == ["s1", "s2"]
+    finally:
+        win.close()
+        qtapp.processEvents()
+
+
 def test_sidebar_empty_states_toggle(home, qtapp) -> None:  # noqa: ARG001
     """No saved sessions → friendly empty state with an action; adding one
     brings the tree back; a dead search shows the no-match state."""
@@ -509,6 +555,28 @@ def test_sidebar_empty_states_toggle(home, qtapp) -> None:  # noqa: ARG001
         sb.reload()
         assert not sb.tree.isHidden()
         assert sb._no_match_state.isHidden()
+    finally:
+        sb.close()
+        qtapp.processEvents()
+
+
+def test_sidebar_tag_filter_categories(home, qtapp) -> None:  # noqa: ARG001
+    from rdpstudio.core.models import PROTOCOL_SSH, Session
+    from rdpstudio.core.store import SessionStore
+    from rdpstudio.ui import theme
+    from rdpstudio.ui.sidebar import SessionTree
+
+    theme.apply_theme(qtapp, "mobaxterm", animations=False)
+    store = SessionStore(home / "sessions.json")
+    store.upsert(Session(name="web-a", protocol=PROTOCOL_SSH, host="10.0.0.1", tags=["prod", "web"]))
+    store.upsert(Session(name="db-a", protocol=PROTOCOL_SSH, host="10.0.0.2", tags=["db"]))
+    sb = SessionTree(store)
+    try:
+        assert sb.tag_filter.findData("prod") >= 0
+        sb.tag_filter.setCurrentIndex(sb.tag_filter.findData("prod"))
+        assert sb._tag_filter == "prod"
+        labels = [sb.tree.topLevelItem(i).text(0) for i in range(sb.tree.topLevelItemCount())]
+        assert labels == ["web-a"]
     finally:
         sb.close()
         qtapp.processEvents()

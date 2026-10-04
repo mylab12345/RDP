@@ -125,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         ctx.settings.theme,
         density=ctx.settings.density,
         animations=ctx.settings.animations,
+        accent_color=getattr(ctx.settings, "accent_color", ""),
     )
     app.setWindowIcon(theme.icon("logo"))
 
