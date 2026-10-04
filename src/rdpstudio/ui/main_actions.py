@@ -181,6 +181,18 @@ class MainActionsMixin:
 
         m_tabs.addSeparator()
 
+        a = QAction(icon("clock"), "Save Session S&napshot…", self)
+        a.setShortcut(QKeySequence("Ctrl+Alt+S"))
+        a.setStatusTip("Save the current set of open saved sessions for quick reconnection")
+        a.triggered.connect(self.save_session_snapshot)
+        m_tabs.addAction(a)
+
+        self._snapshot_restore_menu = m_tabs.addMenu(icon("clock"), "Restore Session Snap&shot")
+        self._snapshot_restore_menu.setStatusTip("Reopen a saved set of session tabs")
+        self._snapshot_restore_menu.aboutToShow.connect(self._populate_snapshot_menu)
+
+        m_tabs.addSeparator()
+
         a = QAction("&Next Tab", self)
         a.setShortcut(QKeySequence("Ctrl+Tab"))
         a.triggered.connect(self.next_tab)

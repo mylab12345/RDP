@@ -199,6 +199,7 @@ def _glyph_icon(glyph: str) -> QIcon:
 # one frame of stale chrome.
 _current_theme = "mobaxterm_dark"
 _density = "comfortable"  # comfortable | compact
+_accent_color = ""  # empty = selected palette accent
 MOTIONS_ENABLED = True  # global motion switch (Settings → UI → Animations)
 
 
@@ -208,6 +209,11 @@ def current_theme() -> str:
 
 def current_density() -> str:
     return _density
+
+
+def current_accent_color() -> str:
+    """Currently applied custom accent, or ``""`` for the theme default."""
+    return _accent_color
 
 
 # ----------------------------------------------------------------------
@@ -261,9 +267,91 @@ def _default_theme() -> str:
     return DEFAULT_THEME
 
 
+def _normalize_hex(value: str | None) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    if not text.startswith("#"):
+        text = f"#{text}"
+    if len(text) != 7:
+        return ""
+    try:
+        int(text[1:], 16)
+    except ValueError:
+        return ""
+    return text.lower()
+
+
+def _mix_hex(a: str, b: str, amount: float) -> str:
+    """Mix ``a`` toward ``b`` by ``amount`` (0..1)."""
+    amount = max(0.0, min(1.0, float(amount)))
+    ca = QColor(a)
+    cb = QColor(b)
+    r = round(ca.red() + (cb.red() - ca.red()) * amount)
+    g = round(ca.green() + (cb.green() - ca.green()) * amount)
+    bl = round(ca.blue() + (cb.blue() - ca.blue()) * amount)
+    return f"#{r:02x}{g:02x}{bl:02x}"
+
+
+def _relative_luminance(hex_color: str) -> float:
+    color = QColor(hex_color)
+
+    def channel(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(color.red()) + 0.7152 * channel(color.green()) + 0.0722 * channel(color.blue())
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    hi, lo = max(_relative_luminance(fg), _relative_luminance(bg)), min(
+        _relative_luminance(fg), _relative_luminance(bg)
+    )
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _accent_text_for(accent: str) -> str:
+    """Choose white or black text for the custom accent button fill."""
+    white = _contrast_ratio("#ffffff", accent)
+    black = _contrast_ratio("#000000", accent)
+    return "#000000" if black >= white and black >= 4.5 else "#ffffff"
+
+
+def _with_accent_override(base: dict[str, str], accent: str) -> dict[str, str]:
+    """Return ``base`` with just the interactive accent family replaced."""
+    accent = _normalize_hex(accent)
+    if not accent:
+        return base
+    pal = dict(base)
+    text = _accent_text_for(accent)
+    hover = _mix_hex(accent, "#ffffff", 0.18)
+    active = _mix_hex(accent, "#000000", 0.18)
+    pal.update(
+        {
+            "accent": accent,
+            "accent_hover": hover,
+            "accent_active": active,
+            "accent_text": text,
+            "accent_subtle": f"{accent}29",
+            "accent_gradient": (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                f"stop:0 {hover}, stop:1 {active})"
+            ),
+        }
+    )
+    return pal
+
+
 def palette(theme: str | None = None) -> dict[str, str]:
-    """Palette for ``theme`` — defaults to the currently applied theme."""
-    return PALETTE.get(theme or _current_theme, PALETTE[_default_theme()])
+    """Palette for ``theme`` — defaults to the currently applied theme.
+
+    A user-chosen accent colour is layered on top at runtime; the shipped
+    :data:`PALETTE` constants stay untouched for tests, previews and exports.
+    """
+    base = PALETTE.get(theme or _current_theme, PALETTE[_default_theme()])
+    return _with_accent_override(base, _accent_color)
 
 
 
@@ -443,10 +531,12 @@ def apply_theme(
     theme: str = "",
     density: str = "comfortable",
     animations: bool = True,
+    accent_color: str = "",
 ) -> None:
-    global _current_theme, _density, MOTIONS_ENABLED
+    global _current_theme, _density, _accent_color, MOTIONS_ENABLED
     _current_theme = theme if theme in PALETTE else _default_theme()
     _density = density if density in ("comfortable", "compact") else "comfortable"
+    _accent_color = _normalize_hex(accent_color)
     MOTIONS_ENABLED = bool(animations)
     pal = palette(theme)
     extra = _indicator_image_urls(pal)

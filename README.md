@@ -29,8 +29,8 @@ NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
 | **SSH key utility** | Standalone key tool (`Ctrl+Shift+U`): key generation (Ed25519/RSA/ECDSA), visual Randomart (Drunken Bishop algorithm), and OpenSSH ⇄ PuTTY `.ppk` converter |
 | **File transfer & edit** | Dual-pane SFTP browser (remote ⇄ local), recursive uploads/downloads with progress + cancel, context menus, hidden files toggle (`.*`), and **in-app text file editor** with direct SFTP save-and-upload (`Ctrl+S`) |
 | **File sharing to Windows / RDP** | **Built-in SFTP share server** (`Ctrl+Shift+S`): share chosen local folders — globally to *every* RDP machine, plus per-session extras — and the Windows box pulls/pushes them with its own client (`sftp.exe`, WinSCP). One virtual root, one directory per share; password auth (hashed), read-only mode, activity log, copy-paste-ready connect command |
-| **Session manager** | Grouped, searchable sidebar of saved sessions; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
-| **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), shortcuts (`Ctrl+Tab`, `Ctrl+1..9`) |
+| **Session manager** | Grouped, searchable sidebar of saved sessions; tag/category filter; quick connect (`user@host[:port]`, port 3389 ⇒ RDP); duplicate/import/export; import from `~/.ssh/config` |
+| **Tab management** | Right-click tab context menu (Close, Close Others, Close to the Right, Duplicate, Rename, Reconnect, Session Logging), session snapshots for quick reconnection (`Ctrl+Alt+S`), shortcuts (`Ctrl+Tab`, `Ctrl+1..9`) |
 | **Simple by default** | The session editor asks for **host, username and password** — everything else (ports, tags, jump hosts, keepalives, forwards, RD gateway, certificates) lives behind a single **Advanced options** toggle. RDP display is one dropdown: fit to window, fullscreen, or a standard resolution |
 | **Credentials** | Use a plain **username + password** per session (stored in the sessions file, `0600`) or pick a **Saved credential** from the encrypted vault. Leave the password empty to be asked at connect time. |
 | **Reconnect** | Exponential backoff + jitter, attempt limits, live status chips; FreeRDP `+auto-reconnect` for RDP |
@@ -101,7 +101,8 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 KB-Remote opens in the **MobaXterm Dark** theme (charcoal chrome, Windows-blue
 accent); the classic light MobaXterm chrome plus Midnight, Dracula, Ocean and a
 high-contrast preset are one click away in **View → Theme** or **Settings →
-General**. *View → Session Tabs Position* (Ctrl+Shift+J cycles) moves the tab
+General**. Settings also lets you override the primary accent colour with a
+preset or custom `#RRGGBB` value. *View → Session Tabs Position* (Ctrl+Shift+J cycles) moves the tab
 strip between the top, left and right edges.
 
 Nothing about the layout is fixed — drag it where you want it:

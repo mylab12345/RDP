@@ -22,6 +22,7 @@ _GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         "Tabs",
         [
             ("Duplicate current tab", "Ctrl + Shift + D"),
+            ("Save session snapshot", "Ctrl + Alt + S"),
             ("Next tab", "Ctrl + Tab"),
             ("Previous tab", "Ctrl + Shift + Tab"),
             ("Switch to tab 1–9", "Ctrl + 1 … 9"),
