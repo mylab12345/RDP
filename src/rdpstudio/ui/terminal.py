@@ -390,6 +390,82 @@ def middle_click_text() -> str:
     return cb.text(QClipboard.Mode.Clipboard)
 
 
+_SCROLL_BUTTON_STYLE = """
+    QToolButton {
+        background: rgba(42, 52, 72, 205);
+        color: #e5e7eb;
+        border: 1px solid rgba(148, 163, 184, 85);
+        border-radius: 7px;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 0px;
+    }
+    QToolButton:hover {
+        background: rgba(58, 74, 106, 230);
+        border-color: rgba(203, 213, 225, 150);
+    }
+    QToolButton:pressed {
+        background: rgba(96, 165, 250, 230);
+        color: #ffffff;
+    }
+    QToolButton:disabled {
+        background: rgba(42, 52, 72, 95);
+        color: rgba(229, 231, 235, 95);
+        border-color: rgba(148, 163, 184, 45);
+    }
+"""
+
+_SCROLL_BUTTON_SIZE = 22
+_SCROLL_BUTTON_GAP = 4
+_SCROLL_STRIP_WIDTH = 24
+
+
+def make_terminal_scroll_button(parent: QWidget, text: str, tooltip: str) -> QToolButton:
+    """Create one of the always-available terminal scroll buttons.
+
+    The buttons live inside the terminal's own scrollbar strip instead of in
+    an outer toolbar, so local and SSH tabs expose the same quick controls even
+    when the user's mouse/trackpad wheel is awkward to use.  Auto-repeat makes
+    click-and-hold behave like a real scrollbar arrow.
+    """
+    button = QToolButton(parent)
+    button.setText(text)
+    button.setToolTip(tooltip)
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setAutoRepeat(True)
+    button.setAutoRepeatDelay(250)
+    button.setAutoRepeatInterval(55)
+    button.setFixedSize(_SCROLL_BUTTON_SIZE, _SCROLL_BUTTON_SIZE)
+    button.setStyleSheet(_SCROLL_BUTTON_STYLE)
+    button.setObjectName("terminalScrollButton")
+    return button
+
+
+def terminal_scroll_step(rows: int) -> int:
+    """How many terminal rows a scroll button click should move."""
+    return max(3, int(rows or 0) // 2)
+
+
+def position_terminal_scroll_buttons(
+    owner: QWidget,
+    up_button: QToolButton,
+    down_button: QToolButton,
+    *,
+    right_strip_width: int = _SCROLL_STRIP_WIDTH,
+) -> None:
+    """Place scroll up/down buttons at the top/bottom of a terminal view."""
+    size = _SCROLL_BUTTON_SIZE
+    margin = max(1, (right_strip_width - size) // 2)
+    x = max(0, owner.width() - right_strip_width + margin)
+    top = 6
+    bottom = max(top + size + _SCROLL_BUTTON_GAP, owner.height() - size - 6)
+    up_button.move(x, top)
+    down_button.move(x, bottom)
+    up_button.raise_()
+    down_button.raise_()
+
+
 def _seq_complete(window: bytes) -> bool:
     """Heuristic: does this escape-sequence-looking window look complete?"""
     if not window.startswith(b"\x1b"):
@@ -637,18 +713,20 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         self.vbar = QScrollBar(Qt.Orientation.Vertical, self)
         # Pin the width: before the app stylesheet/style is fully applied, a
         # bare QScrollBar size-hints ~100 px, which left a wide blank strip
-        # on the right of every terminal (and wasted ~10 columns).
-        self.vbar.setFixedWidth(12)
+        # on the right of every terminal (and wasted ~10 columns).  The strip
+        # is now wide enough to host explicit up/down buttons requested by
+        # users who find wheel-only scrollback awkward.
+        self.vbar.setFixedWidth(_SCROLL_STRIP_WIDTH)
         self.vbar.setStyleSheet("""
             QScrollBar:vertical {
                 background: transparent;
-                width: 8px;
-                margin: 2px;
-                border-radius: 4px;
+                width: 12px;
+                margin: 30px 6px 30px 6px;
+                border-radius: 6px;
             }
             QScrollBar::handle:vertical {
                 background: #2a3448;
-                border-radius: 4px;
+                border-radius: 5px;
                 min-height: 24px;
             }
             QScrollBar::handle:vertical:hover {
@@ -665,6 +743,17 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         # filter the scrollbar and paste from here instead.
         self.vbar.installEventFilter(self)
 
+        self._scroll_up_btn = make_terminal_scroll_button(
+            self, "▲", "Scroll terminal up (Shift+Page Up)"
+        )
+        self._scroll_down_btn = make_terminal_scroll_button(
+            self, "▼", "Scroll terminal down (Shift+Page Down)"
+        )
+        self._scroll_up_btn.clicked.connect(self._scroll_page_up)
+        self._scroll_down_btn.clicked.connect(self._scroll_page_down)
+        self._scroll_up_btn.installEventFilter(self)
+        self._scroll_down_btn.installEventFilter(self)
+
         # In-terminal search bar overlay
         self.search_bar = TerminalSearchBar(self)
         self.search_bar.hide()
@@ -672,6 +761,11 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         self.search_bar.findNext.connect(self._on_find_next)
         self.search_bar.findPrev.connect(self._on_find_prev)
         self.search_bar.closed.connect(self._on_search_closed)
+
+        position_terminal_scroll_buttons(
+            self, self._scroll_up_btn, self._scroll_down_btn, right_strip_width=self.vbar.width()
+        )
+        self._sync_scroll_button_state()
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
 
@@ -928,8 +1022,22 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         super().resizeEvent(event)
         self._resize_timer.start()
         self.vbar.setGeometry(self.width() - self.vbar.width(), 0, self.vbar.width(), self.height())
+        position_terminal_scroll_buttons(
+            self, self._scroll_up_btn, self._scroll_down_btn, right_strip_width=self.vbar.width()
+        )
         if self.search_bar.isVisible():
             self._position_search_bar()
+
+    def _sync_scroll_button_state(self) -> None:
+        maximum = self.vbar.maximum()
+        self._scroll_up_btn.setEnabled(self._scroll < maximum)
+        self._scroll_down_btn.setEnabled(self._scroll > 0)
+
+    def _scroll_page_up(self) -> None:
+        self.scroll_lines(terminal_scroll_step(self.core.rows))
+
+    def _scroll_page_down(self) -> None:
+        self.scroll_lines(-terminal_scroll_step(self.core.rows))
 
     def _sync_scrollbar(self, *_) -> None:
         if self._syncing_scrollbar:
@@ -939,26 +1047,31 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
             total = self.core.total_lines()
             visible = self.core.rows
             max_scroll = max(0, total - visible)
+            self._scroll = min(max(0, self._scroll), max_scroll)
             self.vbar.setPageStep(visible)
             self.vbar.setRange(0, max_scroll)
             self.vbar.setValue(max_scroll - self._scroll)
         finally:
             self._syncing_scrollbar = False
+        self._sync_scroll_button_state()
 
     def _on_scrollbar(self, value: int) -> None:
         if self._syncing_scrollbar:
             return
         self._scroll = self.vbar.maximum() - value
+        self._sync_scroll_button_state()
         self.update()
 
     def scroll_lines(self, n: int) -> None:
         self._scroll = min(max(0, self._scroll + n), self.vbar.maximum())
         self.vbar.setValue(self.vbar.maximum() - self._scroll)
+        self._sync_scroll_button_state()
         self.update()
 
     def scroll_to_bottom(self) -> None:
         self._scroll = 0
         self.vbar.setValue(self.vbar.maximum())
+        self._sync_scroll_button_state()
         self.update()
 
     # -- rendering ----------------------------------------------------------
@@ -1198,7 +1311,12 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         # scrollbar strip swallows mouse buttons without propagating them
         # to the viewport, so paste from the filter instead. Press *and*
         # release are consumed so the slider never sees a half gesture.
-        if obj is getattr(self, "vbar", None) and event.type() in (
+        scroll_surface = (
+            getattr(self, "vbar", None),
+            getattr(self, "_scroll_up_btn", None),
+            getattr(self, "_scroll_down_btn", None),
+        )
+        if obj in scroll_surface and event.type() in (
             QEvent.Type.MouseButtonPress,
             QEvent.Type.MouseButtonRelease,
         ):
@@ -1301,6 +1419,19 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
                 event.accept()
                 return
 
+        # Standard terminal scrollback shortcuts: keep bare PageUp/PageDown
+        # available for shells/TUIs, but Shift+PageUp/Down scrolls the local
+        # terminal buffer in both local and remote tabs.
+        if shift and not ctrl and not alt:
+            if key == Qt.Key.Key_PageUp:
+                self._scroll_page_up()
+                event.accept()
+                return
+            if key == Qt.Key.Key_PageDown:
+                self._scroll_page_down()
+                event.accept()
+                return
+
         # MobaXterm-style zoom: Ctrl+Plus / Ctrl+Minus / Ctrl+0 (reset).
         # On ISO layouts "+" arrives as Shift+Equal — accept either form.
         if ctrl and not alt:
@@ -1341,7 +1472,11 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
                 return
         steps = event.angleDelta().y() // 40
         if steps:
-            self.scroll_lines(-steps * 3)
+            # Positive wheel delta means wheel-up on Qt platforms: scroll back
+            # into older terminal output. Negative delta moves toward live
+            # output again.
+            self.scroll_lines(steps * 3)
+            event.accept()
 
     def _zoom_font(self, step: int) -> None:
         size = max(6, min(48, self._font_size + step))

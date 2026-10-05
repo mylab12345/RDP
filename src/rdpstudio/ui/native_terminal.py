@@ -33,13 +33,20 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QMenu,
+    QScrollBar,
     QTextEdit,
     QWidget,
 )
 
 from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste
 from .session_log import SessionLogMixin
-from .terminal import encode_key_event, middle_click_text
+from .terminal import (
+    encode_key_event,
+    make_terminal_scroll_button,
+    middle_click_text,
+    position_terminal_scroll_buttons,
+    terminal_scroll_step,
+)
 
 # QTermWidget's public API is intentionally small.  Keep the import lazy and
 # behind a function: the optional wheel is built against a particular Qt ABI
@@ -213,11 +220,24 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         self._font_size = self._font.pointSize()
         self._log_file = None
         self._log_path: Path | None = None
+        self._scrollbar_connections: set[int] = set()
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._native)
+
+        self._scroll_up_btn = make_terminal_scroll_button(
+            self, "▲", "Scroll terminal up (Shift+Page Up)"
+        )
+        self._scroll_down_btn = make_terminal_scroll_button(
+            self, "▼", "Scroll terminal down (Shift+Page Down)"
+        )
+        self._scroll_up_btn.clicked.connect(self._scroll_page_up)
+        self._scroll_down_btn.clicked.connect(self._scroll_page_down)
+        self._scroll_up_btn.installEventFilter(self)
+        self._scroll_down_btn.installEventFilter(self)
+        position_terminal_scroll_buttons(self, self._scroll_up_btn, self._scroll_down_btn)
 
         self._configure_native()
         self._connect_native_signals()
@@ -259,6 +279,7 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         # tree now — and again once the event loop settles — so middle-click
         # paste and Ctrl+wheel zoom reach every pixel from the first frame.
         self._rescan_child_filters()
+        self._sync_scroll_button_state()
         QTimer.singleShot(0, self._rescan_child_filters)
 
         # The fd is only the input side of QTermWidget's empty PTY.  Making it
@@ -290,6 +311,61 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         if reason is None:
             return native.setFocus()
         return native.setFocus(reason)
+
+    # ------------------------------------------------------------------
+    # Scrollback controls
+    # ------------------------------------------------------------------
+    def _native_scrollbar(self) -> QScrollBar | None:
+        native = getattr(self, "_native", None)
+        if native is None:
+            return None
+        try:
+            direct = getattr(native, "scrollbar", None)
+            if isinstance(direct, QScrollBar):
+                return direct
+        except RuntimeError:
+            return None
+        try:
+            bars = native.findChildren(QScrollBar)
+        except RuntimeError:
+            return None
+        return bars[0] if bars else None
+
+    def _watch_native_scrollbar(self, scrollbar: QScrollBar) -> None:
+        key = id(scrollbar)
+        if key in self._scrollbar_connections:
+            return
+        self._scrollbar_connections.add(key)
+        try:
+            scrollbar.valueChanged.connect(lambda _value=0: self._sync_scroll_button_state())
+            scrollbar.rangeChanged.connect(lambda _min=0, _max=0: self._sync_scroll_button_state())
+        except RuntimeError:
+            pass
+
+    def _sync_scroll_button_state(self) -> None:
+        bar = self._native_scrollbar()
+        if bar is None:
+            # Some QTermWidget builds do not expose their internal scrollbar.
+            # Leave the controls usable; scroll_to_bottom still works for the
+            # down button and older bindings may add a scrollbar later.
+            self._scroll_up_btn.setEnabled(True)
+            self._scroll_down_btn.setEnabled(True)
+            return
+        self._watch_native_scrollbar(bar)
+        try:
+            value = bar.value()
+            minimum = bar.minimum()
+            maximum = bar.maximum()
+        except RuntimeError:
+            return
+        self._scroll_up_btn.setEnabled(value > minimum)
+        self._scroll_down_btn.setEnabled(value < maximum)
+
+    def _scroll_page_up(self) -> None:
+        self.scroll_lines(terminal_scroll_step(self.cols_rows()[1]))
+
+    def _scroll_page_down(self) -> None:
+        self.scroll_lines(-terminal_scroll_step(self.cols_rows()[1]))
 
     # ------------------------------------------------------------------
     # Native setup and signals
@@ -404,8 +480,11 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
                 child.installEventFilter(self)
             except RuntimeError:  # C++ object already deleted
                 continue
+            if isinstance(child, QScrollBar):
+                self._watch_native_scrollbar(child)
             targets.add(child)
         self._filter_targets = targets
+        self._sync_scroll_button_state()
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
         """Keyboard shim + surface-wide middle-click paste / Ctrl+wheel zoom.
@@ -425,6 +504,16 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
             # Internals created later (native search bar, …) join the
             # filtered surface as soon as they appear.
             self._rescan_child_filters()
+            return False
+        if obj in (getattr(self, "_scroll_up_btn", None), getattr(self, "_scroll_down_btn", None)):
+            if etype in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+                if event.button() == Qt.MouseButton.MiddleButton:
+                    if (
+                        etype == QEvent.Type.MouseButtonPress
+                        and bool(getattr(self.settings, "paste_on_middle_click", True))
+                    ):
+                        self.paste_middle_click()
+                    return True
             return False
         targets = getattr(self, "_filter_targets", None)
         if targets is None or obj not in targets:
@@ -486,6 +575,14 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
                     return True
                 if key == Qt.Key.Key_F:
                     self.open_search()
+                    return True
+
+            if shift and not ctrl and not alt:
+                if key == Qt.Key.Key_PageUp:
+                    self._scroll_page_up()
+                    return True
+                if key == Qt.Key.Key_PageDown:
+                    self._scroll_page_down()
                     return True
 
             data = encode_key_event(
@@ -736,6 +833,7 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        position_terminal_scroll_buttons(self, self._scroll_up_btn, self._scroll_down_btn)
         self._size_timer.start()
 
     def _emit_size_if_changed(self) -> None:
@@ -850,6 +948,19 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         # widget only receives keys when it (not the native child) has focus.
         native = getattr(self, "_native", None)
         if native is not None:
+            mods = event.modifiers()
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+            if shift and not ctrl and not alt:
+                if event.key() == Qt.Key.Key_PageUp:
+                    self._scroll_page_up()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_PageDown:
+                    self._scroll_page_down()
+                    event.accept()
+                    return
             data = encode_key_event(
                 event,
                 type("_ModeStub", (), {"mode": {1 << 5} if self._app_cursor else set()})(),
@@ -881,12 +992,28 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
             self._native.scrollToEnd()
         except Exception:
             pass
+        bar = self._native_scrollbar()
+        if bar is not None:
+            bar.setValue(bar.maximum())
+        self._sync_scroll_button_state()
 
-    def scroll_lines(self, _n: int) -> None:
-        # The native widget owns the scroll model.  Mouse wheel events are
-        # handled by QTermWidget; this method is retained for controller/API
-        # compatibility and intentionally avoids synthesizing wheel events.
-        return
+    def scroll_lines(self, n: int) -> None:
+        if n == 0:
+            return
+        bar = self._native_scrollbar()
+        if bar is not None:
+            # QScrollBar values conventionally increase toward the live bottom.
+            # Keep TerminalView's API: positive n means "scroll up" into older
+            # output, negative n means "scroll down" toward the prompt.
+            target = bar.value() - int(n)
+            target = max(bar.minimum(), min(bar.maximum(), target))
+            bar.setValue(target)
+            self._sync_scroll_button_state()
+            return
+        # Old/native bindings that do not expose their scrollbar can at least
+        # honor downward requests by jumping to the live prompt.
+        if n < 0:
+            self.scroll_to_bottom()
 
     # -- session logging: see SessionLogMixin -----------------------------
 
