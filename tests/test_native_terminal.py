@@ -219,6 +219,49 @@ def _wheel(mods: Qt.KeyboardModifier) -> QWheelEvent:
     )
 
 
+
+def test_scroll_buttons_move_native_scrollbar(native_view, qtapp):
+    """The overlay scroll arrows drive QTermWidget's exposed scrollbar."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    view = native_view
+    bar = view._native.scrollbar
+    bar.setRange(0, 100)
+    bar.setValue(100)
+    view._sync_scroll_button_state()
+
+    QTest.mouseClick(view._scroll_up_btn, Qt.MouseButton.LeftButton)
+    qtapp.processEvents()
+    assert bar.value() < 100
+
+    QTest.mouseClick(view._scroll_down_btn, Qt.MouseButton.LeftButton)
+    qtapp.processEvents()
+    assert bar.value() == 100
+
+
+def test_shift_page_scrolls_native_scrollbar(native_view, qtapp):
+    """Shift+PageUp/Down scrolls native terminal history without hitting SSH."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    view = native_view
+    emitted = _collect(view)
+    bar = view._native.scrollbar
+    bar.setRange(0, 100)
+    bar.setValue(100)
+    view._sync_scroll_button_state()
+
+    QTest.keyClick(view._native.display, Qt.Key.Key_PageUp, Qt.KeyboardModifier.ShiftModifier)
+    qtapp.processEvents()
+    assert bar.value() < 100
+    assert emitted == []
+
+    QTest.keyClick(view._native.display, Qt.Key.Key_PageDown, Qt.KeyboardModifier.ShiftModifier)
+    qtapp.processEvents()
+    assert bar.value() == 100
+    assert emitted == []
+
 def test_ctrl_wheel_zooms_on_scrollbar(native_view):
     view = native_view
     before = view._font_size

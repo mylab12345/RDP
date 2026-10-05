@@ -306,6 +306,77 @@ def test_middle_click_pastes_on_scrollbar_strip(qtapp):
     term.deleteLater()
 
 
+
+def test_scroll_buttons_move_scrollback(qtapp):
+    """The in-terminal arrow controls scroll the pyte scrollback buffer."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.terminal import TerminalView
+
+    term = TerminalView(Settings())
+    term.resize(320, 120)
+    term.show()
+    qtapp.processEvents()
+    term._relayout()
+    for i in range(60):
+        term.feed(f"line {i}\r\n".encode())
+    term._sync_scrollbar()
+
+    assert term.vbar.maximum() > 0
+    assert term._scroll == 0
+    assert term._scroll_up_btn.isEnabled()
+
+    QTest.mouseClick(term._scroll_up_btn, Qt.MouseButton.LeftButton)
+    qtapp.processEvents()
+    assert term._scroll > 0
+
+    QTest.mouseClick(term._scroll_down_btn, Qt.MouseButton.LeftButton)
+    qtapp.processEvents()
+    assert term._scroll == 0
+    term.close()
+    term.deleteLater()
+
+
+def test_wheel_up_scrolls_back_and_shift_page_down_returns(qtapp):
+    """Wheel-up and Shift+PageUp/Down scroll terminal history locally."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    from rdpstudio.core.settings import Settings
+    from rdpstudio.ui.terminal import TerminalView
+
+    term = TerminalView(Settings())
+    term.resize(320, 120)
+    term.show()
+    qtapp.processEvents()
+    term._relayout()
+    for i in range(60):
+        term.feed(f"line {i}\r\n".encode())
+    term._sync_scrollbar()
+
+    wheel_up = QWheelEvent(
+        QPointF(30, 30),
+        QPointF(30, 30),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(term, wheel_up)
+    assert term._scroll > 0
+
+    QTest.keyClick(term, Qt.Key.Key_PageDown, Qt.KeyboardModifier.ShiftModifier)
+    qtapp.processEvents()
+    assert term._scroll == 0
+    term.close()
+    term.deleteLater()
+
 def test_middle_click_disabled_by_setting(qtapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QGuiApplication
