@@ -12,7 +12,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -21,6 +31,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QProgressBar,
     QPushButton,
@@ -1356,6 +1367,145 @@ def soft_shadow(widget: QWidget, blur: int = 14, dy: int = 3, alpha: int = 90) -
     shadow.setOffset(0, dy)
     shadow.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(shadow)
+
+
+class _HoverShadowFilter(QObject):
+    """Event filter that lifts a card with a soft shadow while hovered.
+
+    Subtle interactive feedback (suggestion: *interactive elements*) — the
+    elevation appears on mouse-enter and disappears on leave. It is static
+    styling, not motion, so it stays on even with animations disabled.
+    """
+
+    def __init__(self, widget: QWidget, blur: int, dy: int, alpha: int) -> None:
+        super().__init__(widget)
+        self._blur = blur
+        self._dy = dy
+        self._alpha = alpha
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt naming
+        if event.type() == QEvent.Type.Enter:
+            if obj.graphicsEffect() is None:
+                soft_shadow(obj, blur=self._blur, dy=self._dy, alpha=self._alpha)
+        elif event.type() == QEvent.Type.Leave:
+            if obj.graphicsEffect() is not None:
+                obj.setGraphicsEffect(None)
+        return False
+
+
+def install_hover_shadow(widget: QWidget, blur: int = 18, dy: int = 4, alpha: int = 70) -> None:
+    """Give ``widget`` a soft drop shadow that appears while hovered."""
+    hover_filter = _HoverShadowFilter(widget, blur, dy, alpha)
+    widget.installEventFilter(hover_filter)
+    widget._hover_shadow_filter = hover_filter  # keep the filter alive
+
+
+class FlowLayout(QLayout):
+    """Left-to-right flow that wraps to a new row when the width runs out.
+
+    Used for the dashboard launcher tiles and shortcut chips so the welcome
+    page stays usable on narrow windows (responsive design) instead of
+    overflowing off-screen.
+    """
+
+    def __init__(self, parent=None, margin: int = 0, spacing: int = -1) -> None:
+        super().__init__(parent)
+        self._item_list: list = []
+        self._h_spacing = spacing
+        self._v_spacing = spacing
+        if margin >= 0:
+            self.setContentsMargins(margin, margin, margin, margin)
+
+    # NB: no __del__ — calling back into Qt from a Python finalizer is a
+    # segfault risk (the C++ layout may already be gone); Qt deletes the
+    # layout with its parent widget and the items are owned by the widget.
+
+    def addItem(self, item) -> None:  # noqa: N802 — Qt naming
+        self._item_list.append(item)
+
+    def count(self) -> int:
+        return len(self._item_list)
+
+    def itemAt(self, index: int):  # noqa: N802 — Qt naming
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
+        return None
+
+    def takeAt(self, index: int):  # noqa: N802 — Qt naming
+        if 0 <= index < len(self._item_list):
+            return self._item_list.pop(index)
+        return None
+
+    def expandingDirections(self) -> Qt.Orientation:
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect) -> None:  # noqa: N802 — Qt naming
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._item_list:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def horizontalSpacing(self) -> int:
+        if self._h_spacing >= 0:
+            return self._h_spacing
+        parent = self.parentWidget()
+        if parent is not None and parent.isWidgetType():
+            from PySide6.QtWidgets import QStyle
+
+            return parent.style().pixelMetric(
+                QStyle.PixelMetric.PM_LayoutHorizontalSpacing, None, parent
+            )
+        return 8
+
+    def verticalSpacing(self) -> int:
+        if self._v_spacing >= 0:
+            return self._v_spacing
+        parent = self.parentWidget()
+        if parent is not None and parent.isWidgetType():
+            from PySide6.QtWidgets import QStyle
+
+            return parent.style().pixelMetric(
+                QStyle.PixelMetric.PM_LayoutVerticalSpacing, None, parent
+            )
+        return 8
+
+    def _do_layout(self, rect: QRect, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(
+            margins.left(), margins.top(), -margins.right(), -margins.bottom()
+        )
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        for item in self._item_list:
+            space_x = self.horizontalSpacing()
+            space_y = self.verticalSpacing()
+            next_x = x + item.sizeHint().width() + space_x
+            if next_x - space_x > effective.right() and line_height > 0:
+                x = effective.x()
+                y = y + line_height + space_y
+                next_x = x + item.sizeHint().width() + space_x
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+            x = next_x
+            line_height = max(line_height, item.sizeHint().height())
+        return y + line_height - rect.y() + margins.bottom()
 
 
 class ShimmerProgressBar(QProgressBar):

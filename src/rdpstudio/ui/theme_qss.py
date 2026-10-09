@@ -44,6 +44,7 @@ QMenuBar {{
     padding: 0px 4px;
     spacing: 0px;
     font-size: 12.5px;
+    font-weight: 500;
     min-height: 26px;
 }}
 QMenuBar::item {{
@@ -63,6 +64,12 @@ QMenuBar::item:pressed {{
 QMenuBar::item:selected {{
     background: {bg3};
     color: {fg};
+}}
+QMenuBar::item:focus {{
+    background: {bg3};
+    color: {fg};
+    outline: 2px solid {accent};
+    outline-offset: -2px;
 }}
 
 QMenu {{
@@ -662,6 +669,10 @@ QTreeView::branch:open:has-children:has-siblings {{
     subcontrol-origin: branch;
     subcontrol-position: center left;
 }}
+/* Keyboard focus on list views — recolor the frame, no geometry shift. */
+QListView:focus, QTableView:focus {{
+    border: 1px solid {accent};
+}}
 QHeaderView::section {{
     background: {panel};
     border: none;
@@ -856,6 +867,16 @@ QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
     border-color: {border_subtle};
     background: {bg3};
 }}
+/* Focus rings on the small indicators — keyboard users must always see
+   where focus is, on every interactive family. */
+QCheckBox::indicator:focus, QRadioButton::indicator:focus {{
+    border-color: {accent};
+    outline: 2px solid {accent};
+    outline-offset: 1px;
+}}
+QCheckBox:focus, QRadioButton:focus {{
+    outline: none;
+}}
 
 /* ================= Labels ============================================== */
 QLabel {{
@@ -869,11 +890,13 @@ QLabel#h1 {{
     font-size: 16px;
     font-weight: 600;
     color: {fg};
+    font-family: {ui_display};
 }}
 QLabel#h2 {{
     font-size: 13px;
     font-weight: 600;
     color: {fg};
+    font-family: {ui_display};
 }}
 QLabel#caption {{
     font-size: 11px;
@@ -884,6 +907,16 @@ QLabel#dashTitle {{
     font-weight: 600;
     color: {fg};
     letter-spacing: -0.2px;
+    font-family: {ui_display};
+}}
+/* Dashboard section captions — small uppercase labels that give the
+   welcome page a clear visual hierarchy (Quick connect / Launchers / …). */
+QLabel#dashSection {{
+    font-size: 11px;
+    font-weight: 600;
+    color: {fg_muted};
+    letter-spacing: 0.6px;
+    background: transparent;
 }}
 QLabel#dashVersion {{
     font-size: 11px;
@@ -1097,10 +1130,34 @@ QWidget#dashTile:hover {{
     border-color: {accent};
     background: {bg2};
 }}
+QWidget#dashTile:pressed {{
+    background: {bg3};
+}}
+/* Keyboard-activatable cards (dashboard tiles, recent-session rows) get a
+   visible focus ring — they take focus and activate on Enter/Space. */
+QWidget#dashTile:focus, QWidget#card_hover:focus {{
+    border-color: {accent};
+    outline: 2px solid {accent};
+    outline-offset: -2px;
+}}
+QWidget#card_hover:pressed {{
+    background: {bg3};
+}}
 QLabel#dashTileIcon {{
     background: {bg2};
     border: 1px solid {border_subtle};
     border-radius: 8px;
+}}
+/* Tab-strip close buttons — same red hover treatment as the header's
+   #tabClose button, so every close affordance reads the same. */
+QTabBar::close-button {{
+    border-radius: 4px;
+}}
+QTabBar::close-button:hover {{
+    background: {bad_faint};
+}}
+QTabBar::close-button:pressed {{
+    background: {bad_soft2};
 }}
 
 /* ================= Command bar (MobaXterm terminal command line) ====== */
@@ -1204,6 +1261,10 @@ QSlider::handle:horizontal {{
 }}
 QSlider::handle:horizontal:hover {{
     background: {accent_subtle};
+}}
+QSlider::handle:horizontal:focus {{
+    background: {accent};
+    border-color: {accent};
 }}
 
 /* ================= Dock / misc ========================================= */

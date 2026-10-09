@@ -131,6 +131,72 @@ SHARE_DEFAULT_PORT = 2222
 SHARE_DEFAULT_USER = "kbshare"
 
 
+# Welcome-dashboard personalisation (see ui/dashboard.py). ``tiles`` lists
+# the launcher-tile ids shown on the dashboard, in order; the four defaults
+# keep the empty workbench minimal. Unknown ids are dropped on load.
+DASHBOARD_TILE_IDS: tuple[str, ...] = (
+    "new_session",
+    "local_terminal",
+    "commands",
+    "settings",
+    "network_tools",
+    "keys",
+    "rdp_servers",
+    "tunnels",
+    "cluster",
+)
+DASHBOARD_SECTION_KEYS: tuple[str, ...] = (
+    "show_quick_connect",
+    "show_actions",
+    "show_recents",
+    "show_shortcuts",
+)
+DEFAULT_DASHBOARD_LAYOUT: dict = {
+    "show_quick_connect": True,
+    "show_actions": True,
+    "show_recents": True,
+    "show_shortcuts": True,
+    "tiles": ["new_session", "local_terminal", "commands", "settings"],
+}
+
+
+def coerce_dashboard_layout(value: object) -> dict:
+    """Repair a ``dashboard_layout`` mapping loaded from settings.json.
+
+    Missing keys fall back to the defaults, unknown tile ids are dropped,
+    and an empty tile list restores the default launcher set — the dashboard
+    must always be able to render something useful.
+    """
+    out = {
+        "show_quick_connect": True,
+        "show_actions": True,
+        "show_recents": True,
+        "show_shortcuts": True,
+        "tiles": list(DEFAULT_DASHBOARD_LAYOUT["tiles"]),
+    }
+    if not isinstance(value, dict):
+        return out
+    for key in DASHBOARD_SECTION_KEYS:
+        # A missing key keeps the default; an explicit null/false turns the
+        # section off (as_bool's JSON-null convention).
+        if key in value:
+            out[key] = as_bool(value[key], True)
+    raw_tiles = value.get("tiles")
+    if isinstance(raw_tiles, list):
+        seen: set[str] = set()
+        tiles: list[str] = []
+        for tid in raw_tiles:
+            if not isinstance(tid, str) or tid not in DASHBOARD_TILE_IDS or tid in seen:
+                continue
+            seen.add(tid)
+            tiles.append(tid)
+            if len(tiles) >= len(DASHBOARD_TILE_IDS):
+                break
+        if tiles:
+            out["tiles"] = tiles
+    return out
+
+
 @dataclass
 class Settings:
     # appearance
@@ -200,6 +266,11 @@ class Settings:
 
     # window
     geometry: dict = field(default_factory=dict)
+    # welcome-dashboard personalisation: visible sections + launcher tiles
+    # (see DEFAULT_DASHBOARD_LAYOUT / DASHBOARD_TILE_IDS)
+    dashboard_layout: dict = field(
+        default_factory=lambda: coerce_dashboard_layout(None)
+    )
     # command palette: recently executed commands (titles, newest first)
     palette_recents: list = field(default_factory=list)
     # recently connected session ids (newest first, capped at 10)
@@ -306,6 +377,7 @@ class Settings:
             s.recent_session_ids = []
         s.recent_session_ids = [t for t in s.recent_session_ids if isinstance(t, str)][:10]
         s.session_snapshots = _coerce_session_snapshots(s.session_snapshots)
+        s.dashboard_layout = coerce_dashboard_layout(s.dashboard_layout)
         if not isinstance(s.geometry, dict):
             s.geometry = {}
         return s
