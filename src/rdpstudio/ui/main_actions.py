@@ -6,7 +6,7 @@ Mixin methods — ``self`` is the MainWindow at runtime.
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import APP_NAME
 from ..core import paths
 from . import theme
 from .theme import icon
@@ -25,52 +26,94 @@ from .theme import icon
 class MainActionsMixin:
     """Builds the menu bar and the MobaXterm-style toolbar."""
 
+    def _menu_action(
+        self,
+        menu,
+        icon_name: str | None,
+        text: str,
+        tip: str,
+        callback=None,
+        *,
+        shortcut: str | None = None,
+    ) -> QAction:
+        """One menu entry: icon + label + status-bar tip + shortcut.
+
+        Every action explains itself in the status bar (user feedback) and
+        carries an icon so the grouped menus scan at a glance.
+        """
+        act = QAction(icon(icon_name) if icon_name else QIcon(), text, self)
+        act.setStatusTip(tip)
+        if shortcut:
+            act.setShortcut(QKeySequence(shortcut))
+        if callback is not None:
+            act.triggered.connect(callback)
+        menu.addAction(act)
+        return act
+
     def _build_menu(self) -> None:
-        """MobaXterm-style menu layout: File, View, Tools, Tabs, Session, Help."""
+        """Menu layout: File, View, Tools, Tabs, Session, Help.
+
+        Navigation is grouped by task — related features sit together
+        behind clear labels, every action has an icon and a status-bar tip,
+        and nothing is more than one submenu deep.
+        """
+        # ── File: create · import/export · exit ──
         m_file = self.menuBar().addMenu("&File")
 
-        act = QAction(icon("plus"), "&New session…", self)
-        act.setShortcut(QKeySequence("Ctrl+N"))
-        act.triggered.connect(self.new_session)
-        m_file.addAction(act)
-
-        act = QAction(icon("console"), "New local &terminal", self)
-        act.setShortcut(QKeySequence("Ctrl+Shift+T"))
-        act.setStatusTip("Open a native local shell in a new tab")
-        act.triggered.connect(self.open_local_terminal)
-        m_file.addAction(act)
+        self._menu_action(
+            m_file, "plus", "&New session…",
+            "Create a new saved session (Ctrl+N)",
+            self.new_session, shortcut="Ctrl+N",
+        )
+        self._menu_action(
+            m_file, "console", "New local &terminal",
+            "Open a native local shell in a new tab (Ctrl+Shift+T)",
+            self.open_local_terminal, shortcut="Ctrl+Shift+T",
+        )
 
         m_file.addSeparator()
 
-        imp = m_file.addMenu("&Import")
-        a = QAction("From ~/.ssh/config", self)
-        a.triggered.connect(self._import_ssh_config)
-        imp.addAction(a)
-        a = QAction("From file (JSON)…", self)
-        a.triggered.connect(self._import_json)
-        imp.addAction(a)
+        imp = m_file.addMenu(icon("folder"), "&Import")
+        imp.menuAction().setStatusTip("Bring sessions in from another tool or file")
+        self._menu_action(
+            imp, "folder", "From ~/.ssh/config",
+            "Import hosts from your OpenSSH config file",
+            self._import_ssh_config,
+        )
+        self._menu_action(
+            imp, "file", "From file (JSON)…",
+            "Import sessions from a KB-Remote JSON export",
+            self._import_json,
+        )
 
-        exp = QAction("&Export sessions to file…", self)
-        exp.triggered.connect(self._export_json)
-        m_file.addAction(exp)
+        self._menu_action(
+            m_file, "transfer", "&Export sessions to file…",
+            "Export saved sessions to JSON (secrets are never included)",
+            self._export_json,
+        )
         m_file.addSeparator()
 
-        q = QAction("E&xit", self)
-        q.setShortcut(QKeySequence("Ctrl+Q"))
-        q.triggered.connect(self.close)
-        m_file.addAction(q)
+        self._menu_action(
+            m_file, "close", "E&xit",
+            "Close KB-Remote (Ctrl+Q)",
+            self.close, shortcut="Ctrl+Q",
+        )
 
+        # ── View: launchers · panels & layout · appearance ──
         m_view = self.menuBar().addMenu("&View")
 
-        act = QAction(icon("search"), "Command &Palette / Switcher…", self)
-        act.setShortcut(QKeySequence("Ctrl+P"))
-        act.setStatusTip("Search sessions, tabs, tools and actions")
-        act.triggered.connect(self.open_command_palette)
-        m_view.addAction(act)
+        self._menu_action(
+            m_view, "search", "Command &Palette / Switcher…",
+            "Search sessions, tabs, tools and actions (Ctrl+P)",
+            self.open_command_palette, shortcut="Ctrl+P",
+        )
+
+        m_view.addSeparator()
 
         self._act_sidebar_menu = QAction(icon("panel"), "&Toggle Sidebar", self)
         self._act_sidebar_menu.setShortcut(QKeySequence("Ctrl+B"))
         self._act_sidebar_menu.setCheckable(True)
+        self._act_sidebar_menu.setStatusTip("Show / hide the Sessions side panel (Ctrl+B)")
         self._act_sidebar_menu.toggled.connect(self._toggle_sidebar)
         m_view.addAction(self._act_sidebar_menu)
 
@@ -86,7 +129,7 @@ class MainActionsMixin:
         m_view.addAction(self._act_flip_sidebar)
 
         m_tabs_pos = m_view.addMenu(icon("panel"), "Session &Tabs Position")
-        m_tabs_pos.setStatusTip("Where the open-session tab strip lives")
+        m_tabs_pos.menuAction().setStatusTip("Where the open-session tab strip lives")
         self._tabs_pos_group = QActionGroup(self)
         self._tabs_pos_group.setExclusive(True)
         self._tabs_pos_actions: dict[str, QAction] = {}
@@ -97,19 +140,22 @@ class MainActionsMixin:
         ):
             act = QAction(label, self)
             act.setCheckable(True)
+            act.setStatusTip(f"Dock the session tab strip to the {key} edge")
             act.triggered.connect(lambda checked, k=key: checked and self.set_tabs_position(k))
             self._tabs_pos_group.addAction(act)
             m_tabs_pos.addAction(act)
             self._tabs_pos_actions[key] = act
-        act = QAction("&Cycle tab strip position", self)
+        act = QAction(icon("panel"), "&Cycle tab strip position", self)
         act.setShortcut(QKeySequence("Ctrl+Shift+J"))
+        act.setStatusTip("Walk the tab strip top → left → right → top")
         act.triggered.connect(self.cycle_tabs_position)
         m_tabs_pos.addSeparator()
         m_tabs_pos.addAction(act)
 
         m_view.addSeparator()
 
-        m_themes = m_view.addMenu("&Theme")
+        m_themes = m_view.addMenu(icon("star"), "&Theme")
+        m_themes.menuAction().setStatusTip("Switch the application colour scheme")
         from ..core.settings import THEME_CHOICES
 
         self._theme_group = QActionGroup(self)
@@ -119,115 +165,144 @@ class MainActionsMixin:
             act = QAction(label, self)
             act.setCheckable(True)
             act.setChecked(self.ctx.settings.theme == tid)
+            act.setStatusTip(f"Apply the {label.split('—')[0].strip()} theme")
             act.triggered.connect(lambda checked, t=tid: checked and self.apply_theme_id(t))
             self._theme_group.addAction(act)
             m_themes.addAction(act)
             self._theme_actions[tid] = act
 
+        # ── Tools: diagnostics · credentials · configuration ──
         m_tools = self.menuBar().addMenu("&Tools")
-        a = QAction(icon("server"), "Network Tools & Port &Scanner…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+N"))
-        a.triggered.connect(self.open_network_tools)
-        m_tools.addAction(a)
+        self._menu_action(
+            m_tools, "server", "Network Tools & Port &Scanner…",
+            "TCP port scanner, ping latency probe and DNS lookup (Ctrl+Shift+N)",
+            self.open_network_tools, shortcut="Ctrl+Shift+N",
+        )
+        self._menu_action(
+            m_tools, "key", "SSH &Key Utility & Converter…",
+            "Generate keys, visualise randomart, convert to PuTTY PPK (Ctrl+Shift+U)",
+            self.open_key_utility, shortcut="Ctrl+Shift+U",
+        )
+        self._menu_action(
+            m_tools, "windows", "RDP server &manager…",
+            "Check and enable or disable this machine's RDP listener",
+            self.open_rdp_server_manager,
+        )
 
-        a = QAction(icon("key"), "SSH &Key Utility & Converter…", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+U"))
-        a.triggered.connect(self.open_key_utility)
-        m_tools.addAction(a)
+        m_tools.addSeparator()
 
-        a = QAction(icon("windows"), "RDP server &manager…", self)
-        a.triggered.connect(self.open_rdp_server_manager)
-        m_tools.addAction(a)
+        self._menu_action(
+            m_tools, "gear", "&Settings…",
+            "Preferences: themes, fonts, connections, security (Ctrl+,)",
+            self.open_settings, shortcut="Ctrl+",
+        )
+        self._menu_action(
+            m_tools, "folder", "Open &logs folder",
+            "Open the folder holding session logs",
+            lambda: paths.logs_dir() and self._open_path(paths.logs_dir()),
+        )
 
-        a = QAction(icon("gear"), "&Settings…", self)
-        a.setShortcut(QKeySequence("Ctrl+,"))
-        a.triggered.connect(self.open_settings)
-        m_tools.addAction(a)
-
-        a = QAction("Open &logs folder", self)
-        a.triggered.connect(lambda: paths.logs_dir() and self._open_path(paths.logs_dir()))
-        m_tools.addAction(a)
-
+        # ── Tabs: close · manage · snapshots · navigate ──
         m_tabs = self.menuBar().addMenu("&Tabs")
 
-        act_close = QAction("Close &Tab", self)
-        act_close.triggered.connect(self.close_current_tab)
-        m_tabs.addAction(act_close)
-
-        a = QAction("Close &Other Tabs", self)
-        a.triggered.connect(self._close_others_current)
-        m_tabs.addAction(a)
-
-        a = QAction("Close Tabs &to the Right", self)
-        a.triggered.connect(self._close_right_current)
-        m_tabs.addAction(a)
-
-        a = QAction("Close &All Tabs", self)
-        a.triggered.connect(self._close_all_tabs)
-        m_tabs.addAction(a)
-
-        act_dupl = QAction("&Duplicate Tab", self)
-        act_dupl.setShortcut(QKeySequence("Ctrl+Shift+D"))
-        act_dupl.triggered.connect(self.duplicate_current_tab)
-        m_tabs.addAction(act_dupl)
-
-        a = QAction("&Rename Tab…", self)
-        a.triggered.connect(self._rename_current_tab)
-        m_tabs.addAction(a)
-
-        a = QAction("&Reconnect Session", self)
-        a.triggered.connect(self._reconnect_current)
-        m_tabs.addAction(a)
+        self._menu_action(
+            m_tabs, "close", "Close &Tab",
+            "Close the current session tab",
+            self.close_current_tab,
+        )
+        self._menu_action(
+            m_tabs, "close", "Close &Other Tabs",
+            "Close every session tab except the current one",
+            self._close_others_current,
+        )
+        self._menu_action(
+            m_tabs, "close", "Close Tabs &to the Right",
+            "Close the session tabs to the right of the current one",
+            self._close_right_current,
+        )
+        self._menu_action(
+            m_tabs, "close", "Close &All Tabs",
+            "Close every open session tab (asks first)",
+            self._close_all_tabs,
+        )
 
         m_tabs.addSeparator()
 
-        a = QAction(icon("clock"), "Save Session S&napshot…", self)
-        a.setShortcut(QKeySequence("Ctrl+Alt+S"))
-        a.setStatusTip("Save the current set of open saved sessions for quick reconnection")
-        a.triggered.connect(self.save_session_snapshot)
-        m_tabs.addAction(a)
+        self._menu_action(
+            m_tabs, "plus", "&Duplicate Tab",
+            "Open a second tab with the same session (Ctrl+Shift+D)",
+            self.duplicate_current_tab, shortcut="Ctrl+Shift+D",
+        )
+        self._menu_action(
+            m_tabs, "edit", "&Rename Tab…",
+            "Give the current session tab a custom title",
+            self._rename_current_tab,
+        )
+        self._menu_action(
+            m_tabs, "connect", "&Reconnect Session",
+            "Reconnect the current session tab",
+            self._reconnect_current,
+        )
+
+        m_tabs.addSeparator()
+
+        self._menu_action(
+            m_tabs, "clock", "Save Session S&napshot…",
+            "Save the current set of open saved sessions for quick reconnection (Ctrl+Alt+S)",
+            self.save_session_snapshot, shortcut="Ctrl+Alt+S",
+        )
 
         self._snapshot_restore_menu = m_tabs.addMenu(icon("clock"), "Restore Session Snap&shot")
-        self._snapshot_restore_menu.setStatusTip("Reopen a saved set of session tabs")
+        self._snapshot_restore_menu.menuAction().setStatusTip("Reopen a saved set of session tabs")
         self._snapshot_restore_menu.aboutToShow.connect(self._populate_snapshot_menu)
 
         m_tabs.addSeparator()
 
-        a = QAction("&Next Tab", self)
-        a.setShortcut(QKeySequence("Ctrl+Tab"))
-        a.triggered.connect(self.next_tab)
-        m_tabs.addAction(a)
+        self._menu_action(
+            m_tabs, None, "&Next Tab",
+            "Switch to the next session tab (Ctrl+Tab)",
+            self.next_tab, shortcut="Ctrl+Tab",
+        )
+        self._menu_action(
+            m_tabs, None, "Pre&vious Tab",
+            "Switch to the previous session tab (Ctrl+Shift+Backtab)",
+            self.prev_tab, shortcut="Ctrl+Shift+Backtab",
+        )
 
-        a = QAction("Pre&vious Tab", self)
-        a.setShortcut(QKeySequence("Ctrl+Shift+Backtab"))
-        a.triggered.connect(self.prev_tab)
-        m_tabs.addAction(a)
-
+        # ── Session: this session's actions ──
         m_session = self.menuBar().addMenu("&Session")
 
-        act = QAction(icon("plus"), "&New session…", self)
-        act.setShortcut(QKeySequence("Ctrl+N"))
-        act.triggered.connect(self.new_session)
-        m_session.addAction(act)
-
-        act_log = QAction("Start / Stop Session &Logging…", self)
-        act_log.setShortcut(QKeySequence("Ctrl+Shift+L"))
-        act_log.triggered.connect(self.toggle_session_logging)
-        m_session.addAction(act_log)
+        self._menu_action(
+            m_session, "plus", "&New session…",
+            "Create a new saved session (Ctrl+N)",
+            self.new_session, shortcut="Ctrl+N",
+        )
+        self._menu_action(
+            m_session, "file", "Start / Stop Session &Logging…",
+            "Capture the current session's output to a log file (Ctrl+Shift+L)",
+            self.toggle_session_logging, shortcut="Ctrl+Shift+L",
+        )
 
         m_session.addSeparator()
 
-        a = QAction(icon("folder"), "Browse &Files (SFTP)…", self)
-        a.triggered.connect(self._sftp_current)
-        m_session.addAction(a)
+        self._menu_action(
+            m_session, "folder", "Browse &Files (SFTP)…",
+            "Browse and transfer files on the current session's host",
+            self._sftp_current,
+        )
 
+        # ── Help ──
         m_help = self.menuBar().addMenu("&Help")
-        a = QAction("&Keyboard shortcuts…", self)
-        a.triggered.connect(self.open_shortcuts)
-        m_help.addAction(a)
-        a = QAction("&About", self)
-        a.triggered.connect(self._about)
-        m_help.addAction(a)
+        self._menu_action(
+            m_help, "shield", "&Keyboard shortcuts…",
+            "See every keyboard shortcut in one place",
+            self.open_shortcuts,
+        )
+        self._menu_action(
+            m_help, "logo", "&About",
+            f"About {APP_NAME}",
+            self._about,
+        )
 
     def _build_toolbar(self) -> None:
         """MobaXterm-style toolbar: large coloured icons with labels below.
@@ -288,10 +363,14 @@ class MainActionsMixin:
 
         self.quick = QLineEdit()
         self.quick.setPlaceholderText("Quick connect:  user@host[:port]")
-        self.quick.setFixedWidth(212)
+        # Flexible width: the strip compresses on narrow windows instead of
+        # pushing the whole toolbar off-screen.
+        self.quick.setMinimumWidth(140)
+        self.quick.setMaximumWidth(212)
         self.quick.setObjectName("quickInput")
         self.quick.returnPressed.connect(self.quick_connect)
         self.quick.setAccessibleName("Quick connect")
+        self.quick.setToolTip("Open user@host[:port] — port 3389 opens RDP (Enter)")
         ql.addWidget(self.quick, 1)
 
         qc_btn = QPushButton("Connect")
@@ -302,7 +381,8 @@ class MainActionsMixin:
         qc_btn.setFixedWidth(84)
         ql.addWidget(qc_btn, 0)
         quick_wrap.setFixedHeight(30)
-        quick_wrap.setFixedWidth(212 + 84)
+        quick_wrap.setMinimumWidth(230)
+        quick_wrap.setMaximumWidth(300)
         quick_holder = QWidget()
         qhl = QVBoxLayout(quick_holder)
         qhl.setContentsMargins(6, 0, 6, 0)

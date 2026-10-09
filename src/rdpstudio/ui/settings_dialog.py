@@ -499,6 +499,17 @@ class SettingsDialog(QDialog):
         self.animations.setToolTip("Turn off for reduced motion — sidebar, dialogs and pulses go static")
         grp4_lay.addWidget(self.animations)
 
+        dash_row = QHBoxLayout()
+        dash_row.setSpacing(12)
+        dash_row.addWidget(_make_row_label("Welcome dashboard", pal))
+        self.dash_customize = QPushButton("Customize…")
+        self.dash_customize.setMinimumHeight(24)
+        self.dash_customize.setToolTip("Choose the dashboard's sections and launcher tiles")
+        self.dash_customize.setAccessibleName("Customize dashboard")
+        self.dash_customize.clicked.connect(self._open_dashboard_customizer)
+        dash_row.addWidget(self.dash_customize, 1)
+        grp4_lay.addLayout(dash_row)
+
         note4 = _make_hint("Applied immediately on Save. Density affects menus, inputs and lists app-wide.", pal)
         grp4_lay.addWidget(note4)
         lay.addWidget(grp4)
@@ -993,6 +1004,19 @@ class SettingsDialog(QDialog):
         if answer != QMessageBox.StandardButton.Yes:
             return
         relaunch_under_x11()
+
+    def _open_dashboard_customizer(self) -> None:
+        """Open the dashboard personaliser against a copy of the candidate
+        settings; the result merges into ``result_settings`` on Apply, so a
+        Cancel of this dialog discards the change."""
+        import copy
+
+        from .dashboard import DashboardCustomizeDialog
+
+        candidate = copy.deepcopy(self.result_settings)
+        dlg = DashboardCustomizeDialog(candidate, self, save_to_disk=False)
+        if dlg.exec():
+            self.result_settings.dashboard_layout = dlg.result_layout
 
     def _reset_defaults(self) -> None:
         from ..core.settings import Settings

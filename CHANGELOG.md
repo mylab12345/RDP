@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Added — UI refresh: navigation, feedback, accessibility & a customizable dashboard (2026-10)
+- **Simplified navigation** — every menu action now carries an icon, a clear
+  label and a status-bar hint; related features stay grouped under
+  File / View / Tools / Tabs / Session / Help.
+- **User feedback** — tab tooltips show the full session identity
+  (protocol · target), and toast notifications confirm theme switches,
+  tab-strip docking moves and dashboard updates.
+- **Visual hierarchy & typography** — section captions on every dashboard
+  section, display-font headings and consistent per-section sizing, so
+  primary actions stand out.
+- **Responsive design** — dashboard tiles and shortcut chips wrap in a flow
+  layout, the quick-connect input flexes with the window, and the window
+  shrinks to 880×540 without clipping.
+- **Interactive elements** — hover-lift shadows on dashboard tiles, pressed
+  states on buttons and tab close buttons; all motion honours the
+  reduced-motion setting.
+- **Customizable dashboards** — the empty-workbench dashboard is now
+  personalisable: show or hide its four sections, choose and reorder the
+  launcher tiles (Settings → General → **Customize…**, or the dashboard's
+  own button). The layout is stored in `settings.json`
+  (`dashboard_layout`) and applied instantly.
+- **Accessibility** — keyboard-activatable dashboard tiles (Enter/Space),
+  focus rings on the menu bar, checkboxes, radio buttons, sliders and
+  lists, accessible names on key widgets, and a minimum window size that
+  keeps everything reachable on small screens.
+
 ### Added — portable command-snippet libraries
 - **Command Snippets can now be imported and exported as JSON libraries.**
   Import merges safely: existing snippets are never overwritten, conflicting

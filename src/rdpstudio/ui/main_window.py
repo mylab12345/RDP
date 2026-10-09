@@ -297,7 +297,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icon("logo"))
         self.resize(1380, 880)
-        self.setMinimumSize(1024, 640)
+        # Small enough for half-screen / laptop-split use; the dashboard
+        # tiles flow-wrap and the sidebar can be dragged narrower.
+        self.setMinimumSize(880, 540)
         self.controllers: dict[int, SessionTab] = {}
         # Last "connected" info per controller, for the status-bar summary.
         self._last_connected_info: dict[int, dict] = {}
@@ -390,6 +392,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._tab_count_label.setFixedHeight(18)
         self._tab_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._tab_count_label.setToolTip("Number of open sessions")
+        self._tab_count_label.setAccessibleName("Open session count")
         cl.addWidget(self._tab_count_label)
 
         self._themed_corner_buttons: list[tuple[QPushButton, str]] = []
@@ -613,6 +616,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             str(self.ctx.settings.geometry.get("tabs_position", "top")).lower()
         )
         self._bind_splitter_handle()
+        # Startup restore is done — dock moves from here on get a toast.
+        self._layout_ready = True
 
     def _bind_splitter_handle(self) -> None:
         """Double-clicking the divider moves the panel to the other side."""
@@ -699,6 +704,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         key = str(position or "").strip().lower()
         if key not in _TAB_STRIP_POSITIONS:
             key = "top"
+        previous = getattr(self, "_tabs_dock", key)
         self._set_ui_layout_busy(True)
         try:
             self._tabs_dock = key
@@ -718,6 +724,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._set_ui_layout_busy(False)
         self.ctx.settings.geometry["tabs_position"] = key
         self._sync_tabs_position_actions()
+        # Feedback for the move — but not for the startup restore.
+        if getattr(self, "_layout_ready", False) and key != previous:
+            toast(self, f"Session tabs docked {key}", "info")
 
     def _relayout_tab_corner(self, vertical: bool) -> None:
         """Keep the session counter and quick buttons with the tab strip."""
@@ -1091,6 +1100,21 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if ok and name:
             tab._custom_title = name
             self.tabs.setTabText(index, name)
+            self._update_tab_tooltip(tab)
+
+    def _update_tab_tooltip(self, tab: SessionTab) -> None:
+        """Tab hover tooltip: full title + protocol/target (user feedback).
+
+        Long session names elide in the strip — the tooltip always shows
+        the whole identity, and screen readers announce it too.
+        """
+        idx = self.tabs.indexOf(tab)
+        if idx < 0:
+            return
+        title = tab._custom_title or self.tabs.tabText(idx)
+        base = getattr(tab, "_tooltip_base", "")
+        tip = f"{title}\n{base}" if base else title
+        self.tabs.setTabToolTip(idx, tip)
 
     def _toggle_tab_logging(self, tab: SessionTab) -> None:
         term = getattr(tab.controller, "term", None)
@@ -1306,10 +1330,12 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         controller = plugin.create_session(defn, self.ctx)
         controller.setParent(self)
         tab = SessionTab(controller, self)
+        tab._tooltip_base = f"{defn.protocol.upper()} · {defn.target()}"
         self.tabs.addTab(tab, defn.display_name())
         self.tabs.setCurrentWidget(tab)
         # Protocol mini-badge — colour-coded (SSH/RDP/local) tab identity
         self.tabs.setTabIcon(self.tabs.indexOf(tab), protocol_badge(defn.protocol, plugin.icon_name))
+        self._update_tab_tooltip(tab)
 
         def _set_title(t, _tab=tab):
             if _tab._custom_title:
@@ -1317,6 +1343,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             idx = self.tabs.indexOf(_tab)
             if idx >= 0:
                 self.tabs.setTabText(idx, t)
+                self._update_tab_tooltip(_tab)
 
         controller.titleChanged.connect(_set_title)
         # Status-bar summary follows the session.
@@ -1377,11 +1404,13 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
 
         self.session_info_label = QLabel("")
         self.session_info_label.setObjectName("statusSession")
+        self.session_info_label.setAccessibleName("Current session")
         status.addWidget(self.session_info_label, 1)
 
         # Live connection state of the *current* tab (CONNECTING/CONNECTED/
         # RECONNECTING/CLOSED/FAILED) — the at-a-glance health indicator.
         self.state_chip = StateChip("STANDBY", "fg_dim")
+        self.state_chip.setAccessibleName("Session state")
         status.addPermanentWidget(self.state_chip)
 
         self.status_label = QLabel("")
@@ -1607,6 +1636,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._apply_ui_prefs()
             self._sync_theme_actions()
             self._apply_terminal_prefs()
+            # The dashboard may have been customised in Settings.
+            self._refresh_dashboard()
 
     def _apply_terminal_prefs(self) -> None:
         """Push font/scheme/blink/spacing prefs to open terminals."""
@@ -1631,7 +1662,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                 log.exception("apply terminal preferences failed")
 
     def apply_theme_id(self, theme_id: str) -> None:
-        from ..core.settings import THEME_IDS
+        from ..core.settings import THEME_CHOICES, THEME_IDS
 
         if theme_id not in THEME_IDS:
             return
@@ -1646,6 +1677,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         self._sync_theme_actions()
         self._apply_terminal_prefs()
+        label = dict(THEME_CHOICES).get(theme_id, theme_id)
+        toast(self, f"Theme: {label.split('—')[0].strip()}", "info")
 
     def cycle_theme(self) -> None:
         from ..core.settings import THEME_CHOICES
