@@ -159,6 +159,7 @@ def test_nature_theme_ids_roundtrip():
     from rdpstudio.core.settings import THEME_IDS, Settings
 
     assert THEME_IDS == {
+        "studio_dark",
         "mobaxterm",
         "mobaxterm_dark",
         "midnight",
@@ -171,7 +172,7 @@ def test_nature_theme_ids_roundtrip():
     # Removed themes fall back to the default instead of breaking configs.
     for tid in ("dark", "light", "nord", "forest", "sunset", "aurora", "meadow",
                 "desert", "graphite", "neon"):
-        assert Settings.from_dict({"theme": tid}).theme == "mobaxterm_dark"
+        assert Settings.from_dict({"theme": tid}).theme == "studio_dark"
 
 
 def test_settings_coerce_enums_and_floats():
@@ -186,7 +187,7 @@ def test_settings_coerce_enums_and_floats():
             "geometry": "wide",
         }
     )
-    assert s.theme == "mobaxterm_dark"  # default (MobaXterm dark look)
+    assert s.theme == "studio_dark"  # new default appearance
     assert s.host_key_policy == "accept-new"
     assert s.rdp_client == "auto"
     assert s.cursor_style == "block"

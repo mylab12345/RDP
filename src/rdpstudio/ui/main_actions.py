@@ -24,7 +24,7 @@ from .theme import icon
 
 
 class MainActionsMixin:
-    """Builds the menu bar and the MobaXterm-style toolbar."""
+    """Builds the menu bar and the compact Studio command bar."""
 
     def _menu_action(
         self,
@@ -305,17 +305,13 @@ class MainActionsMixin:
         )
 
     def _build_toolbar(self) -> None:
-        """MobaXterm-style toolbar: large coloured icons with labels below.
-
-        Same actions and wiring as before — only the look changed (icon size,
-        text-under-icon layout, per-action colour tints, grouping).
-        """
+        """Build the compact Studio command bar without changing its actions."""
         bar = QToolBar()
-        bar.setObjectName("moxaToolbar")
+        bar.setObjectName("moxaToolbar")  # retained for stylesheet/test compatibility
         bar.setMovable(False)
         bar.setFloatable(False)
-        bar.setIconSize(QSize(24, 24))
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        bar.setIconSize(QSize(18, 18))
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toolbar = bar
         self._themed_actions: list[tuple[QAction, str]] = []
 
@@ -353,8 +349,8 @@ class MainActionsMixin:
 
         bar.addSeparator()
 
-        # Quick connect — MobaXterm's "Quick connect" strip: white input +
-        # blue Connect button, sitting in the toolbar after the tool groups.
+        # Quick connect is deliberately integrated into the command bar so
+        # the highest-frequency action stays available without opening a dialog.
         quick_wrap = QWidget()
         quick_wrap.setObjectName("quickConnect")
         ql = QHBoxLayout(quick_wrap)
@@ -391,8 +387,8 @@ class MainActionsMixin:
         qhl.addStretch(1)
         bar.addWidget(quick_holder)
 
-        # Right-aligned group (Settings · Help · Close all) like MobaXterm's
-        # "X server / Exit" cluster.
+        # Keep preferences and help separated from connection and diagnostic
+        # actions; Close all stays at the far edge as a destructive action.
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)

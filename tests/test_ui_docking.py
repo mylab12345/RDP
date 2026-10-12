@@ -1,8 +1,8 @@
-"""Docking: MobaXterm dark theme, edge zones and mouse-driven layout moves.
+"""Studio Dark theme, edge zones and mouse-driven layout moves.
 
-Covers the two user-visible features shipped together:
+Covers the visual refresh and the docking interactions together:
 
-* the MobaXterm Dark palette (default look, still switchable), and
+* the Studio Dark default palette (with MobaXterm themes still selectable), and
 * dragging the Sessions panel / session tab strip to another window edge,
   including the pure-logic hit testing behind the drop indicator.
 """
@@ -50,23 +50,28 @@ def win(ctx, qtapp):  # noqa: ARG001
 
 
 # ----------------------------------------------------------------------
-# MobaXterm dark theme
+# Studio Dark + alternate theme palettes
 # ----------------------------------------------------------------------
-def test_mobaxterm_dark_is_the_default_theme(qtapp) -> None:  # noqa: ARG001
-    """The shipped default is MobaXterm Dark; light stays selectable."""
+def test_studio_dark_is_the_default_theme(qtapp) -> None:  # noqa: ARG001
+    """The visual refresh is the default; the MobaXterm palettes stay selectable."""
     from rdpstudio.core.settings import DARK_THEMES, THEME_IDS, Settings
     from rdpstudio.ui import theme
 
-    assert "mobaxterm_dark" in THEME_IDS and "mobaxterm" in THEME_IDS
-    assert "mobaxterm_dark" in DARK_THEMES and "mobaxterm" not in DARK_THEMES
-    assert Settings().theme == "mobaxterm_dark"
-    assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm_dark"
-    assert theme.current_theme() == "mobaxterm_dark"
+    assert "studio_dark" in THEME_IDS and "mobaxterm_dark" in THEME_IDS
+    assert "studio_dark" in DARK_THEMES and "mobaxterm" not in DARK_THEMES
+    assert Settings().theme == "studio_dark"
+    assert Settings.from_dict({"theme": "bogus"}).theme == "studio_dark"
+    theme.apply_theme(qtapp, "studio_dark", animations=False)
+    assert theme.current_theme() == "studio_dark"
 
-    pal = theme.PALETTE["mobaxterm_dark"]
-    assert len(pal) == 30  # same key set as every other palette (QSS format)
-    assert pal["bg"] == "#1c1c1f"  # charcoal chrome, MobaXterm geometry
-    assert pal["accent"] == "#1670c6"  # Windows-blue accent, darkened to AA
+    studio = theme.PALETTE["studio_dark"]
+    assert len(studio) == 30  # same key set as every other palette (QSS format)
+    assert studio["bg"] == "#0d141b"
+    assert studio["accent"] == "#4dd6bd"
+
+    classic = theme.PALETTE["mobaxterm_dark"]
+    assert classic["bg"] == "#1c1c1f"  # legacy MobaXterm remains intact
+    assert classic["accent"] == "#1670c6"
 
 
 def test_dark_chrome_renders_dark_not_light(qtapp) -> None:  # noqa: ARG001
@@ -128,7 +133,7 @@ def test_theme_cards_cover_every_theme(qtapp) -> None:  # noqa: ARG001
     from rdpstudio.core.settings import THEME_CHOICES, THEME_IDS
     from rdpstudio.ui.settings_dialog import _ThemeCard
 
-    assert len(THEME_CHOICES) == len(THEME_IDS) == 6
+    assert len(THEME_CHOICES) == len(THEME_IDS) == 7
     for tid, label in THEME_CHOICES:
         card = _ThemeCard(tid, label, selected=False)
         assert card.theme_id == tid
