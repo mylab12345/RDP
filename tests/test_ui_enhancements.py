@@ -424,3 +424,52 @@ def test_quick_connect_input_is_flexible_width(qtapp) -> None:
     finally:
         win.close()
         qtapp.processEvents()
+
+
+def test_all_svg_icons_render_and_tint_cleanly(qtapp) -> None:  # noqa: ARG001
+    """Every bundled SVG icon loads and tints cleanly via icon() and accent_icon()."""
+    from rdpstudio.ui import theme
+
+    theme.apply_theme(qtapp, "studio_dark", animations=False)
+    for svg_path in sorted(theme.ICONS.glob("*.svg")):
+        name = svg_path.stem
+        ic = theme.icon(name)
+        assert not ic.isNull(), f"{name}.svg failed to load"
+        assert not ic.pixmap(16, 16).isNull(), f"{name}.svg failed to rasterize"
+        ac = theme.accent_icon(name, 18)
+        assert not ac.isNull(), f"{name}.svg accent_icon failed"
+
+
+def test_session_dialog_uses_modern_cards_and_unclipped_controls(qtapp) -> None:
+    """SessionDialog uses 8 px surface cards and an unclipped password toggle."""
+    from rdpstudio.core.models import PROTOCOL_SSH, Session
+    from rdpstudio.ui.session_dialog import SessionDialog
+
+    win = _main_window(qtapp)
+    try:
+        dlg = SessionDialog(win.ctx, Session(protocol=PROTOCOL_SSH, host="10.0.0.1"), win)
+        try:
+            assert dlg._pw_toggle.minimumWidth() >= 60
+            card = dlg._make_card("Section")
+            assert "border-radius: 8px" in card.styleSheet()
+        finally:
+            dlg.close()
+    finally:
+        win.close()
+        qtapp.processEvents()
+
+
+def test_sidebar_filter_and_session_tab_proto_chip(qtapp) -> None:
+    """Sidebar tag filter is wide enough for 'All tags' and SessionTab shows protocol chip."""
+    win = _main_window(qtapp)
+    try:
+        assert win.sidebar.tag_filter.minimumWidth() >= 90
+        win.open_local_terminal()
+        qtapp.processEvents()
+        tab = win.tabs.widget(0)
+        assert hasattr(tab, "proto_chip")
+        assert tab.proto_chip.text() == "LOCAL"
+    finally:
+        win.close()
+        qtapp.processEvents()
+

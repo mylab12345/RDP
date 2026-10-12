@@ -331,7 +331,7 @@ def _install_fake_client(tmp_path, monkeypatch, fit_available: bool = True) -> l
 
     fits = _install_fake_fitter(monkeypatch, available=fit_available)
     script = tmp_path / "fake-freerdp.sh"
-    script.write_text("#!/bin/sh\nwhile true; do sleep 0.05; done\n")
+    script.write_text('#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\nwhile true; do sleep 0.05; done\n')
     script.chmod(0o755)
     monkeypatch.setattr(rdp_session, "find_rdp_client", lambda: (str(script), "freerdp"))
     monkeypatch.setattr(rdp_session, "find_embedded_client", lambda: str(script))

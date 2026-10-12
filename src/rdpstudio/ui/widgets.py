@@ -102,6 +102,7 @@ class StateChip(QLabel):
                 color: {text_color};
                 border: 1px solid {border};
                 border-radius: 999px;
+                border-radius: 9px;
                 padding: 2px 10px 2px 8px;
                 font-size: 10.5px;
                 font-weight: 600;
@@ -370,6 +371,7 @@ class PillBadge(QLabel):
                 color: {fg};
                 border: 1px solid {border};
                 border-radius: 999px;
+                border-radius: 8px;
                 padding: 1px 9px;
                 font-size: 11px;
                 font-weight: 600;

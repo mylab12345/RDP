@@ -498,7 +498,7 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         widgets, which keep their own middle-click behavior.
         """
         if self._closed:
-            return super().eventFilter(obj, event)
+            return False
         etype = event.type()
         if etype == QEvent.Type.ChildAdded:
             # Internals created later (native search bar, …) join the
@@ -1017,25 +1017,39 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
 
     # -- session logging: see SessionLogMixin -----------------------------
 
-    def close(self) -> None:
+    def _cleanup_resources(self) -> None:
         self._closed = True
+        try:
+            self._size_timer.stop()
+        except Exception:
+            pass
         try:
             self._write_notifier.setEnabled(False)
         except Exception:
             pass
+        for target in list(getattr(self, "_filter_targets", ())) + [
+            getattr(self, "_scroll_up_btn", None),
+            getattr(self, "_scroll_down_btn", None),
+        ]:
+            if target is not None:
+                try:
+                    target.removeEventFilter(self)
+                except Exception:
+                    pass
+        if hasattr(self, "_filter_targets"):
+            self._filter_targets.clear()
+        if hasattr(self, "_key_targets"):
+            self._key_targets.clear()
+
+    def close(self) -> None:
+        self._cleanup_resources()
         self._pending_output.clear()
         self._pending_output_bytes = 0
         self.stop_logging()
         super().close()
 
     def deleteLater(self) -> None:
-        self._closed = True
-        try:
-            self._write_notifier.setEnabled(False)
-        except AttributeError:
-            pass
-        except Exception:
-            pass
+        self._cleanup_resources()
         super().deleteLater()
 
 

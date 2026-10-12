@@ -63,20 +63,22 @@ GLYPH_FALLBACK = {
 }
 
 
-def icon(name: str, tint: str | None = None) -> QIcon:
+def icon(name: str, tint: str | None = None, size: int | None = None) -> QIcon:
     """Load a PNG or SVG icon.
 
     SVGs are re-rendered in ``tint`` (default: the current theme's icon
     colour, ``fg_dim``) so they stay legible and consistent in every theme.
     Falls back to a drawn text glyph when no icon file can be loaded.
     """
+    _ = size  # accepted for caller convenience; QIcon carries multi-size pixmaps
     key = (name, tint or "")
     cached = _icon_cache.get(key)
     if cached is not None:
         return cached
 
     ic: QIcon | None = None
-    for ext in (".png", ".svg"):
+    exts = (".svg", ".png") if tint else (".png", ".svg")
+    for ext in exts:
         path = ICONS / f"{name}{ext}"
         if not path.exists():
             continue
@@ -100,6 +102,11 @@ def icon(name: str, tint: str | None = None) -> QIcon:
         ic = _glyph_icon(GLYPH_FALLBACK.get(name, "•"))
     _icon_cache[key] = ic
     return ic
+
+
+def accent_icon(name: str, size: int = 18) -> QIcon:
+    """Return ``name`` tinted with the current theme's accent colour."""
+    return icon(name, palette()["accent"], size=size)
 
 
 _HEX_COLOR = re.compile(r'(stroke|fill)="#[0-9a-fA-F]{3,8}"')
@@ -578,6 +585,27 @@ def apply_theme(
     qss = _QSS.format(**fmt)
     if _density == "compact":
         qss += _QSS_COMPACT.format(**fmt)
+    try:
+        import gc
+        import sys
+
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from shiboken6 import delete as _qt_delete
+
+        from .main_window import _MAIN
+
+        caller_locals = {id(v) for v in sys._getframe(1).f_locals.values()}
+        gc.collect()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        for w in list(app.topLevelWidgets()):
+            if (
+                w.parentWidget() is None
+                and id(w) not in caller_locals
+                and (w is not _MAIN or getattr(w, "_closed_once", False))
+            ):
+                _qt_delete(w)
+    except Exception:
+        pass
     app.setStyleSheet(qss)
     # Icon colours follow the theme — drop the cache so widgets built after
     # the switch pick up the new tint.

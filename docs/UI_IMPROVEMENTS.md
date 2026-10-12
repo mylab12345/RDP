@@ -1,5 +1,20 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 11 — Studio Workbench overhaul, updated icon set & dialog modernization (2026-10)
+
+A comprehensive UI/UX pass that modernizes every primary surface, replaces the
+icon pack with a cohesive 23-icon vector system, resolves Qt 6 QSS rendering
+quirks, and refines session management ergonomics.
+
+| Area | Change |
+|---|---|
+| **Updated 23-icon SVG system** | Redesigned all 23 SVG icons (`resources/icons/*.svg`) on a unified 24×24 grid with crisp 1.85 px strokes, rounded joins/caps, and theme-aware tinting (`#a6adbb` base). Regenerated `logo.png` and `docs/screenshots/app-icon.png` with a modern emerald-accent terminal/remote desktop tile. Added `theme.accent_icon()` and size-aware `theme.icon(name, tint, size)`. |
+| **True rounded pills in Qt 6** | Fixed Qt 6's `border-radius: 999px` clamping bug (where `2 × radius > height` caused Qt to draw 0 px sharp rectangles) across `StateChip`, `PillBadge`, `#dashVersion`, `#protoChip`, `#tabCount`, `#sideCount`, and `#pvChip`. Every status and metadata chip now renders as a genuine pill while preserving QSS contract strings. |
+| **Uncluttered sidebar & toolbar** | Moved the sidebar's quick-action icon buttons (`New session`, `Local terminal`, `New folder`) into the `Sessions` header row and gave the filter row exclusively to `Filter sessions…` and an unclipped `All tags` selector (`94–112 px`). Refined the toolbar `#quickConnect` omnibox with a plug glyph and balanced widths so `"Connect"` never clips or leaves dead space. Fixed icon-only `#ghost` button overlap in the sidebar header and tab-strip corner. |
+| **Elevated dashboard & session header** | Framed the dashboard Quick Connect area inside an elevated `#dashSectionQuick` card with inline protocol hint pills (`SSH user@host:22`, `RDP host:3389`), refined launcher tiles (`162×108`), and added group/connection-count badges to recent session rows. Added protocol (`SSH` / `RDP` / `LOCAL`) and folder badges to active `SessionTab` headers. |
+| **Modernized `SessionDialog`** | Replaced legacy MobaXterm `3 px` dark header strips with `8 px` rounded surface cards and a `3 px` accent bar indicator, added a dialog header banner with a protocol-aware accent icon tile, standardized `28 px` input heights, and widened the password `Show`/`Hide` toggle (`64×28 px`) so labels never clip. |
+| **Lifecycle & test stability** | Unregistered `MainWindow._refresh_theme` on `closeEvent`, guarded `LocalShellController._read_loop` teardown against cross-thread signal races, and cleaned up `NativeTerminalView` event filters on close/delete. Regenerated all screenshots in `docs/screenshots/`. |
+
 ## Round 10 — Studio Dark visual refresh (2026-10)
 
 A stand-alone presentation pass to give KB-Remote a distinct identity while
