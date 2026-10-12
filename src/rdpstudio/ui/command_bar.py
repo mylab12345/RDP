@@ -53,7 +53,7 @@ class _HistoryLineEdit(QLineEdit):
 
 
 class CommandBar(QWidget):
-    """Per-tab command line (MobaXterm: plain \"Command:\" strip under the terminal)."""
+    """Per-tab command line — modern, distinct from terminal area."""
 
     commandSent = Signal(str)
 
@@ -62,8 +62,8 @@ class CommandBar(QWidget):
         self.setObjectName("commandBar")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
 
         prompt = QLabel("Command:")
         prompt.setObjectName("commandPrompt")
