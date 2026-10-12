@@ -346,15 +346,16 @@ class DashboardMixin:
         header_row.setSpacing(12)
         logo_tile = QLabel()
         self._dash_logo_tile = logo_tile
-        logo_tile.setFixedSize(40, 40)
+        logo_tile.setFixedSize(42, 42)
         logo_tile.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_tile.setStyleSheet(
             f"background: {solid_on(palette()['accent_subtle'], palette()['bg'])}; "
-            f"border: 1px solid {palette()['border_subtle']}; "
+            f"border: 1px solid {palette()['border']}; "
             f"border-radius: 10px;"
         )
         logo_inner = QLabel()
-        logo_inner.setPixmap(icon("logo").pixmap(QSize(24, 24)))
+        logo_inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_inner.setPixmap(theme.accent_icon("logo", 24).pixmap(QSize(24, 24)))
         logo_tile.layout = QHBoxLayout(logo_tile)
         logo_tile.layout.setContentsMargins(0, 0, 0, 0)
         logo_tile.layout.addWidget(logo_inner)
@@ -369,6 +370,8 @@ class DashboardMixin:
         header_row.addStretch(1)
         customize_btn = QPushButton("Customize…")
         customize_btn.setObjectName("subtle")
+        customize_btn.setIcon(icon("edit", size=14))
+        customize_btn.setMinimumWidth(108)
         customize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         customize_btn.setToolTip(
             "Choose which dashboard sections and launcher tiles are shown"
@@ -380,14 +383,27 @@ class DashboardMixin:
 
         # Hero — quick connect, the primary path from an empty workbench
         if lay_pref["show_quick_connect"]:
-            quick_section = QWidget()
+            quick_section = QFrame()
             quick_section.setObjectName("dashSectionQuick")
+            quick_section.setStyleSheet(
+                f"QFrame#dashSectionQuick {{ background: {palette()['panel']}; "
+                f"border: 1px solid {palette()['border']}; border-radius: 8px; }}"
+            )
             qs = QVBoxLayout(quick_section)
-            qs.setContentsMargins(0, 0, 0, 0)
+            qs.setContentsMargins(16, 12, 16, 14)
             qs.setSpacing(8)
+            hero_hdr = QHBoxLayout()
+            hero_hdr.setContentsMargins(0, 0, 0, 0)
+            hero_hdr.setSpacing(6)
             hero_label = QLabel("Quick connect")
             hero_label.setObjectName("dashSection")
-            qs.addWidget(hero_label)
+            hero_hdr.addWidget(hero_label)
+            hero_hdr.addStretch(1)
+            for hint_txt in ("ssh user@host", "host:3389 (RDP)"):
+                hint_chip = QLabel(hint_txt)
+                hint_chip.setObjectName("protoChip")
+                hero_hdr.addWidget(hint_chip)
+            qs.addLayout(hero_hdr)
 
             hero_row = QHBoxLayout()
             hero_row.setSpacing(8)
@@ -404,7 +420,8 @@ class DashboardMixin:
             hero_row.addWidget(self.dash_quick, 1)
             dash_go = QPushButton("Connect")
             dash_go.setObjectName("primary")
-            dash_go.setFixedHeight(40)
+            dash_go.setFixedHeight(38)
+            dash_go.setMinimumWidth(98)
             dash_go.setCursor(Qt.CursorShape.PointingHandCursor)
             dash_go.setAccessibleName("Connect")
             dash_go.clicked.connect(lambda: self._quick_connect_from(self.dash_quick))
@@ -497,18 +514,19 @@ class DashboardMixin:
         """One launcher tile — icon tile, title, caption; hover-lifted."""
         card = QFrame()
         card.setObjectName("dashTile")
-        card.setFixedSize(154, 104)
+        card.setFixedSize(162, 108)
         install_hover_shadow(card)
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 14, 14, 10)
+        lay.setContentsMargins(14, 12, 14, 10)
         lay.setSpacing(6)
         tile_icon = QLabel()
         tile_icon.setObjectName("dashTileIcon")
-        tile_icon.setFixedSize(34, 34)
+        tile_icon.setFixedSize(36, 36)
         tile_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tile_icon.layout = QHBoxLayout(tile_icon)
         tile_icon.layout.setContentsMargins(0, 0, 0, 0)
         inner = QLabel()
+        inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.setPixmap(theme.toolbar_icon(icon_name).pixmap(QSize(20, 20)))
         tile_icon.layout.addWidget(inner)
         self._dash_action_icons.append((inner, icon_name))
@@ -550,18 +568,26 @@ class DashboardMixin:
         recent_card.setObjectName("card")
         recent_card.setMinimumWidth(420)
         rc_lay = QVBoxLayout(recent_card)
-        rc_lay.setContentsMargins(10, 10, 10, 6)
-        rc_lay.setSpacing(2)
-        rc_header = QLabel("Recent sessions")
+        rc_lay.setContentsMargins(12, 12, 12, 10)
+        rc_lay.setSpacing(4)
+        rc_hdr_row = QHBoxLayout()
+        rc_hdr_row.setContentsMargins(2, 0, 2, 4)
+        rc_hdr_row.setSpacing(8)
+        rc_header = QLabel("Recent & Pinned Sessions")
         rc_header.setObjectName("h2")
-        rc_lay.addWidget(rc_header)
+        rc_hdr_row.addWidget(rc_header)
+        rc_count = QLabel(str(len(sessions)))
+        rc_count.setObjectName("sideCount")
+        rc_hdr_row.addWidget(rc_count)
+        rc_hdr_row.addStretch(1)
+        rc_lay.addLayout(rc_hdr_row)
 
         self._dash_recent_rows: list[tuple[QLabel, str, object]] = []
         for sess in sessions[:5]:
             item = QFrame()
             item.setObjectName("card_hover")
             il = QHBoxLayout(item)
-            il.setContentsMargins(8, 6, 8, 6)
+            il.setContentsMargins(10, 7, 10, 7)
             il.setSpacing(10)
             pi = QLabel()
             pi.setPixmap(protocol_badge(sess.protocol, self._proto_icon(sess.protocol)).pixmap(QSize(20, 20)))
@@ -578,6 +604,10 @@ class DashboardMixin:
             name_lbl = QLabel(sess.display_name())
             name_lbl.setObjectName("cardTitle")
             il.addWidget(name_lbl)
+            if sess.group:
+                grp = QLabel(sess.group)
+                grp.setObjectName("protoChip")
+                il.addWidget(grp)
             il.addStretch(1)
             target = QLabel(sess.target())
             target.setObjectName("cardSub")

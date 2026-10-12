@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import threading
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -90,20 +90,36 @@ class SessionDialog(QDialog):
         self._pal = theme_palette()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(8)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
 
-        title_row = QHBoxLayout()
+        from . import theme as _theme
+        hdr_row = QHBoxLayout()
+        hdr_row.setContentsMargins(0, 0, 0, 2)
+        hdr_row.setSpacing(12)
+
+        hdr_icon = QLabel()
+        hdr_icon.setFixedSize(36, 36)
+        hdr_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hdr_icon.setObjectName("dashTileIcon")
+        hdr_icon.setPixmap(
+            _theme.accent_icon("plus" if self.is_new else "server", 18).pixmap(18, 18)
+        )
+        hdr_row.addWidget(hdr_icon)
+
+        hdr_col = QVBoxLayout()
+        hdr_col.setContentsMargins(0, 0, 0, 0)
+        hdr_col.setSpacing(2)
         title_label = QLabel("New Session" if self.is_new else "Edit Session")
         title_label.setObjectName("h1")
-        title_row.addWidget(title_label)
-        title_row.addStretch(1)
-        root.addLayout(title_row)
+        hdr_col.addWidget(title_label)
 
         subtitle = QLabel("Configure your remote connection. Fields can be left blank to prompt at connect time.")
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
-        root.addWidget(subtitle)
+        hdr_col.addWidget(subtitle)
+        hdr_row.addLayout(hdr_col, 1)
+        root.addLayout(hdr_row)
 
         self._advanced: list[QWidget] = []
         self._test_thread: threading.Thread | None = None
@@ -239,11 +255,10 @@ class SessionDialog(QDialog):
     def _make_card(self, title: str) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
-        # Classic group-box: 1 px border, 3 px radius, gray header strip
-        br = 3
+        br = 8
         card.setStyleSheet(
-            f"QWidget#card {{ background: {self._pal['bg']}; "
-            f"border: 1px solid {self._pal['border_strong']}; "
+            f"QWidget#card {{ background: {self._pal['bg2']}; "
+            f"border: 1px solid {self._pal['border']}; "
             f"border-radius: {br}px; }}"
         )
         outer = QVBoxLayout(card)
@@ -252,15 +267,22 @@ class SessionDialog(QDialog):
         if title:
             header = QWidget()
             header.setStyleSheet(
-                f"background: {self._pal['bg3']}; "
+                f"background: {self._pal['panel']}; "
                 f"border-top-left-radius: {br}px; border-top-right-radius: {br}px;"
             )
             hl = QHBoxLayout(header)
-            hl.setContentsMargins(10, 4, 10, 4)
+            hl.setContentsMargins(14, 7, 14, 7)
+            hl.setSpacing(8)
+            bar_dot = QFrame()
+            bar_dot.setFixedSize(3, 13)
+            bar_dot.setStyleSheet(
+                f"background: {self._pal['accent']}; border-radius: 1px;"
+            )
+            hl.addWidget(bar_dot)
             lbl = QLabel(title)
             lbl.setObjectName("h2")
             lbl.setStyleSheet(
-                f"font-size: 12px; font-weight: 700; color: {self._pal['fg']};"
+                f"font-size: 12.5px; font-weight: 600; color: {self._pal['fg']};"
             )
             hl.addWidget(lbl)
             hl.addStretch(1)
@@ -296,22 +318,21 @@ class SessionDialog(QDialog):
     def _make_input(self, text: str = "", placeholder: str = "") -> QLineEdit:
         le = QLineEdit(text)
         le.setPlaceholderText(placeholder)
-        # Styled by the global MobaXterm QSS (white sunken field, blue focus)
-        le.setMinimumHeight(24)
+        le.setMinimumHeight(28)
         return le
 
     def _make_spinbox(self, value: int, lo: int = 0, hi: int = 65535, suffix: str = "") -> QSpinBox:
         sb = QSpinBox()
         sb.setRange(lo, hi)
         sb.setValue(value)
-        sb.setMinimumHeight(24)
+        sb.setMinimumHeight(28)
         if suffix:
             sb.setSuffix(suffix)
         return sb
 
     def _make_combo(self) -> QComboBox:
         cb = QComboBox()
-        cb.setMinimumHeight(24)
+        cb.setMinimumHeight(28)
         return cb
 
     def _make_checkbox(self, text: str, checked: bool = False) -> QCheckBox:
@@ -375,13 +396,14 @@ class SessionDialog(QDialog):
         pw_col.setSpacing(4)
         pw_col.addWidget(self._make_label("Password"))
         pw_wrap = QHBoxLayout()
-        pw_wrap.setSpacing(0)
+        pw_wrap.setSpacing(6)
         self.password = self._make_input(self.session.password, "leave blank to prompt at connect")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        pw_wrap.addWidget(self.password)
+        pw_wrap.addWidget(self.password, 1)
         self._pw_toggle = QPushButton("Show")
         self._pw_toggle.setCheckable(True)
-        self._pw_toggle.setFixedSize(52, 28)
+        self._pw_toggle.setMinimumWidth(64)
+        self._pw_toggle.setFixedHeight(28)
         self._pw_toggle.setObjectName("subtle")
         self._pw_toggle.setToolTip("Show / hide password")
         self._pw_toggle.toggled.connect(self._toggle_password)

@@ -92,6 +92,7 @@ class LocalShellController(SessionController):
         self._master: int | None = None
         self._thread: threading.Thread | None = None
         self._winpty = None
+        self._stopping = False
         self.set_state(SessionState.CLOSED)
 
     def capabilities(self) -> Capabilities:
@@ -110,6 +111,7 @@ class LocalShellController(SessionController):
 
     # ------------------------------------------------------------------
     def start(self) -> None:
+        self._stopping = False
         self.set_state(SessionState.CONNECTING)
         cmd = None
         raw = str(self.definition.options.get("command", "") or "").strip()
@@ -194,7 +196,7 @@ class LocalShellController(SessionController):
                     timeout = _LOCAL_FRAME_DELAY if pending else None
                     readable, _, _ = select.select([fd], [], [], timeout)
                     if not readable:
-                        if pending:
+                        if pending and not self._stopping:
                             self._sigFeed.emit(bytes(pending))
                             pending.clear()
                             last_emit = time.monotonic()
@@ -202,7 +204,7 @@ class LocalShellController(SessionController):
                     data = os.read(fd, _LOCAL_READ_CHUNK)
                 except (OSError, ValueError):
                     break
-                if not data:
+                if not data or self._stopping:
                     break
                 pending.extend(data)
                 now = time.monotonic()
@@ -211,14 +213,16 @@ class LocalShellController(SessionController):
                     or len(pending) >= _LOCAL_READ_CHUNK
                     or now - last_emit >= _LOCAL_FRAME_DELAY
                 ):
-                    self._sigFeed.emit(bytes(pending))  # queued → GUI thread
+                    if not self._stopping:
+                        self._sigFeed.emit(bytes(pending))  # queued → GUI thread
                     pending.clear()
                     first_frame = False
                     last_emit = now
         finally:
-            if pending:
-                self._sigFeed.emit(bytes(pending))
-            self._sigClosed.emit("shell exited")
+            if not self._stopping:
+                if pending:
+                    self._sigFeed.emit(bytes(pending))
+                self._sigClosed.emit("shell exited")
 
     def _set_winsize(self, fd: int, cols: int, rows: int) -> None:
         if not POSIX:
@@ -322,6 +326,7 @@ class LocalShellController(SessionController):
 
     def _reap(self) -> None:
         """Terminate the child's whole process group and release the fd."""
+        self._stopping = True
         proc, self._proc = self._proc, None
         if proc is not None and proc.poll() is None:
             # start_new_session=True put the shell in its own process group;

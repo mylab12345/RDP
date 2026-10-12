@@ -1,4 +1,4 @@
-"""Global stylesheets — "Ops console" design system.
+"""Global stylesheets — Modern Studio Workbench design system.
 
 Format templates — ``apply_theme()`` in ``theme.py`` fills them.
 
@@ -33,7 +33,7 @@ QToolTip {{
     color: {fg};
     border: 1px solid {border_strong};
     border-radius: 6px;
-    padding: 5px 9px;
+    padding: 6px 10px;
     font-size: 12px;
 }}
 
@@ -41,8 +41,8 @@ QToolTip {{
 QMenuBar {{
     background: {bg};
     border-bottom: 1px solid {border};
-    padding: 0px 8px;
-    spacing: 3px;
+    padding: 2px 10px;
+    spacing: 4px;
     font-size: 12px;
     font-weight: 500;
     min-height: 28px;
@@ -74,17 +74,17 @@ QMenuBar::item:focus {{
 
 QMenu {{
     background: {bg2};
-    border: 1px solid {border};
+    border: 1px solid {border_strong};
     border-radius: 8px;
-    padding: 5px 5px;
+    padding: 6px 5px;
     margin: 4px 0px;
 }}
 QMenu::item {{
-    padding: 5px 26px 5px 10px;
+    padding: 6px 26px 6px 10px;
     border-radius: 6px;
     color: {fg};
     font-size: 12.5px;
-    margin: 0px;
+    margin: 1px 0px;
 }}
 QMenu::item:selected {{
     background: {accent_subtle};
@@ -111,7 +111,7 @@ QMenu::indicator {{
     left: 7px;
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: 4px;
     border: 1px solid {border_strong};
     background: {bg2};
 }}
@@ -131,27 +131,27 @@ QToolBar {{
     background: {panel};
     border: none;
     border-bottom: 1px solid {border_strong};
-    spacing: 6px;
+    spacing: 4px;
     padding: 4px 10px;
     min-height: 40px;
 }}
 QToolBar#moxaToolbar {{
     background: {panel};
     border-bottom: 1px solid {border_strong};
-    spacing: 6px;
-    padding: 6px 12px;
-    min-height: 48px;
+    spacing: 4px;
+    padding: 5px 12px;
+    min-height: 44px;
 }}
 QToolBar#moxaToolbar QToolButton {{
     background: transparent;
     border: 1px solid transparent;
-    padding: 6px 12px;
+    padding: 5px 10px;
     min-width: 0px;
-    min-height: 32px;
+    min-height: 26px;
     font-size: 12px;
     font-weight: 500;
     color: {fg_dim};
-    border-radius: 8px;
+    border-radius: 6px;
 }}
 QToolBar#moxaToolbar QToolButton:hover {{
     background: {bg3};
@@ -167,11 +167,12 @@ QToolBar#moxaToolbar QToolButton:checked {{
     background: {accent_subtle};
     border-color: {accent};
     color: {accent};
+    font-weight: 600;
 }}
 QToolBar::separator {{
     width: 1px;
     background: {border};
-    margin: 8px 6px;
+    margin: 7px 6px;
 }}
 QToolButton {{
     background: transparent;
@@ -210,12 +211,12 @@ QPushButton {{
     background: {bg2};
     border: 1px solid {border_strong};
     border-radius: 6px;
-    padding: 5px 14px;
+    padding: 5px 12px;
     color: {fg};
     font-weight: 500;
     font-size: 12.5px;
     min-height: 20px;
-    min-width: 56px;
+    min-width: 48px;
 }}
 QPushButton:hover {{
     border-color: {accent};
@@ -264,10 +265,7 @@ QPushButton#ghost {{
     border-radius: 6px;
     min-width: 60px;
 }}
-/* Square, icon-only ghost buttons (side panel toolbar, tab-strip corner).
-   The 60 px min-width above is for labelled ghost buttons — on these it
-   inflated the Sessions panel's minimum width by ~230 px, which stopped the
-   splitter from being dragged narrow. */
+/* Square, icon-only ghost buttons (side panel toolbar, tab-strip corner). */
 QPushButton#ghost[iconOnly="true"] {{
     min-width: 0px;
     min-height: 0px;
@@ -303,7 +301,6 @@ QPushButton#subtle {{
     border: 1px solid {border_strong};
     color: {fg};
     border-radius: 6px;
-    min-width: 0px;
 }}
 QPushButton#subtle:hover {{
     border-color: {accent};
@@ -347,8 +344,8 @@ QWidget#quickConnect:focus-within {{
 QWidget#quickConnect QLineEdit {{
     background: transparent;
     border: none;
-    padding: 4px 12px;
-    font-size: 12.5px;
+    padding: 4px 10px;
+    font-size: 12px;
     color: {fg};
     min-height: 22px;
 }}
@@ -360,8 +357,8 @@ QWidget#quickConnect QPushButton {{
     color: {accent_text};
     border: none;
     border-radius: 0px 7px 7px 0px;
-    padding: 4px 16px;
-    font-size: 12.5px;
+    padding: 4px 12px;
+    font-size: 12px;
     font-weight: 600;
     min-height: 22px;
     min-width: 0px;
@@ -402,10 +399,10 @@ QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
 }}
 QLineEdit#search, QLineEdit#sideQuick {{
     border-radius: 6px;
-    padding: 4px 8px 4px 8px;
+    padding: 4px 8px;
     background: {bg2};
     border: 1px solid {border_strong};
-    font-size: 12.5px;
+    font-size: 12px;
 }}
 QLineEdit#search:focus, QLineEdit#sideQuick:focus {{
     border-color: {accent};
@@ -501,7 +498,7 @@ QTabBar:focus {{
 QTabBar::tab {{
     background: {panel};
     color: {fg_dim};
-    padding: 8px 14px 8px 12px;
+    padding: 7px 14px 7px 12px;
     border: 1px solid {border};
     border-bottom: none;
     border-top-left-radius: 8px;
@@ -510,7 +507,7 @@ QTabBar::tab {{
     margin-top: 4px;
     font-weight: 500;
     font-size: 12.5px;
-    min-height: 26px;
+    min-height: 24px;
     max-width: 220px;
 }}
 QTabBar::tab:selected {{
@@ -521,8 +518,8 @@ QTabBar::tab:selected {{
     border-top: 2px solid {accent};
     font-weight: 600;
     margin-top: 2px;
-    padding-top: 7px;
-    padding-bottom: 9px;
+    padding-top: 6px;
+    padding-bottom: 8px;
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
@@ -532,21 +529,10 @@ QTabBar::tab:hover:!selected {{
 QTabBar::tab:first {{
     margin-left: 4px;
 }}
-/* Session tab strip docked to a side edge (View ▸ Session Tabs, or drag the
-   strip by its grip). Corners and the selected indicator move to the edge
-   facing away from the work area, i.e. an N bar turned 90°. The ``dock``
-   dynamic property is set on the QTabBar by the main window to the zone id
-   ("left" / "right" / "top") — an attribute selector beats the plain
-   :selected rules above regardless of order, and Qt draws the labels rotated
-   for vertical shapes. min-width is what gives a rotated label room: without
-   it Qt elides "root@prod-web-01" down to two characters. */
 QTabBar[dock="left"]::tab, QTabBar[dock="right"]::tab {{
     border-radius: 0px;
     max-width: none;
     max-height: 150px;
-    /* Rotated labels need their own room: Qt reserves the close-button slot
-       out of this width, and ~120 px left "root@prod-web-01" elided at 13
-       characters. */
     min-width: 160px;
     min-height: 26px;
     margin: 0px 0px 2px 0px;
@@ -582,14 +568,19 @@ QTabBar[dock="left"]::scroller, QTabBar[dock="right"]::scroller {{
 }}
 
 /* Vertical tab strip (sidebar left rail: chevron + Sessions / Tools) */
+QWidget#railColumn {{
+    background: {bg};
+    border-right: 1px solid {border_subtle};
+}}
 QPushButton#railCollapse {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     color: {accent};
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     padding: 0px;
+    min-width: 0px;
 }}
 QPushButton#railCollapse:hover {{
     background: {accent_subtle};
@@ -599,6 +590,7 @@ QPushButton#railCollapse:pressed {{
     background: {bg3};
 }}
 QTabBar#sideRail {{
+    background: transparent;
     border: none;
 }}
 QTabBar#sideRail::tab {{
@@ -606,17 +598,17 @@ QTabBar#sideRail::tab {{
     color: {fg_dim};
     border: 1px solid transparent;
     border-radius: 6px;
-    padding: 10px 4px 10px 3px;
-    margin: 3px 4px 3px 2px;
-    min-height: 64px;
-    min-width: 16px;
+    padding: 12px 4px 12px 4px;
+    margin: 4px 3px 4px 3px;
+    min-height: 76px;
+    min-width: 20px;
     font-size: 11px;
 }}
 QTabBar#sideRail::tab:selected {{
     background: {accent_subtle};
     color: {accent};
     font-weight: 600;
-    border-color: transparent;
+    border-color: {border};
 }}
 QTabBar#sideRail::tab:hover:!selected {{
     background: {bg3};
@@ -629,13 +621,13 @@ QTreeView, QListView, QTableView {{
     alternate-background-color: {panel};
     border: 1px solid {border_strong};
     border-radius: 8px;
-    padding: 2px;
+    padding: 3px;
     outline: none;
     font-size: 12.5px;
     show-decoration-selected: 1;
 }}
 QTreeView::item, QListView::item, QTableView::item {{
-    padding: 3px 6px;
+    padding: 4px 6px;
     border-radius: 6px;
     margin: 0px;
     color: {fg};
@@ -688,7 +680,6 @@ QTreeView::branch:open:has-children:has-siblings {{
     subcontrol-origin: branch;
     subcontrol-position: center left;
 }}
-/* Keyboard focus on list views — recolor the frame, no geometry shift. */
 QListView:focus, QTableView:focus {{
     border: 1px solid {accent};
 }}
@@ -739,7 +730,7 @@ QScrollBar:vertical {{
 }}
 QScrollBar::handle:vertical {{
     background: {panel3};
-    border-radius: 5px;
+    border-radius: 4px;
     min-height: 28px;
     margin: 0px 2px;
 }}
@@ -759,7 +750,7 @@ QScrollBar::handle:horizontal {{
     background: {panel3};
     min-width: 28px;
     margin: 2px 0px;
-    border-radius: 5px;
+    border-radius: 4px;
 }}
 QScrollBar::handle:horizontal:hover {{
     background: {fg_muted};
@@ -780,13 +771,12 @@ QStatusBar {{
     background: {panel};
     border-top: 1px solid {border};
     color: {fg_dim};
-    padding: 0px 8px;
+    padding: 0px 10px;
     font-size: 11.5px;
-    min-height: 24px;
+    min-height: 26px;
 }}
 QStatusBar::item {{
     border: none;
-    border-right: 1px solid {border};
 }}
 QStatusBar QLabel {{
     background: transparent;
@@ -886,8 +876,6 @@ QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
     border-color: {border_subtle};
     background: {bg3};
 }}
-/* Focus rings on the small indicators — keyboard users must always see
-   where focus is, on every interactive family. */
 QCheckBox::indicator:focus, QRadioButton::indicator:focus {{
     border-color: {accent};
     outline: 2px solid {accent};
@@ -923,13 +911,16 @@ QLabel#caption {{
 }}
 QLabel#dashTitle {{
     font-size: 21px;
-    font-weight: 600;
+    font-weight: 700;
     color: {fg};
-    letter-spacing: -0.2px;
+    letter-spacing: -0.3px;
     font-family: {ui_display};
 }}
-/* Dashboard section captions — small uppercase labels that give the
-   welcome page a clear visual hierarchy (Quick connect / Launchers / …). */
+QLabel#dashSubtitle {{
+    font-size: 12px;
+    color: {fg_dim};
+    background: transparent;
+}}
 QLabel#dashSection {{
     font-size: 11px;
     font-weight: 600;
@@ -939,10 +930,12 @@ QLabel#dashSection {{
 }}
 QLabel#dashVersion {{
     font-size: 11px;
-    color: {fg_muted};
+    color: {fg_dim};
     background: {bg3};
+    border: 1px solid {border};
     border-radius: 999px;
-    padding: 2px 9px;
+    border-radius: 9px;
+    padding: 2px 10px;
     font-weight: 500;
 }}
 QLabel#cardTitle {{
@@ -961,7 +954,8 @@ QLabel#protoChip {{
     background: {bg3};
     border: 1px solid {border_subtle};
     border-radius: 999px;
-    padding: 1px 8px;
+    border-radius: 8px;
+    padding: 2px 8px;
     letter-spacing: 0.3px;
 }}
 QLabel#tabCount {{
@@ -971,6 +965,7 @@ QLabel#tabCount {{
     background: {bg3};
     border: 1px solid {border_subtle};
     border-radius: 999px;
+    border-radius: 8px;
     padding: 0px 7px;
 }}
 QLabel#sideTitle {{
@@ -983,21 +978,23 @@ QLabel#sideCount {{
     color: {fg_dim};
     border: 1px solid {border_subtle};
     border-radius: 999px;
-    padding: 0px 8px;
+    border-radius: 8px;
+    padding: 1px 8px;
     font-size: 11px;
     font-weight: 600;
 }}
 QTreeView#sessionTree {{
-    border: 1px solid {border_strong};
+    border: 1px solid {border};
     background: {bg2};
     outline: none;
     border-radius: 8px;
+    padding: 4px 2px;
 }}
 QTreeView#sessionTree::item {{
-    min-height: 24px;
+    min-height: 26px;
     border-radius: 6px;
-    margin: 0px 2px;
-    padding: 2px 6px;
+    margin: 1px 3px;
+    padding: 3px 6px;
     border: 1px solid transparent;
 }}
 QTreeView#sessionTree::item:hover {{
@@ -1007,7 +1004,7 @@ QTreeView#sessionTree::item:hover {{
 QTreeView#sessionTree::item:selected {{
     background: {accent_subtle};
     color: {fg};
-    border: 1px solid transparent;
+    border: 1px solid {border};
     font-weight: 500;
 }}
 QTreeView#sessionTree::item:selected:!active {{
@@ -1044,6 +1041,7 @@ QLabel#pvChip {{
     background: {bg3};
     border: 1px solid {border_subtle};
     border-radius: 999px;
+    border-radius: 8px;
     padding: 1px 8px;
     letter-spacing: 0.3px;
 }}
@@ -1054,14 +1052,14 @@ QLabel#pvKbd, QLabel#kbd {{
     background: {bg2};
     border: 1px solid {border_strong};
     border-bottom: 2px solid {border_strong};
-    border-radius: 5px;
-    padding: 1px 7px;
+    border-radius: 6px;
+    padding: 2px 8px;
     font-family: {ui_mono};
 }}
 QPushButton#tabClose {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 1px;
     min-width: 0px;
 }}
@@ -1129,12 +1127,13 @@ QTabWidget#sessionTabs::pane {{
 QPushButton#sessionAction {{
     background: {bg2};
     border: 1px solid {border_strong};
-    border-radius: 7px;
-    padding: 4px 14px;
+    border-radius: 6px;
+    padding: 4px 12px;
     color: {fg};
     font-size: 12px;
     font-weight: 500;
     min-height: 20px;
+    min-width: 0px;
 }}
 QPushButton#sessionAction:hover {{
     background: {panel};
@@ -1148,12 +1147,13 @@ QPushButton#sessionAction:pressed {{
 QPushButton#sessionActionPrimary {{
     background: {accent};
     border: 1px solid {accent};
-    border-radius: 7px;
-    padding: 4px 14px;
+    border-radius: 6px;
+    padding: 4px 12px;
     color: {accent_text};
     font-size: 12px;
     font-weight: 600;
     min-height: 20px;
+    min-width: 0px;
 }}
 QPushButton#sessionActionPrimary:hover {{
     background: {accent_hover};
@@ -1167,12 +1167,13 @@ QPushButton#sessionActionPrimary:pressed {{
 QPushButton#sessionClose {{
     background: {bg2};
     border: 1px solid {border_strong};
-    border-radius: 7px;
-    padding: 4px 14px;
+    border-radius: 6px;
+    padding: 4px 12px;
     color: {fg};
     font-size: 12px;
     font-weight: 600;
     min-height: 20px;
+    min-width: 0px;
 }}
 QPushButton#sessionClose:hover {{
     background: {bad};
@@ -1219,8 +1220,6 @@ QWidget#sidebar {{
     background: {panel};
     border-right: 1px solid {border};
 }}
-/* Sessions panel docked to the right edge (View ▸ Move Sessions Panel, or
-   drag its grip): the divider moves to the panel's left side. */
 QWidget#sidebar[side="right"] {{
     border-right: none;
     border-left: 1px solid {border};
@@ -1247,14 +1246,19 @@ QWidget#dashboard {{
     border: none;
     border-radius: 0px;
 }}
+QWidget#dashHeroCard {{
+    background: {panel};
+    border: 1px solid {border};
+    border-radius: 10px;
+}}
 /* Dashboard hero quick-connect */
 QLineEdit#dashQuick {{
-    background: {panel};
+    background: {bg2};
     border: 1px solid {border_strong};
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 7px 12px;
     font-size: 13px;
-    min-height: 26px;
+    min-height: 24px;
 }}
 QLineEdit#dashQuick:focus {{
     border-color: {accent};
@@ -1274,8 +1278,6 @@ QWidget#dashTile:hover {{
 QWidget#dashTile:pressed {{
     background: {bg3};
 }}
-/* Keyboard-activatable cards (dashboard tiles, recent-session rows) get a
-   visible focus ring — they take focus and activate on Enter/Space. */
 QWidget#dashTile:focus, QWidget#card_hover:focus {{
     border-color: {accent};
     outline: 2px solid {accent};
@@ -1293,7 +1295,7 @@ QLabel#dashTileIcon {{
 QTabBar::close-button {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 4px;
     width: 18px;
     height: 18px;
     margin-left: 6px;
@@ -1315,18 +1317,20 @@ QWidget#commandBar, QWidget#sessionCommandBar {{
     padding: 0px;
 }}
 QLabel#commandPrompt {{
-    color: {fg_dim};
-    font-size: 12px;
+    color: {accent};
+    background: {bg3};
+    border: 1px solid {border};
+    border-radius: 6px;
+    font-size: 11.5px;
     font-weight: 600;
-    letter-spacing: 0.3px;
-    padding-left: 6px;
-    background: transparent;
+    font-family: {ui_mono};
+    padding: 3px 9px;
 }}
 QLineEdit#commandLine {{
     background: {bg2};
     border: 1px solid {border_strong};
-    border-radius: 7px;
-    padding: 6px 10px;
+    border-radius: 6px;
+    padding: 5px 10px;
     font-size: 12.5px;
     font-family: {ui_mono};
     min-height: 22px;
@@ -1439,7 +1443,7 @@ QMenuBar::item {{ padding: 3px 8px; }}
 QMenu::item {{ padding: 4px 22px 4px 8px; }}
 QToolBar {{ min-height: 30px; padding: 2px 6px; }}
 QToolBar#moxaToolbar {{ min-height: 36px; padding: 2px 7px; }}
-QToolBar#moxaToolbar QToolButton {{ min-height: 26px; min-width: 0px; padding: 4px 7px; font-size: 10.5px; }}
+QToolBar#moxaToolbar QToolButton {{ min-height: 24px; min-width: 0px; padding: 3px 7px; font-size: 11px; }}
 QToolButton {{ padding: 3px 6px; min-height: 22px; font-size: 11.5px; }}
 QPushButton {{ padding: 3px 10px; min-height: 17px; font-size: 11.5px; }}
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
@@ -1447,8 +1451,8 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
 }}
 QTabBar::tab {{ padding: 4px 10px 4px 8px; min-height: 18px; font-size: 11.5px; }}
 QTreeView::item, QListView::item, QTableView::item {{ padding: 2px 5px; min-height: 20px; }}
-QTreeView#sessionTree::item {{ min-height: 21px; padding: 1px 5px; }}
-QStatusBar {{ min-height: 21px; font-size: 11px; }}
+QTreeView#sessionTree::item {{ min-height: 22px; padding: 2px 5px; }}
+QStatusBar {{ min-height: 22px; font-size: 11px; }}
 QGroupBox {{ margin-top: 10px; padding: 12px 10px 9px 10px; }}
 QCheckBox, QRadioButton {{ font-size: 11.5px; }}
 QLabel#dashTitle {{ font-size: 18px; }}

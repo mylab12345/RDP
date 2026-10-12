@@ -5,7 +5,6 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -124,26 +123,61 @@ class SessionTree(QWidget):
         page = QWidget()
         page.setObjectName("sidebarPanel")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
 
-        # Header — title + count
+        def make_btn(label, icon_name, tip, cb, primary=False):
+            b = QPushButton(label)
+            b.setIcon(toolbar_icon(icon_name))
+            self._themed_buttons.append((b, icon_name))
+            b.setObjectName("ghost")
+            b.setProperty("iconOnly", True)
+            b.setStyleSheet("min-width: 0px; max-width: 26px; min-height: 0px; padding: 0px;")
+            b.setToolTip(tip)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(cb)
+            b.setFixedSize(26, 26)
+            b.setIconSize(QSize(15, 15))
+            return b
+
+        # Header — title + count + action buttons + dock grip
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(2, 0, 2, 0)
-        hl.setSpacing(6)
+        hl.setSpacing(4)
 
         title = QLabel("Sessions")
         title.setObjectName("sideTitle")
         hl.addWidget(title)
 
+        self._count_label = QLabel("")
+        self._count_label.setObjectName("sideCount")
+        self._count_label.setToolTip("Number of saved sessions")
+        hl.addWidget(self._count_label)
+
+        hl.addStretch(1)
+
+        btn_new = make_btn("", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
+        btn_local = make_btn(
+            "",
+            "console",
+            "Open a local shell in a new tab (Ctrl+Shift+T)",
+            self.localTerminalRequested.emit,
+        )
+        btn_folder = make_btn("", "folder", "New folder", self.newFolderRequested.emit)
+        hl.addWidget(btn_new)
+        hl.addWidget(btn_local)
+        hl.addWidget(btn_folder)
+
         # Dock grip — drag it at the left or right edge to move the whole
         # panel there; double-click flips it. (main_window wires the drag.)
         self.dock_grip = QPushButton()
         self.dock_grip.setObjectName("dockGrip")
+        self.dock_grip.setProperty("iconOnly", True)
+        self.dock_grip.setStyleSheet("min-width: 0px; max-width: 24px; min-height: 0px; padding: 0px;")
         self.dock_grip.setIcon(icon("grip"))
         self.dock_grip.setIconSize(QSize(14, 14))
-        self.dock_grip.setFixedSize(20, 20)
+        self.dock_grip.setFixedSize(24, 24)
         self.dock_grip.setCursor(Qt.CursorShape.OpenHandCursor)
         self.dock_grip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.dock_grip.setToolTip(
@@ -152,23 +186,15 @@ class SessionTree(QWidget):
         )
         self.dock_grip.installEventFilter(self)
         hl.addWidget(self.dock_grip)
-        hl.addStretch(1)
-
-        self._count_label = QLabel("")
-        self._count_label.setObjectName("sideCount")
-        self._count_label.setToolTip("Number of saved sessions")
-        hl.addWidget(self._count_label)
         layout.addWidget(header)
 
-        # Quick connect — MobaXterm's signature top-of-panel box: type
-        # user@host[:port] and hit Enter. Shares MainWindow's parse/connect
-        # path with the toolbar and dashboard inputs (port 3389 ⇒ RDP).
+        # Quick connect — top-of-panel box: type user@host[:port] and hit Enter.
         self.side_quick = QLineEdit()
         self.side_quick.setObjectName("sideQuick")
         self.side_quick.setPlaceholderText("Quick connect…  user@host")
         self.side_quick.setClearButtonEnabled(True)
         self.side_quick.setMinimumWidth(0)
-        self.side_quick.setFixedHeight(26)
+        self.side_quick.setFixedHeight(28)
         self.side_quick.setAccessibleName("Quick connect from sidebar")
         self.side_quick.setToolTip(
             "Open user@host[:port] — port 3389 opens RDP (Enter)"
@@ -180,45 +206,11 @@ class SessionTree(QWidget):
         self.side_quick.returnPressed.connect(self.quickConnectRequested.emit)
         layout.addWidget(self.side_quick)
 
-        # Icon toolbar row (new session · local terminal · new folder) —
-        # MobaXterm's small 16 px buttons above the sessions tree.
+        # Filter row — full width for search + tag filter so neither truncates
         bar_wrap = QWidget()
         bl = QHBoxLayout(bar_wrap)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(2)
-
-        def make_btn(label, icon_name, tip, cb, primary=False):
-            b = QPushButton(label)
-            b.setIcon(toolbar_icon(icon_name))
-            self._themed_buttons.append((b, icon_name))
-            b.setObjectName("ghost")
-            # Marks the square, icon-only variant for QSS: it must not inherit
-            # the labelled ghost button's min-width (that would keep the whole
-            # Sessions panel from being dragged narrow).
-            b.setProperty("iconOnly", True)
-            b.setToolTip(tip)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(cb)
-            b.setFixedSize(26, 26)
-            b.setIconSize(QSize(16, 16))
-            return b
-
-        btn_new = make_btn("", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
-        btn_local = make_btn(
-            "",
-            "console",
-            "Open a local shell in a new tab (Ctrl+Shift+T)",
-            self.localTerminalRequested.emit,
-        )
-        btn_folder = make_btn("", "folder", "New folder", self.newFolderRequested.emit)
-        bl.addWidget(btn_new)
-        bl.addWidget(btn_local)
-        bl.addWidget(btn_folder)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFixedHeight(16)
-        bl.addWidget(sep)
+        bl.setSpacing(6)
 
         # Search — inline filter box
         self.search = QLineEdit()
@@ -235,11 +227,13 @@ class SessionTree(QWidget):
 
         # Tag/category filter — keeps large connection inventories scannable
         # without replacing the folder tree. Hidden until at least one tag
-        # exists, so empty/new installs keep the compact MobaXterm chrome.
+        # exists, so empty/new installs keep the compact chrome.
         self.tag_filter = QComboBox()
         self.tag_filter.setObjectName("tagFilter")
         self.tag_filter.setMinimumHeight(28)
-        self.tag_filter.setMinimumWidth(88)
+        self.tag_filter.setMinimumWidth(94)
+        self.tag_filter.setMaximumWidth(112)
+        self.tag_filter.setStyleSheet("padding-left: 7px; padding-right: 22px; font-size: 12px;")
         self.tag_filter.setToolTip("Filter sessions by tag/category")
         self.tag_filter.setAccessibleName("Filter sessions by tag")
         self.tag_filter.currentIndexChanged.connect(self._on_tag_filter)

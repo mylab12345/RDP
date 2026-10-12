@@ -1475,7 +1475,7 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
             # Positive wheel delta means wheel-up on Qt platforms: scroll back
             # into older terminal output. Negative delta moves toward live
             # output again.
-            self.scroll_lines(steps * 3)
+            self.scroll_lines(steps)
             event.accept()
 
     def _zoom_font(self, step: int) -> None:

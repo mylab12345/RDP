@@ -124,7 +124,13 @@ class SessionTab(QWidget):
         left_wrap.setObjectName("sessionHeaderLeft")
         left_l = QHBoxLayout(left_wrap)
         left_l.setContentsMargins(0, 0, 0, 0)
-        left_l.setSpacing(10)
+        left_l.setSpacing(8)
+
+        defn_obj = getattr(controller, "definition", None) or getattr(controller, "defn", None)
+        proto_str = (getattr(defn_obj, "protocol", "") or "ssh").upper()
+        self.proto_chip = QLabel(proto_str)
+        self.proto_chip.setObjectName("protoChip")
+        left_l.addWidget(self.proto_chip)
 
         self.chip = StateChip("connecting", "info")
         left_l.addWidget(self.chip)
@@ -134,10 +140,23 @@ class SessionTab(QWidget):
         self.rec_chip.setToolTip("Logging active session output to file")
         left_l.addWidget(self.rec_chip)
 
+        sep_left = QFrame()
+        sep_left.setObjectName("sessionSep")
+        sep_left.setFrameShape(QFrame.Shape.VLine)
+        sep_left.setFixedWidth(1)
+        sep_left.setFixedHeight(16)
+        left_l.addWidget(sep_left)
+
         self.info = QLabel("")
         self.info.setObjectName("sessionInfo")
         self.info.setStyleSheet("font-size: 12px; font-weight: 500;")
         left_l.addWidget(self.info, 1)
+
+        grp_str = getattr(defn_obj, "group", "") or ""
+        if grp_str:
+            grp_lbl = QLabel(grp_str)
+            grp_lbl.setObjectName("protoChip")
+            left_l.addWidget(grp_lbl)
 
         h.addWidget(left_wrap, 1)
 
@@ -489,6 +508,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._themed_corner_buttons.append((b, icon_name))
             b.setObjectName("ghost")
             b.setProperty("iconOnly", True)  # square variant: no min-width
+            b.setStyleSheet("min-width: 0px; max-width: 26px; min-height: 0px; padding: 0px;")
             b.setToolTip(tip)
             b.setAccessibleName(tip.split(" (")[0])
             b.setStatusTip(tip)
@@ -506,9 +526,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # bar works too.
         self._tabs_grip = QPushButton()
         self._tabs_grip.setObjectName("dockGrip")
+        self._tabs_grip.setProperty("iconOnly", True)
+        self._tabs_grip.setStyleSheet("min-width: 0px; max-width: 24px; min-height: 0px; padding: 0px;")
         self._tabs_grip.setIcon(icon("grip"))
         self._tabs_grip.setIconSize(QSize(14, 14))
-        self._tabs_grip.setFixedSize(20, 20)
+        self._tabs_grip.setFixedSize(24, 24)
         self._tabs_grip.setCursor(Qt.CursorShape.OpenHandCursor)
         self._tabs_grip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tabs_grip.setToolTip(
@@ -2021,6 +2043,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         ready to accept new connections.
         """
         # Close all tool dialogs first for clean shutdown
+        global _MAIN
+        if _MAIN is self:
+            _MAIN = None
+        theme.remove_theme_changed_callback(self._refresh_theme)
         for dlg in list(self._tool_dialogs.values()):
             try:
                 dlg.close()
@@ -2064,6 +2090,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             except Exception:
                 log.exception("error stopping the share server on shutdown")
         super().closeEvent(event)
+        self._closed_once = True
         if event.isAccepted():
             # quitOnLastWindowClosed is off, so nothing else will end the
             # process — do it ourselves now that the window is really going
