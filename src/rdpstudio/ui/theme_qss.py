@@ -126,45 +126,52 @@ QMenu::right-arrow {{
     right: 8px;
 }}
 
-/* ================= Toolbar — compact command bar ====================== */
+/* ================= Toolbar — modern professional command bar ========== */
 QToolBar {{
     background: {panel};
     border: none;
-    border-bottom: 1px solid {border};
-    spacing: 4px;
-    padding: 3px 8px;
-    min-height: 36px;
+    border-bottom: 1px solid {border_strong};
+    spacing: 6px;
+    padding: 4px 10px;
+    min-height: 40px;
 }}
 QToolBar#moxaToolbar {{
-    spacing: 4px;
-    padding: 4px 10px;
-    min-height: 42px;
+    background: {panel};
+    border-bottom: 1px solid {border_strong};
+    spacing: 6px;
+    padding: 6px 12px;
+    min-height: 48px;
 }}
 QToolBar#moxaToolbar QToolButton {{
-    padding: 6px 9px;
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 6px 12px;
     min-width: 0px;
-    min-height: 30px;
-    font-size: 11.5px;
+    min-height: 32px;
+    font-size: 12px;
     font-weight: 500;
     color: {fg_dim};
-    border-radius: 7px;
+    border-radius: 8px;
 }}
 QToolBar#moxaToolbar QToolButton:hover {{
     background: {bg3};
+    border-color: {border};
     color: {fg};
 }}
 QToolBar#moxaToolbar QToolButton:pressed {{
     background: {panel2};
+    border-color: {accent};
     color: {fg};
 }}
 QToolBar#moxaToolbar QToolButton:checked {{
     background: {accent_subtle};
+    border-color: {accent};
     color: {accent};
 }}
 QToolBar::separator {{
     width: 1px;
     background: {border};
-    margin: 7px 5px;
+    margin: 8px 6px;
 }}
 QToolButton {{
     background: transparent;
@@ -325,22 +332,25 @@ QPushButton#danger:disabled {{
     border-color: {border_subtle};
 }}
 
-/* Quick connect — joined input + button group (toolbar) */
+/* Quick connect — modern joined input + button, distinct from terminal */
 QWidget#quickConnect {{
     background: {bg2};
     border: 1px solid {border_strong};
-    border-radius: 6px;
+    border-radius: 8px;
 }}
 QWidget#quickConnect:hover {{
+    border-color: {accent};
+}}
+QWidget#quickConnect:focus-within {{
     border-color: {accent};
 }}
 QWidget#quickConnect QLineEdit {{
     background: transparent;
     border: none;
-    padding: 2px 10px;
+    padding: 4px 12px;
     font-size: 12.5px;
     color: {fg};
-    min-height: 20px;
+    min-height: 22px;
 }}
 QWidget#quickConnect QLineEdit:focus {{
     border: none;
@@ -349,15 +359,18 @@ QWidget#quickConnect QPushButton {{
     background: {accent};
     color: {accent_text};
     border: none;
-    border-radius: 0px 5px 5px 0px;
-    padding: 2px 12px;
+    border-radius: 0px 7px 7px 0px;
+    padding: 4px 16px;
     font-size: 12.5px;
     font-weight: 600;
-    min-height: 20px;
+    min-height: 22px;
     min-width: 0px;
 }}
 QWidget#quickConnect QPushButton:hover {{
     background: {accent_hover};
+}}
+QWidget#quickConnect QPushButton:pressed {{
+    background: {accent_active};
 }}
 
 /* ================= Inputs ============================================= */
@@ -465,53 +478,59 @@ QComboBox QAbstractItemView::item:selected {{
     font-weight: 500;
 }}
 
-/* ================= Tabs — modern document tabs ======================== */
+/* ================= Tabs — modern professional document tabs =========== */
+QTabWidget {{
+    background: {bg};
+}}
 QTabWidget::pane {{
     border: 1px solid {border};
     border-top: 1px solid {border};
     background: {bg2};
-    border-radius: 0px 0px 8px 8px;
+    border-radius: 0px 0px 10px 10px;
     top: -1px;
 }}
 QTabBar {{
-    background: transparent;
+    background: {bg};
     qproperty-drawBase: 0;
-    /* Transparent by default so the :focus recolor below causes no shift. */
     border: 2px solid transparent;
 }}
 QTabBar:focus {{
     border-color: {accent};
-    border-radius: 6px;
+    border-radius: 8px;
 }}
 QTabBar::tab {{
-    background: transparent;
+    background: {panel};
     color: {fg_dim};
-    padding: 6px 12px 6px 10px;
-    border: 1px solid transparent;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    margin-right: 3px;
-    margin-top: 3px;
+    padding: 8px 14px 8px 12px;
+    border: 1px solid {border};
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 4px;
+    margin-top: 4px;
     font-weight: 500;
-    font-size: 12px;
-    min-height: 20px;
-    max-width: 200px;
+    font-size: 12.5px;
+    min-height: 26px;
+    max-width: 220px;
 }}
 QTabBar::tab:selected {{
     background: {bg2};
     color: {fg};
-    border-color: {border};
+    border-color: {border_strong};
+    border-bottom: 1px solid {bg2};
     border-top: 2px solid {accent};
     font-weight: 600;
-    margin-top: 1px;
-    padding-bottom: 7px;
+    margin-top: 2px;
+    padding-top: 7px;
+    padding-bottom: 9px;
 }}
 QTabBar::tab:hover:!selected {{
     background: {bg3};
     color: {fg};
+    border-color: {border_strong};
 }}
 QTabBar::tab:first {{
-    margin-left: 2px;
+    margin-left: 4px;
 }}
 /* Session tab strip docked to a side edge (View ▸ Session Tabs, or drag the
    strip by its grip). Corners and the selected indicator move to the edge
@@ -1059,6 +1078,117 @@ QFrame#hairline {{
     border: none;
 }}
 
+/* ================= Session Tab — modern professional header ============ */
+QWidget#sessionHeader {{
+    background: {panel};
+    border-bottom: 1px solid {border_strong};
+    border-radius: 0px;
+}}
+QWidget#sessionHeaderLeft {{
+    background: transparent;
+}}
+QWidget#sessionActions {{
+    background: transparent;
+}}
+QLabel#sessionInfo {{
+    color: {fg_dim};
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+}}
+QFrame#sessionSep {{
+    background: {border};
+    border: none;
+    margin: 0px 4px;
+}}
+QFrame#sessionDivider {{
+    background: {border_strong};
+    border: none;
+    max-height: 1px;
+}}
+QWidget#terminalContainer {{
+    background: {term_bg};
+    border-left: 1px solid {border};
+    border-right: 1px solid {border};
+    border-radius: 0px;
+}}
+QWidget#terminalContent {{
+    background: {term_bg};
+    border: none;
+}}
+QTabWidget#sessionTabs {{
+    background: {bg};
+}}
+QTabWidget#sessionTabs::pane {{
+    border: 1px solid {border};
+    border-top: 1px solid {border};
+    background: {bg2};
+    border-radius: 0px 0px 10px 10px;
+    top: -1px;
+}}
+QPushButton#sessionAction {{
+    background: {bg2};
+    border: 1px solid {border_strong};
+    border-radius: 7px;
+    padding: 4px 14px;
+    color: {fg};
+    font-size: 12px;
+    font-weight: 500;
+    min-height: 20px;
+}}
+QPushButton#sessionAction:hover {{
+    background: {panel};
+    border-color: {accent};
+    color: {fg};
+}}
+QPushButton#sessionAction:pressed {{
+    background: {accent_subtle};
+    border-color: {accent};
+}}
+QPushButton#sessionActionPrimary {{
+    background: {accent};
+    border: 1px solid {accent};
+    border-radius: 7px;
+    padding: 4px 14px;
+    color: {accent_text};
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 20px;
+}}
+QPushButton#sessionActionPrimary:hover {{
+    background: {accent_hover};
+    border-color: {accent_hover};
+}}
+QPushButton#sessionActionPrimary:pressed {{
+    background: {accent_active};
+    border-color: {accent_active};
+}}
+/* Clearly visible Close — labelled, distinct, red hover for safety */
+QPushButton#sessionClose {{
+    background: {bg2};
+    border: 1px solid {border_strong};
+    border-radius: 7px;
+    padding: 4px 14px;
+    color: {fg};
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 20px;
+}}
+QPushButton#sessionClose:hover {{
+    background: {bad};
+    border-color: {bad};
+    color: {bad_text};
+}}
+QPushButton#sessionClose:pressed {{
+    background: {bad_active};
+    border-color: {bad_active};
+    color: {bad_text};
+}}
+QPushButton#sessionClose:focus {{
+    outline: 2px solid {bad};
+    outline-offset: -2px;
+}}
+
 /* ================= Dialogs ============================================= */
 QDialog {{
     background: {bg};
@@ -1082,7 +1212,7 @@ QWidget#card_hover:hover {{
 }}
 QWidget#header {{
     background: {panel};
-    border-bottom: 1px solid {border};
+    border-bottom: 1px solid {border_strong};
     border-radius: 0px;
 }}
 QWidget#sidebar {{
@@ -1100,6 +1230,17 @@ QWidget#sidebarPanel {{
 }}
 QWidget#workArea {{
     background: {bg};
+    border: none;
+}}
+QWidget#tabCorner {{
+    background: {bg};
+    border: none;
+    border-radius: 0px;
+}}
+QWidget#tabCornerBar {{
+    background: {bg};
+    border-bottom: 1px solid {border};
+    border-radius: 0px;
 }}
 QWidget#dashboard {{
     background: {bg};
@@ -1148,22 +1289,29 @@ QLabel#dashTileIcon {{
     border: 1px solid {border_subtle};
     border-radius: 8px;
 }}
-/* Tab-strip close buttons — same red hover treatment as the header's
-   #tabClose button, so every close affordance reads the same. */
+/* Tab-strip close buttons — clearly visible, distinct from terminal */
 QTabBar::close-button {{
-    border-radius: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    margin-right: 2px;
 }}
 QTabBar::close-button:hover {{
-    background: {bad_faint};
+    background: {bad};
+    border-color: {bad};
 }}
 QTabBar::close-button:pressed {{
-    background: {bad_soft2};
+    background: {bad_active};
+    border-color: {bad_active};
 }}
 
-/* ================= Command bar (MobaXterm terminal command line) ====== */
-QWidget#commandBar {{
+/* ================= Command bar — distinct from terminal ============= */
+QWidget#commandBar, QWidget#sessionCommandBar {{
     background: {panel};
-    border-top: 1px solid {border};
+    border-top: 1px solid {border_strong};
     padding: 0px;
 }}
 QLabel#commandPrompt {{
@@ -1171,16 +1319,18 @@ QLabel#commandPrompt {{
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.3px;
-    padding-left: 4px;
+    padding-left: 6px;
+    background: transparent;
 }}
 QLineEdit#commandLine {{
     background: {bg2};
     border: 1px solid {border_strong};
-    border-radius: 6px;
-    padding: 4px 8px;
+    border-radius: 7px;
+    padding: 6px 10px;
     font-size: 12.5px;
     font-family: {ui_mono};
-    min-height: 20px;
+    min-height: 22px;
+    color: {fg};
 }}
 QLineEdit#commandLine:focus {{
     border-color: {accent};

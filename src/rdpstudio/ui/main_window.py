@@ -89,7 +89,15 @@ def get_main_window(widget=None) -> MainWindow | None:
 
 
 class SessionTab(QWidget):
-    """One tab: hosts a SessionController + modern auto-hiding toolbar."""
+    """One tab: hosts a SessionController with a modern, distinct header.
+
+    Design goals (beyond theme colours):
+    - Header and all controls live in a distinct surface (panel) that never
+      uses terminal colours, so the terminal area is visually isolated.
+    - Each tab has a clearly visible, labelled Close button that fully clears
+      session state on click.
+    - Professional spacing, rounded controls, and clear visual hierarchy.
+    """
 
     def __init__(self, controller: SessionController, main: MainWindow) -> None:
         super().__init__()
@@ -97,100 +105,132 @@ class SessionTab(QWidget):
         self.main = main
         self._custom_title: str | None = None
         self._toolbar_visible = True
+        self._is_closing = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Compact session header — chips, info, actions
+        # ── Modern session header — distinct surface from terminal ──
         header = QWidget()
-        header.setObjectName("header")
-        header.setMinimumHeight(36)
-        header.setMaximumHeight(36)
+        header.setObjectName("sessionHeader")
+        header.setMinimumHeight(46)
+        header.setMaximumHeight(46)
         h = QHBoxLayout(header)
-        h.setContentsMargins(12, 5, 10, 5)
-        h.setSpacing(8)
+        h.setContentsMargins(14, 6, 12, 6)
+        h.setSpacing(10)
+
+        # Left: status + session identity
+        left_wrap = QWidget()
+        left_wrap.setObjectName("sessionHeaderLeft")
+        left_l = QHBoxLayout(left_wrap)
+        left_l.setContentsMargins(0, 0, 0, 0)
+        left_l.setSpacing(10)
 
         self.chip = StateChip("connecting", "info")
-        h.addWidget(self.chip)
+        left_l.addWidget(self.chip)
 
         self.rec_chip = StateChip("● REC", "bad")
         self.rec_chip.setVisible(False)
         self.rec_chip.setToolTip("Logging active session output to file")
-        h.addWidget(self.rec_chip)
+        left_l.addWidget(self.rec_chip)
 
         self.info = QLabel("")
-        self.info.setObjectName("muted")
-        self.info.setStyleSheet("font-size: 11.5px; font-weight: 400;")
-        h.addWidget(self.info, 1)
+        self.info.setObjectName("sessionInfo")
+        self.info.setStyleSheet("font-size: 12px; font-weight: 500;")
+        left_l.addWidget(self.info, 1)
 
-        # Session action buttons — compact icon-style
+        h.addWidget(left_wrap, 1)
+
+        # Right: actions + clearly visible Close
+        actions_wrap = QWidget()
+        actions_wrap.setObjectName("sessionActions")
+        ah = QHBoxLayout(actions_wrap)
+        ah.setContentsMargins(0, 0, 0, 0)
+        ah.setSpacing(8)
+
         self._themed_buttons: list[tuple[QPushButton, str, str | None]] = []
 
-        def make_action_btn(text, icon_name, tip, cb):
+        def make_action_btn(text, icon_name, tip, cb, primary=False):
             b = QPushButton(text)
             if icon_name:
-                b.setIcon(icon(icon_name, palette()["fg_dim"]))
+                b.setIcon(icon(icon_name, palette()["fg_dim"] if not primary else palette()["accent_text"]))
                 self._themed_buttons.append((b, icon_name, None))
-            b.setObjectName("subtle")
+            b.setObjectName("sessionActionPrimary" if primary else "sessionAction")
             b.setToolTip(tip)
             b.clicked.connect(cb)
-            b.setFixedHeight(26)
-            b.setFixedWidth(74)
-            b.setStyleSheet(
-                b.styleSheet()
-                + "font-size: 11.5px; font-weight: 500; padding: 1px 10px; "
-                + "border-radius: 6px;"
-            )
+            b.setFixedHeight(30)
+            b.setMinimumWidth(78)
+            b.setIconSize(QSize(16, 16))
             return b
 
-        # One state-aware action button: Stop while live, Reconnect when down.
+        # State-aware Stop / Reconnect — primary action
         self.btn_reconnect = QPushButton("Stop")
         self.btn_reconnect.setIcon(icon("stop", palette()["accent_text"]))
-        self.btn_reconnect.setObjectName("primary")
+        self.btn_reconnect.setObjectName("sessionActionPrimary")
         self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
-        self.btn_reconnect.setFixedHeight(26)
-        self.btn_reconnect.setFixedWidth(88)
-        self.btn_reconnect.setStyleSheet(
-            self.btn_reconnect.styleSheet()
-            + "font-size: 11.5px; font-weight: 600; padding: 1px 12px; "
-            + "border-radius: 6px;"
-        )
-        h.addWidget(self.btn_reconnect)
+        self.btn_reconnect.setFixedHeight(30)
+        self.btn_reconnect.setMinimumWidth(92)
+        self.btn_reconnect.setIconSize(QSize(14, 14))
+        ah.addWidget(self.btn_reconnect)
 
         caps = controller.capabilities()
 
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
-            h.addWidget(b)
+            ah.addWidget(b)
 
-        # Close button for the tab
-        close_btn = QPushButton()
+        # Separator between actions and Close — visual grouping
+        sep = QFrame()
+        sep.setObjectName("sessionSep")
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(22)
+        ah.addWidget(sep)
+
+        # Clearly visible Close — labelled, not just an icon (modern professional)
+        close_btn = QPushButton("Close")
         close_btn.setIcon(icon("close"))
         self._themed_buttons.append((close_btn, "close", None))
-        close_btn.setObjectName("tabClose")
-        close_btn.setToolTip("Close this session tab")
-        close_btn.setFixedSize(22, 22)
-        close_btn.setIconSize(QSize(13, 13))
-        close_btn.clicked.connect(lambda: self.main.close_tab(self.main.tabs.indexOf(self)))
-        h.addWidget(close_btn)
+        close_btn.setObjectName("sessionClose")
+        close_btn.setToolTip("Close this session and clear all related data")
+        close_btn.setAccessibleName("Close session")
+        close_btn.setAccessibleDescription("Close this session tab and clear all related data")
+        close_btn.setStatusTip("Close this session and clear all related data")
+        close_btn.setFixedHeight(30)
+        close_btn.setMinimumWidth(84)
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.clicked.connect(self._request_close)
+        ah.addWidget(close_btn)
+        self._close_btn = close_btn
+
+        h.addWidget(actions_wrap)
 
         layout.addWidget(header)
 
-        # Divider
+        # Divider — crisp separation between controls and terminal
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setObjectName("hairline")
+        line.setObjectName("sessionDivider")
         line.setFixedHeight(1)
         layout.addWidget(line)
 
+        # Terminal container — distinct, isolated surface
+        self._term_container = QWidget()
+        self._term_container.setObjectName("terminalContainer")
+        tc_l = QVBoxLayout(self._term_container)
+        tc_l.setContentsMargins(0, 0, 0, 0)
+        tc_l.setSpacing(0)
         self._content = controller.widget()
-        layout.addWidget(self._content, 1)
+        self._content.setObjectName("terminalContent")
+        tc_l.addWidget(self._content, 1)
+        layout.addWidget(self._term_container, 1)
 
-        # MobaXterm-style command line below the terminal (shell tabs only)
+        # Command bar — distinct surface below terminal
         self.command_bar = None
         if caps.shell:
             self.command_bar = CommandBar()
+            self.command_bar.setObjectName("sessionCommandBar")
             self.command_bar.commandSent.connect(self._on_command_sent)
             layout.addWidget(self.command_bar)
 
@@ -203,16 +243,60 @@ class SessionTab(QWidget):
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
 
+    def _request_close(self) -> None:
+        """User pressed the prominent Close button in the header."""
+        if self._is_closing:
+            return
+        idx = self.main.tabs.indexOf(self)
+        if idx >= 0:
+            self.main.close_tab(idx)
+
+    def cleanup_session_state(self) -> None:
+        """Fully clear all session-related data to prevent mixing or leaks.
+
+        Called during tab close to ensure no terminal colours, buffers,
+        or state leak into other sessions.
+        """
+        if self._is_closing:
+            return
+        self._is_closing = True
+        try:
+            # Stop logging
+            term = getattr(self.controller, "term", None)
+            if term is not None:
+                if hasattr(term, "stop_logging"):
+                    try:
+                        term.stop_logging()
+                    except Exception:
+                        pass
+                if hasattr(term, "clear_scrollback"):
+                    try:
+                        term.clear_scrollback()
+                    except Exception:
+                        pass
+            # Clear info label to remove any terminal-influenced text
+            if hasattr(self, "info"):
+                self.info.clear()
+            # Hide chips
+            if hasattr(self, "rec_chip"):
+                self.rec_chip.setVisible(False)
+        except Exception:
+            pass
+
     def _swap_content(self) -> None:
         old = self._content
         if old is None:
             return
-        layout = self.layout()
-        layout.removeWidget(old)
+        # Content lives inside the terminal container for visual isolation
+        container_layout = self._term_container.layout()
+        if container_layout is not None:
+            container_layout.removeWidget(old)
         old.hide()
+        old.setParent(None)
         self._content = self.controller.widget()
-        # Reinsert after the header divider and before the command bar.
-        layout.insertWidget(2, self._content, 1)
+        self._content.setObjectName("terminalContent")
+        if container_layout is not None:
+            container_layout.addWidget(self._content, 1)
         self._content.show()
 
     def _on_command_sent(self, text: str) -> None:
@@ -352,6 +436,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         tl.setSpacing(0)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("sessionTabs")
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
@@ -380,11 +465,12 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             lambda idx: (self.tabs.setCurrentIndex(idx), self._rename_current_tab())
         )
 
-        # Corner buttons — session count + quick actions
+        # Corner buttons — session count + quick actions (modern, distinct)
         corner = QWidget()
+        corner.setObjectName("tabCorner")
         cl = QHBoxLayout(corner)
-        cl.setContentsMargins(4, 3, 4, 0)
-        cl.setSpacing(2)
+        cl.setContentsMargins(6, 4, 6, 2)
+        cl.setSpacing(4)
 
         # Session count indicator
         self._tab_count_label = QLabel("0")
@@ -1368,25 +1454,123 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         return tab
 
     def close_tab(self, index: int) -> None:
+        """Close a session tab and fully clear all related state.
+
+        Guarantees:
+        - No terminal colours or buffers leak into other sessions
+        - All controls remain visually distinct and stable
+        - Associated dialogs (SFTP, tunnels) are closed
+        - Controller, term, logging and tracking dicts are cleaned
+        - No exception during cleanup disrupts tool stability
+        """
+        if index < 0 or index >= self.tabs.count():
+            return
         widget = self.tabs.widget(index)
         if isinstance(widget, SessionTab) and not self._safe_to_close(widget):
             return
-        self.tabs.removeTab(index)
+
+        # ── Full session state cleanup ──
         if isinstance(widget, SessionTab):
             try:
-                # Stop logging if active
-                term = getattr(widget.controller, "term", None)
-                if term and hasattr(term, "stop_logging"):
-                    term.stop_logging()
-                widget.controller.stop("closed by user")
+                widget.cleanup_session_state()
+            except Exception:
+                log.exception("pre-cleanup failed")
+
+            controller = widget.controller
+            cid = id(controller)
+
+            # Close any tool dialogs tied to this controller (SFTP, tunnels, etc.)
+            try:
+                dlg = self._tool_dialogs.pop(cid, None)
+                if dlg is not None:
+                    try:
+                        dlg.close()
+                        dlg.deleteLater()
+                    except Exception:
+                        log.debug("failed to close tool dialog", exc_info=True)
+                # Defensive sweep: dialogs that store controller via attribute
+                for other_cid, other_dlg in list(self._tool_dialogs.items()):
+                    try:
+                        d_ctrl = getattr(other_dlg, "controller", None) or getattr(other_dlg, "_controller", None)
+                        if d_ctrl is controller or id(d_ctrl) == cid:
+                            other_dlg.close()
+                            other_dlg.deleteLater()
+                            self._tool_dialogs.pop(other_cid, None)
+                    except Exception:
+                        continue
+            except Exception:
+                log.exception("tool-dialog cleanup failed")
+
+            # Stop logging and clear terminal buffer to avoid colour mixing
+            try:
+                term = getattr(controller, "term", None)
+                if term is not None:
+                    if hasattr(term, "stop_logging"):
+                        try:
+                            term.stop_logging()
+                        except Exception:
+                            pass
+                    if hasattr(term, "clear_scrollback"):
+                        try:
+                            term.clear_scrollback()
+                        except Exception:
+                            pass
+            except Exception:
+                log.debug("terminal cleanup failed", exc_info=True)
+
+            # Stop the controller — blocking stop for thorough teardown
+            try:
+                if hasattr(controller, "stop_blocking"):
+                    controller.stop_blocking("closed by user")
+                else:
+                    controller.stop("closed by user")
             except Exception:
                 log.exception("error stopping session controller")
             finally:
-                # A stop() failure must not leak the tab's teardown markers.
-                self._last_connected_info.pop(id(widget.controller), None)
-            widget.controller.deleteLater()
-        if widget is not None:
-            widget.deleteLater()
+                # Always clear tracking structures even if stop() raised
+                self._last_connected_info.pop(cid, None)
+                self.controllers.pop(cid, None)
+
+            # Disconnect signals to prevent post-deletion callbacks
+            for sig_name in ("stateChanged", "statusInfo", "finished", "reconnectScheduled", "widgetChanged", "transportUp", "titleChanged"):
+                try:
+                    sig = getattr(controller, sig_name, None)
+                    if sig is not None:
+                        sig.disconnect()
+                except Exception:
+                    pass
+
+            try:
+                controller.setParent(None)
+            except Exception:
+                pass
+
+            # Remove tab from UI before deleting the widget to avoid flicker
+            try:
+                self.tabs.removeTab(index)
+            except Exception:
+                log.exception("removeTab failed")
+
+            try:
+                controller.deleteLater()
+            except Exception:
+                pass
+            try:
+                widget.deleteLater()
+            except Exception:
+                pass
+        else:
+            # Non-session widget (should not happen, but be safe)
+            try:
+                self.tabs.removeTab(index)
+            except Exception:
+                pass
+            if widget is not None:
+                try:
+                    widget.deleteLater()
+                except Exception:
+                    pass
+
         self._update_empty_state()
         self._update_session_status(self.current_controller())
 
@@ -1836,16 +2020,32 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         tab strip and shows the dashboard, keeping the app running and
         ready to accept new connections.
         """
+        # Close all tool dialogs first for clean shutdown
+        for dlg in list(self._tool_dialogs.values()):
+            try:
+                dlg.close()
+                dlg.deleteLater()
+            except Exception:
+                pass
+        self._tool_dialogs.clear()
+
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, SessionTab):
                 try:
+                    # Full cleanup: logging, buffers, and blocking teardown
+                    try:
+                        w.cleanup_session_state()
+                    except Exception:
+                        pass
                     # Blocking teardown: the event loop won't run again after
                     # closeEvent, so deferred shutdowns would leave worker
                     # threads alive at exit.
                     w.controller.stop_blocking("app closed")
                 except Exception:
                     log.exception("error stopping session on shutdown")
+        self._last_connected_info.clear()
+        self.controllers.clear()
         settings = self.ctx.settings
         settings.geometry = {
             "size": [self.width(), self.height()],
