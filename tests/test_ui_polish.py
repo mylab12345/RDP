@@ -215,26 +215,28 @@ def test_motion_helpers_respect_settings(qtapp) -> None:  # noqa: ARG001
 
 
 # ----------------------------------------------------------------------
-# MobaXterm look — default theme, coloured toolbar glyphs, sidebar rail
+# Studio look — new default theme, coordinated toolbar glyphs, sidebar rail
 # ----------------------------------------------------------------------
-def test_mobaxterm_dark_is_default_theme() -> None:
+def test_studio_dark_is_default_theme() -> None:
     from rdpstudio.core.settings import DARK_THEMES, THEME_IDS, Settings
     from rdpstudio.ui import theme
 
-    assert "mobaxterm_dark" in THEME_IDS and "mobaxterm" in THEME_IDS
-    assert DARK_THEMES == {"mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
-    assert Settings().theme == "mobaxterm_dark"
-    assert Settings.from_dict({"theme": "bogus"}).theme == "mobaxterm_dark"
-    pal = theme.PALETTE["mobaxterm_dark"]
-    # MobaXterm signature colours, lights off: charcoal chrome, Windows blue
-    # accent (deepened so white button text meets WCAG AA).
-    assert pal["bg"].lower() == "#1c1c1f"
-    assert pal["accent"].lower() == "#1670c6"
-    # The classic light chrome is still shipped and still MobaXterm.
+    assert "studio_dark" in THEME_IDS and "mobaxterm" in THEME_IDS
+    assert DARK_THEMES == {
+        "studio_dark", "mobaxterm_dark", "midnight", "dracula", "ocean", "contrast",
+    }
+    assert Settings().theme == "studio_dark"
+    assert Settings.from_dict({"theme": "bogus"}).theme == "studio_dark"
+    studio = theme.PALETTE["studio_dark"]
+    assert studio["bg"].lower() == "#0d141b"
+    assert studio["accent"].lower() == "#4dd6bd"
+    # Existing MobaXterm palettes stay selectable and unchanged.
+    dark = theme.PALETTE["mobaxterm_dark"]
+    assert dark["bg"].lower() == "#1c1c1f"
+    assert dark["accent"].lower() == "#1670c6"
     light = theme.PALETTE["mobaxterm"]
     assert light["bg"].lower() == "#f0f0f0"
     assert light["accent"].lower() == "#0075d2"
-
 
 def test_toolbar_icons_are_tinted_per_action(qtapp) -> None:  # noqa: ARG001
     from PySide6.QtCore import QSize
@@ -436,7 +438,7 @@ def test_midnight_theme_registered_and_distinct(qtapp) -> None:  # noqa: ARG001
     from rdpstudio.ui import theme
 
     assert "midnight" in THEME_IDS and "midnight" in DARK_THEMES
-    assert Settings().theme == "mobaxterm_dark"  # default (MobaXterm Dark)
+    assert Settings().theme == "studio_dark"  # refreshed Studio default
     assert len(theme.PALETTE["midnight"]) == 30  # full key set, no fallback gaps
     theme.apply_theme(qtapp, "midnight", animations=False)
     assert qtapp.styleSheet()

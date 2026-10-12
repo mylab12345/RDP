@@ -31,10 +31,10 @@ def test_main_window_builds(ctx, qtapp):
     win = MainWindow(ctx)
     assert win.windowTitle() == "KB-Remote"
     assert win.sidebar is not None
-    # MobaXterm chrome: big text-under-icon toolbar
+    # Studio chrome: compact icons with labels beside them.
     from PySide6.QtCore import Qt
 
-    assert win._toolbar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextUnderIcon
+    assert win._toolbar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextBesideIcon
     win.close()
     qtapp.processEvents()
 

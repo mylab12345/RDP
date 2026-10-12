@@ -15,7 +15,7 @@ Design tokens (single source of truth for the presentation layer):
 from __future__ import annotations
 
 _QSS = """
-/* ================= KB-Remote — Ops console design system ============== */
+/* ================= KB-Remote — Studio workbench design system ========= */
 
 * {{
     font-family: {ui_sans};
@@ -39,19 +39,19 @@ QToolTip {{
 
 /* ================= Menus ============================================= */
 QMenuBar {{
-    background: {panel};
+    background: {bg};
     border-bottom: 1px solid {border};
-    padding: 0px 4px;
-    spacing: 0px;
-    font-size: 12.5px;
+    padding: 0px 8px;
+    spacing: 3px;
+    font-size: 12px;
     font-weight: 500;
-    min-height: 26px;
+    min-height: 28px;
 }}
 QMenuBar::item {{
-    padding: 4px 10px;
+    padding: 5px 10px;
     border-radius: 6px;
     color: {fg_dim};
-    margin: 2px 1px 2px 1px;
+    margin: 2px 1px;
 }}
 QMenuBar::item:hover {{
     background: {bg3};
@@ -62,7 +62,7 @@ QMenuBar::item:pressed {{
     color: {fg};
 }}
 QMenuBar::item:selected {{
-    background: {bg3};
+    background: {accent_subtle};
     color: {fg};
 }}
 QMenuBar::item:focus {{
@@ -126,28 +126,28 @@ QMenu::right-arrow {{
     right: 8px;
 }}
 
-/* ================= Toolbar — big icon + caption ======================= */
+/* ================= Toolbar — compact command bar ====================== */
 QToolBar {{
     background: {panel};
     border: none;
     border-bottom: 1px solid {border};
-    spacing: 2px;
+    spacing: 4px;
     padding: 3px 8px;
-    min-height: 40px;
+    min-height: 36px;
 }}
 QToolBar#moxaToolbar {{
-    spacing: 2px;
-    padding: 5px 8px 4px 8px;
-    min-height: 56px;
+    spacing: 4px;
+    padding: 4px 10px;
+    min-height: 42px;
 }}
 QToolBar#moxaToolbar QToolButton {{
-    padding: 5px 10px 4px 10px;
-    min-width: 56px;
-    min-height: 46px;
-    font-size: 11px;
+    padding: 6px 9px;
+    min-width: 0px;
+    min-height: 30px;
+    font-size: 11.5px;
     font-weight: 500;
     color: {fg_dim};
-    border-radius: 6px;
+    border-radius: 7px;
 }}
 QToolBar#moxaToolbar QToolButton:hover {{
     background: {bg3};
@@ -164,7 +164,7 @@ QToolBar#moxaToolbar QToolButton:checked {{
 QToolBar::separator {{
     width: 1px;
     background: {border};
-    margin: 8px 6px;
+    margin: 7px 5px;
 }}
 QToolButton {{
     background: transparent;
@@ -467,10 +467,10 @@ QComboBox QAbstractItemView::item:selected {{
 
 /* ================= Tabs — modern document tabs ======================== */
 QTabWidget::pane {{
-    border: 1px solid {border_strong};
-    border-top: 1px solid {border_strong};
+    border: 1px solid {border};
+    border-top: 1px solid {border};
     background: {bg2};
-    border-radius: 0px 0px 6px 6px;
+    border-radius: 0px 0px 8px 8px;
     top: -1px;
 }}
 QTabBar {{
@@ -490,17 +490,17 @@ QTabBar::tab {{
     border: 1px solid transparent;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    margin-right: 2px;
+    margin-right: 3px;
     margin-top: 3px;
     font-weight: 500;
-    font-size: 12.5px;
+    font-size: 12px;
     min-height: 20px;
     max-width: 200px;
 }}
 QTabBar::tab:selected {{
     background: {bg2};
     color: {fg};
-    border-color: {border_strong};
+    border-color: {border};
     border-top: 2px solid {accent};
     font-weight: 600;
     margin-top: 1px;
@@ -1102,18 +1102,18 @@ QWidget#workArea {{
     background: {bg};
 }}
 QWidget#dashboard {{
-    background: {bg2};
-    border: 1px solid {border};
-    border-radius: 8px;
+    background: {bg};
+    border: none;
+    border-radius: 0px;
 }}
 /* Dashboard hero quick-connect */
 QLineEdit#dashQuick {{
-    background: {bg2};
+    background: {panel};
     border: 1px solid {border_strong};
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 8px 12px;
     font-size: 13px;
-    min-height: 24px;
+    min-height: 26px;
 }}
 QLineEdit#dashQuick:focus {{
     border-color: {accent};
@@ -1122,9 +1122,9 @@ QLineEdit#dashQuick:hover {{
     border-color: {fg_muted};
 }}
 QWidget#dashTile {{
-    background: {bg};
+    background: {panel};
     border: 1px solid {border};
-    border-radius: 8px;
+    border-radius: 10px;
 }}
 QWidget#dashTile:hover {{
     border-color: {accent};
@@ -1144,7 +1144,7 @@ QWidget#card_hover:pressed {{
     background: {bg3};
 }}
 QLabel#dashTileIcon {{
-    background: {bg2};
+    background: {accent_subtle};
     border: 1px solid {border_subtle};
     border-radius: 8px;
 }}
@@ -1287,9 +1287,9 @@ QWidget {{ font-size: 11.5px; }}
 QMenuBar {{ min-height: 22px; font-size: 11.5px; }}
 QMenuBar::item {{ padding: 3px 8px; }}
 QMenu::item {{ padding: 4px 22px 4px 8px; }}
-QToolBar {{ min-height: 32px; padding: 2px 6px; }}
-QToolBar#moxaToolbar {{ min-height: 46px; padding: 3px 6px; }}
-QToolBar#moxaToolbar QToolButton {{ min-height: 36px; min-width: 48px; padding: 3px 6px; font-size: 10.5px; }}
+QToolBar {{ min-height: 30px; padding: 2px 6px; }}
+QToolBar#moxaToolbar {{ min-height: 36px; padding: 2px 7px; }}
+QToolBar#moxaToolbar QToolButton {{ min-height: 26px; min-width: 0px; padding: 4px 7px; font-size: 10.5px; }}
 QToolButton {{ padding: 3px 6px; min-height: 22px; font-size: 11.5px; }}
 QPushButton {{ padding: 3px 10px; min-height: 17px; font-size: 11.5px; }}
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{

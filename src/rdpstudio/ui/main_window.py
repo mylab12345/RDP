@@ -355,9 +355,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
-        # Classic framed tabs (MobaXterm), not document-mode underline tabs
+        # Framed session tabs keep the workspace's active connection distinct.
         self.tabs.setDocumentMode(False)
-        # Content-sized tabs (MobaXterm), not stretched to fill the strip:
+        # Content-sized tabs, not stretched to fill the strip:
         # besides looking right, the leftover strip space is what you grab to
         # drag the whole tab strip to another edge (see _setup_docking).
         # NB: setDocumentMode() above re-enables expanding, so this must stay
@@ -859,12 +859,12 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         if hasattr(self, "_toolbar"):
             if s.toolbar_labels:
-                # Default: large icon with the caption underneath
-                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-                self._toolbar.setIconSize(QSize(22, 22))
+                # Studio chrome keeps labels beside smaller, scannable icons.
+                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                self._toolbar.setIconSize(QSize(18, 18))
             else:
                 self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(22, 22))
+                self._toolbar.setIconSize(QSize(18, 18))
         # Dashboard title sizing (comfortable/compact) lives in the global
         # QSS (#dashTitle) — no inline overrides.
 

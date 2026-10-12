@@ -11,12 +11,13 @@ from .coerce import as_bool, as_float, as_int, as_text
 from .crypto import MAX_KDF_ITERATIONS
 from .persistence import atomic_write_text
 
-# Theme ids accepted in settings.json. MobaXterm Dark is the default look.
-# Six themes, one per nature: signature dark, signature light, navy night,
-# violet night, deep teal, and high-contrast accessibility. Unknown ids fall
-# back to DEFAULT_THEME on load, so removing a theme never breaks configs.
+# Theme ids accepted in settings.json. Studio Dark is the default visual
+# refresh; the MobaXterm themes and other established palettes remain
+# selectable for users who prefer the classic look. Unknown ids fall back
+# to DEFAULT_THEME on load, so removing a theme never breaks configs.
 THEME_CHOICES: tuple[tuple[str, str], ...] = (
-    ("mobaxterm_dark", "MobaXterm Dark — charcoal chrome · Windows blue (default)"),
+    ("studio_dark", "Studio Dark — deep slate · mint accent (default)"),
+    ("mobaxterm_dark", "MobaXterm Dark — charcoal chrome · Windows blue"),
     ("mobaxterm", "MobaXterm — light gray chrome · Windows blue"),
     ("midnight", "Midnight — deep navy night · sky accent"),
     ("dracula", "Dracula — violet night · pink & cyan"),
@@ -24,9 +25,9 @@ THEME_CHOICES: tuple[tuple[str, str], ...] = (
     ("contrast", "High contrast — pure black & white · accessibility"),
 )
 THEME_IDS = {tid for tid, _ in THEME_CHOICES}
-DARK_THEMES = {"mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
+DARK_THEMES = {"studio_dark", "mobaxterm_dark", "midnight", "dracula", "ocean", "contrast"}
 # Fallback for a missing/unknown theme id (hand-edited or older settings.json).
-DEFAULT_THEME = "mobaxterm_dark"
+DEFAULT_THEME = "studio_dark"
 
 _HEX_COLOR_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 

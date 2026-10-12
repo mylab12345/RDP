@@ -1,5 +1,34 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 10 — Studio Dark visual refresh (2026-10)
+
+A stand-alone presentation pass to give KB-Remote a distinct identity while
+keeping the existing MobaXterm-inspired palettes available. No protocol,
+session, persistence, or connection-flow behavior changed.
+
+| Area | Change |
+|---|---|
+| **New default palette** | Added **Studio Dark** (`studio_dark`): deep blue-green slate surfaces, softened borders, a mint accent, semantic state colors, and coordinated icon tints. It is dark-classified for terminal appearance. MobaXterm Dark and light remain selectable; old settings and unknown theme IDs still coerce safely. |
+| **Compact command bar** | Replaced the tall icon-over-label toolbar with small icons beside their labels, trimmed vertical chrome, and preserved the existing shortcuts/actions, quick-connect parser, label toggle, and accessible names. |
+| **Workspace surfaces** | Refined the menu strip, active session tabs, dashboard quick-connect field, launcher tiles, and sidebar/tree contrast into one layered slate system. The empty dashboard is now an open canvas rather than a framed card. Existing docking, session tabs, focus rings, reduced-motion behavior, and compact density remain intact. |
+| **Validation** | Palette contrast and all existing visual contracts are checked alongside the UI test suite. The former MobaXterm palettes are unchanged. |
+
+### Stand-alone UI follow-ups (optional)
+
+These can each ship independently without touching the connection or protocol
+layers:
+
+1. **First-run welcome** — a skippable, keyboard-friendly setup panel for adding
+   the first SSH/RDP target, importing `~/.ssh/config`, and choosing a theme.
+2. **Connection overview** — an optional compact workspace panel showing open
+   sessions, state, protocol, latency when already available, and one-click
+   actions; useful for many simultaneous tabs.
+3. **Dialog consistency pass** — standardize spacing, heading hierarchy,
+   button order, and inline validation across SFTP, vault, key, network, and
+   settings dialogs without changing their underlying operations.
+4. **Theme preview** — show a live miniature of the sidebar, session tabs,
+   buttons, and terminal header in Settings before applying a palette.
+
 ## Round 9 — MobaXterm left-sidebar parity (2026-09)
 
 Presentation-layer only, again: the Sessions panel was rebuilt to the MobaXterm

@@ -99,12 +99,13 @@ See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
 
 ### Look & layout
 
-KB-Remote opens in the **MobaXterm Dark** theme (charcoal chrome, Windows-blue
-accent); the classic light MobaXterm chrome plus Midnight, Dracula, Ocean and a
-high-contrast preset are one click away in **View → Theme** or **Settings →
-General**. Settings also lets you override the primary accent colour with a
-preset or custom `#RRGGBB` value. *View → Session Tabs Position* (Ctrl+Shift+J cycles) moves the tab
-strip between the top, left and right edges.
+KB-Remote opens in **Studio Dark**: deep slate surfaces, a quiet mint accent,
+and a compact command bar with labels beside the icons. **MobaXterm Dark** and
+classic light chrome remain available, alongside Midnight, Dracula, Ocean and
+a high-contrast preset in **View → Theme** or **Settings → General**. Settings
+also lets you override the primary accent colour with a preset or custom
+`#RRGGBB` value. *View → Session Tabs Position* (Ctrl+Shift+J cycles) moves the
+tab strip between the top, left and right edges.
 
 Nothing about the layout is fixed — drag it where you want it:
 

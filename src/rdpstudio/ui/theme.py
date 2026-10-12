@@ -1,21 +1,13 @@
-"""Look & feel: MobaXterm-style global theme.
+"""Look & feel: Studio Dark and alternate application themes.
 
-Design language (modelled on MobaXterm's classic Windows chrome):
-- Light gray window chrome (#f0f0f0) with white work surfaces
-- Flat, square-ish controls (2-3 px radii), 1 px #adadad/#d9d9d9 borders
-- Windows-blue selection (#0078d7 / #cce8ff) and hover (#e5f3ff)
-- Segoe UI / Tahoma 9 pt typography, Consolas for code
-- Big text-under-icon toolbar with coloured glyphs, classic document tabs,
-  a Sessions side panel with a vertical tab strip
-
-The MobaXterm Dark look is the default; the classic MobaXterm light chrome
-is one click away in View ▸ Theme (or Settings ▸ General). The remaining
-palettes are kept as optional colour schemes and share the same MobaXterm
-geometry.
+The default chrome uses deep slate surfaces, a restrained mint accent, a
+compact command bar, and softly layered session surfaces. Established
+MobaXterm, Midnight, Dracula, Ocean, and high-contrast palettes remain
+available in View → Theme; every palette shares the same accessible widgets
+and geometry.
 
 No bundled fonts or extra resources — only system fonts and SVG icons.
 """
-
 from __future__ import annotations
 
 import os
@@ -197,7 +189,7 @@ def _glyph_icon(glyph: str) -> QIcon:
 # Theme currently applied to the app (see apply_theme). Widgets that build
 # colors at construction time use this so a live theme switch doesn't render
 # one frame of stale chrome.
-_current_theme = "mobaxterm_dark"
+_current_theme = "studio_dark"
 _density = "comfortable"  # comfortable | compact
 _accent_color = ""  # empty = selected palette accent
 MOTIONS_ENABLED = True  # global motion switch (Settings → UI → Animations)
@@ -357,11 +349,31 @@ def palette(theme: str | None = None) -> dict[str, str]:
 
 
 def toolbar_icon(name: str) -> QIcon:
-    """Coloured MobaXterm-style toolbar glyph (falls back to the theme tint).
+    """Return a legible action glyph tuned to the active visual theme.
 
-    The tints are tuned for light chrome; on dark themes they are lifted
-    well past 1:1 so every glyph keeps its hue AND its legibility.
+    Studio Dark uses a quiet, coordinated tint set with color reserved for
+    primary actions and semantic states. The classic themes retain their
+    original MobaXterm action colors.
     """
+    if current_theme() == "studio_dark":
+        pal = palette()
+        studio_tints = {
+            "plus": pal["accent"],
+            "connect": pal["accent"],
+            "search": pal["accent"],
+            "transfer": pal["accent"],
+            "server": pal["info"],
+            "windows": pal["info"],
+            "key": pal["warn"],
+            "folder": pal["warn"],
+            "star": pal["warn"],
+            "shield": pal["good"],
+            "close": pal["bad"],
+            "stop": pal["bad"],
+            "trash": pal["bad"],
+        }
+        return icon(name, studio_tints.get(name, pal["fg_dim"]))
+
     tint = TOOLBAR_ICON_TINTS.get(name)
     if tint and not is_dark_theme(None):
         return icon(name, tint)
@@ -370,14 +382,14 @@ def toolbar_icon(name: str) -> QIcon:
         if tint == "#3a3a3a":
             return icon(name, palette()["fg"])
         # Neutral charcoal chrome needs a gentler lift than the saturated
-        # night palettes, and a ceiling keeps "session green" out of neon.
+        # night palettes, and a ceiling keeps action glyphs out of neon.
         lift = 1.5 if current_theme() == "mobaxterm_dark" else 1.9
         return icon(name, _lift_for_dark(tint, lift))
     return icon(name)
 
 # ----------------------------------------------------------------------
-# MobaXterm global theme QSS — flat Windows chrome, classic tabs, blue
-# selection, square-ish controls
+# Global application QSS — layered workbench surfaces, restrained controls,
+# compact command bar, and palette-driven selection states.
 # ----------------------------------------------------------------------
 
 _CHECK_SVG = (
