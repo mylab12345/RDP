@@ -15,7 +15,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -144,15 +144,21 @@ def _tinted_svg(path: Path, color: str) -> QIcon:
     return _svg_to_icon(text)
 
 
-def badge_icon(name: str, size: int = 16, tint: str | None = None) -> QIcon:
+def badge_icon(
+    name: str, size: int = 16, tint: str | None = None, status: str = ""
+) -> QIcon:
     """Icon on a rounded surface tile — protocol marks for tabs and rows.
 
     Modern treatment: a soft tile in the tint's own hue (14 % alpha) with
     the glyph in full tint, so the protocol reads as a colour mark.
+
+    ``status`` (a :class:`~rdpstudio.core.plugin.SessionState` value or the
+    empty string) paints a small semantic dot on the tile's corner — the
+    sidebar's at-a-glance "this session is open and how it is doing" mark.
     """
     pal = palette()
     tint = tint or pal["fg_dim"]
-    key = (f"badge:{name}:{size}", tint)
+    key = (f"badge:{name}:{size}", tint, status)
     cached = _icon_cache.get(key)
     if cached is not None:
         return cached
@@ -166,10 +172,31 @@ def badge_icon(name: str, size: int = 16, tint: str | None = None) -> QIcon:
     painter.drawRoundedRect(0, 0, size, size, radius, radius)
     inner = icon(name, tint).pixmap(QSize(int(size * 0.68), int(size * 0.68)))
     painter.drawPixmap((size - inner.width()) // 2, (size - inner.height()) // 2, inner)
+    dot_key = _BADGE_STATUS_TINTS.get(status)
+    if dot_key and size >= 14:
+        colour = QColor(pal.get(dot_key, pal["fg_dim"]))
+        r = max(2.0, size * 0.18)
+        cx, cy = size - r - 0.5, size - r - 0.5
+        # A ring in the surface colour keeps the dot readable where it
+        # overlaps the tile's rounded corner.
+        painter.setBrush(QColor(pal["panel"]))
+        painter.drawEllipse(QPointF(cx, cy), r + 1.1, r + 1.1)
+        painter.setBrush(colour)
+        painter.drawEllipse(QPointF(cx, cy), r, r)
     painter.end()
     ic = QIcon(pix)
     _icon_cache[key] = ic
     return ic
+
+
+# Session state → badge dot colour key (states not listed get no dot).
+_BADGE_STATUS_TINTS = {
+    "connected": "good",
+    "connecting": "info",
+    "reconnecting": "warn",
+    "failed": "bad",
+    "closed": "fg_muted",
+}
 
 
 def _glyph_icon(glyph: str) -> QIcon:
@@ -254,9 +281,12 @@ def protocol_tint(protocol: str) -> str:
     return PROTOCOL_TINTS.get((protocol or "").lower(), "accent")
 
 
-def protocol_badge(protocol: str, icon_name: str, size: int = 16) -> QIcon:
-    """Rounded-tile icon in the protocol's accent colour — for tabs & rows."""
-    return badge_icon(icon_name, size, palette()[protocol_tint(protocol)])
+def protocol_badge(protocol: str, icon_name: str, size: int = 16, status: str = "") -> QIcon:
+    """Rounded-tile icon in the protocol's accent colour — for tabs & rows.
+
+    ``status`` optionally adds the live-session dot (see :func:`badge_icon`).
+    """
+    return badge_icon(icon_name, size, palette()[protocol_tint(protocol)], status)
 
 
 def _default_theme() -> str:
@@ -573,6 +603,17 @@ def apply_theme(
         "bad_soft": tint(pal["bad"], 0x22, pal["bg2"]),
         "bad_soft2": tint(pal["bad"], 0x33, pal["bg2"]),
         "bad_faint": tint(pal["bad"], 0x1A, pal["bg2"]),
+        # Soft/lined neutrals for the state surfaces (session overlay, status
+        # pills, empty states) — semantic colours stay meaningful, surfaces
+        # stay calm. Pre-blended for the same 8-digit-hex reason as above.
+        "accent_soft": tint(pal["accent"], 0x1A, pal["bg2"]),
+        "accent_line": tint(pal["accent"], 0x55, pal["bg2"]),
+        "good_soft": tint(pal["good"], 0x1A, pal["bg2"]),
+        "good_line": tint(pal["good"], 0x55, pal["bg2"]),
+        "warn_soft": tint(pal["warn"], 0x1A, pal["bg2"]),
+        "warn_line": tint(pal["warn"], 0x55, pal["bg2"]),
+        "info_soft": tint(pal["info"], 0x1A, pal["bg2"]),
+        "info_line": tint(pal["info"], 0x55, pal["bg2"]),
         "ui_sans": _UI_SANS,
         "ui_mono": _UI_MONO,
         "ui_display": _UI_DISPLAY,

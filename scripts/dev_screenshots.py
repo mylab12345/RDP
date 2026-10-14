@@ -70,6 +70,14 @@ def main() -> int:
 
     ctx.prompter = HeadlessPromptProvider(accept_host_keys=True)
 
+    # --- first-run dashboard (a workbench with nothing saved yet) -------------
+    # Captured before any demo session exists; the same window keeps running.
+    win = MainWindow(ctx)
+    win.resize(1360, 840)
+    win.show()
+    app.processEvents()
+    win.grab().save(str(OUT / "dashboard-first-run.png"))
+
     # --- demo saved sessions ----------------------------------------------
     prod = Session(name="web-01", protocol=PROTOCOL_SSH, host="10.20.1.11", username="deploy", group="Production", tags=["web"])
     prod.forwards.append(Forward(kind="local", listen_port=8080, dest_host="10.20.1.11", dest_port=80, name="http"))
@@ -78,13 +86,27 @@ def main() -> int:
     ctx.store.upsert(Session(name="win-jump-01", protocol=PROTOCOL_RDP, host="10.20.2.31", username="administrator", group="Windows", rdp_width=1920, rdp_height=1080))
     ctx.store.upsert(Session(name="win10-lab", protocol=PROTOCOL_RDP, host="10.20.2.40", username="labuser", group="Windows", rdp_drives=True))
     ctx.store.upsert(Session(name="bastion", protocol=PROTOCOL_SSH, host="bastion.example.net", username="ops", group=""))
+    win.sidebar.reload()
+    win._refresh_dashboard()
+    app.processEvents()
+
+    # --- a session that cannot connect: the state surface + its recovery ------
+    failing = next(
+        (s for s in ctx.store.sessions() if s.protocol == PROTOCOL_RDP), None
+    )
+    if failing is not None:
+        failing.password = "demo"
+        ctx.store.upsert(failing)
+        bad_tab = win.connect_session(failing.id)
+        for _ in range(40):
+            app.processEvents()
+        if bad_tab is not None and win.tabs.count():
+            win.grab().save(str(OUT / "session-state-failed.png"))
+            # give the workbench back its empty surface for the main-window shot
+            win.close_tab(win.tabs.indexOf(bad_tab))
+            app.processEvents()
 
     sshd = spawn_test_sshd()
-
-    win = MainWindow(ctx)
-    win.resize(1360, 840)
-    win.show()
-    app.processEvents()
 
     # --- local shell tab with real output ------------------------------------
     local = Session(name="local bash", protocol=PROTOCOL_LOCAL)

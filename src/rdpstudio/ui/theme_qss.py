@@ -1189,6 +1189,61 @@ QPushButton#sessionClose:focus {{
     outline: 2px solid {bad};
     outline-offset: -2px;
 }}
+/* Session header — icon controls (fullscreen · clipboard · session menu).
+   Quiet until hovered, accent-tinted while their mode is active, so the
+   header stays calm but every state is still legible. */
+QPushButton#sessionCtrl {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0px;
+    min-width: 0px;
+    min-height: 0px;
+}}
+QPushButton#sessionCtrl:hover {{
+    background: {bg3};
+    border-color: {border_strong};
+}}
+QPushButton#sessionCtrl:pressed {{
+    background: {accent_subtle};
+    border-color: {accent};
+}}
+QPushButton#sessionCtrl:checked {{
+    background: {accent_soft};
+    border-color: {accent_line};
+}}
+QPushButton#sessionCtrl:focus {{
+    outline: 2px solid {accent};
+    outline-offset: -1px;
+}}
+QPushButton#sessionCtrl::menu-indicator {{
+    image: none;
+    width: 0px;
+}}
+
+/* ================= Session state surface ============================== */
+/* Connecting / reconnecting / failed / disconnected — one calm card over the
+   session surface: state icon tile, title, one line of detail, actions. */
+QFrame#stateOverlay {{
+    background: {panel};
+    border: none;
+}}
+QFrame#stateCard {{
+    background: {bg2};
+    border: 1px solid {border_strong};
+    border-radius: 10px;
+}}
+QLabel#stateTitle {{
+    color: {fg};
+    font-size: 16px;
+    font-weight: 600;
+    background: transparent;
+}}
+QLabel#stateDetail {{
+    color: {fg_dim};
+    font-size: 12.5px;
+    background: transparent;
+}}
 
 /* ================= Dialogs ============================================= */
 QDialog {{
@@ -1290,6 +1345,56 @@ QLabel#dashTileIcon {{
     background: {accent_subtle};
     border: 1px solid {border_subtle};
     border-radius: 8px;
+}}
+/* First-run welcome card — the empty dashboard explains itself instead of
+   showing a blank canvas. */
+QFrame#dashEmptyCard {{
+    background: {bg2};
+    border: 1px solid {border};
+    border-radius: 10px;
+}}
+QFrame#dashEmptyCard:hover {{
+    border-color: {accent_line};
+}}
+QLabel#dashEmptyTitle {{
+    color: {fg};
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+}}
+QLabel#dashEmptyBody {{
+    color: {fg_dim};
+    font-size: 12.5px;
+    background: transparent;
+}}
+QLabel#dashStepNum {{
+    background: {accent_soft};
+    border: 1px solid {accent_line};
+    border-radius: 999px;
+    color: {accent};
+    font-size: 11px;
+    font-weight: 600;
+}}
+/* Per-row Connect affordance on the dashboard's recent-session list. */
+QPushButton#dashRowConnect {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: {fg_dim};
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 2px 8px;
+    min-width: 0px;
+    min-height: 0px;
+}}
+QPushButton#dashRowConnect:hover {{
+    background: {accent_soft};
+    border-color: {accent_line};
+    color: {accent};
+}}
+QPushButton#dashRowConnect:focus {{
+    outline: 2px solid {accent};
+    outline-offset: -1px;
 }}
 /* Tab-strip close buttons — clearly visible, distinct from terminal */
 QTabBar::close-button {{

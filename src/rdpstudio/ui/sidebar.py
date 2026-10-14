@@ -498,6 +498,19 @@ class SessionTree(QWidget):
         finally:
             self.tag_filter.blockSignals(blocker)
 
+    def set_open_states(self, states: dict[str, str]) -> None:
+        """Record which saved sessions are open in a tab, and how they are doing.
+
+        ``states`` maps session id → session state (``connected``,
+        ``connecting``, …). Only a real change triggers a rebuild, so this is
+        cheap to call from every tab switch or state change.
+        """
+        states = {k: v for k, v in (states or {}).items() if k and v}
+        if states == getattr(self, "_open_states", {}):
+            return
+        self._open_states = states
+        self.reload()
+
     def _add_session_item(self, parent, s: Session, reg) -> None:
         pinned = bool(s.options.get("pinned", False))
         label = f"★ {s.display_name()}" if pinned else s.display_name()
@@ -505,9 +518,18 @@ class SessionTree(QWidget):
         item.setData(0, ROLE_ID, s.id)
         plugin = reg.get(s.protocol)
         icon_name = plugin.icon_name if plugin else "server"
-        # Protocol mini-badge: colour-coded (SSH/RDP/local) rounded tile
-        item.setIcon(0, protocol_badge(s.protocol, _PROTO_ICONS.get(s.protocol, icon_name)))
+        # Protocol mini-badge: colour-coded (SSH/RDP/local) rounded tile with
+        # a live-state dot when this session is open in a tab.
+        state = getattr(self, "_open_states", {}).get(s.id, "")
+        item.setIcon(
+            0,
+            protocol_badge(
+                s.protocol, _PROTO_ICONS.get(s.protocol, icon_name), status=state
+            ),
+        )
         tooltip = f"{s.protocol.upper()} · {s.target()}"
+        if state:
+            tooltip += f"\nOpen in a tab — {state.upper()}"
         if s.description:
             tooltip += f"\n{s.description}"
         if s.tags:

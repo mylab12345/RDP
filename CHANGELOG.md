@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added — Clear session states, header controls and a self-explaining start (2026-10)
+- **Every session now shows its state where the session is.** Connecting,
+  reconnecting, failed and disconnected render as one calm card over the
+  session surface (`ui/session_states.py`): the real reason, the target that
+  was tried, and the next step in reach (*Try again*, *Connection settings…*,
+  *Reconnect*, *Cancel*, *Close tab*). A tab that has never been live offers
+  *Connect*; an unknown/future state falls back to the disconnected card.
+- **Session header controls.** Clipboard redirection (RDP — shows and writes
+  the session's own setting, saved with the session), **Fullscreen** (`F11`,
+  mirrors the window state), the RDP **Fit display to screen** (smart sizing)
+  and **Fullscreen session display** switches, and a **⋯ session menu**
+  (settings, rename, duplicate, files/tunnels/sharing, server reachability
+  test, session logging, disconnect/connect, close). All keyboard reachable,
+  all carrying tooltips and accessible names.
+- **New `View → Fullscreen` (F11)** — fills the screen with the workbench;
+  sessions keep running, and the menu entry and every tab's header control
+  stay in sync (including fullscreen changes made by the window manager).
+- **Dashboard.** With nothing saved yet, the dashboard explains how to start
+  (add a session, quick connect, import `~/.ssh/config`) instead of showing an
+  empty region; recent sessions get an explicit **Connect** per row.
+- **Sessions panel.** Rows for sessions that are open in a tab carry a live
+  status dot (connected / connecting / reconnecting / failed / closed) and say
+  so in their tooltip.
+- **Responsive header.** Narrow windows shed the *Files* / *Close* labels
+  (icons keep tooltips and accessible names) rather than overflowing.
+- Stopped and failed sessions keep their reason visible; editing a saved
+  session updates the parts of a live tab that can change without a redial.
+- New `tests/test_ui_states.py` pins all of the above.
+
 ### Added — UI refresh: navigation, feedback, accessibility & a customizable dashboard (2026-10)
 - **Simplified navigation** — every menu action now carries an icon, a clear
   label and a status-bar hint; related features stay grouped under

@@ -152,6 +152,16 @@ class MainActionsMixin:
         m_tabs_pos.addSeparator()
         m_tabs_pos.addAction(act)
 
+        # Fullscreen — the same switch as the session header's ⤢ control.
+        self._act_fullscreen = QAction(icon("expand"), "&Fullscreen", self)
+        self._act_fullscreen.setShortcut(QKeySequence("F11"))
+        self._act_fullscreen.setCheckable(True)
+        self._act_fullscreen.setStatusTip(
+            "Fill the screen with the workbench; sessions keep running (F11)"
+        )
+        self._act_fullscreen.toggled.connect(self.set_fullscreen)
+        m_view.addAction(self._act_fullscreen)
+
         m_view.addSeparator()
 
         m_themes = m_view.addMenu(icon("star"), "&Theme")

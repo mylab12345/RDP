@@ -462,9 +462,11 @@ class DashboardMixin:
         else:
             self._dash_action_icons = []
 
-        # Recent connections — protocol badges, pinned first
+        # Recent connections — protocol badges, pinned first. With nothing
+        # saved yet the same slot carries the first-run card instead, so the
+        # dashboard always says what to do next.
         if lay_pref["show_recents"]:
-            recents_section = self._build_recent_section()
+            recents_section = self._build_recent_section() or self._build_first_run_card()
             if recents_section is not None:
                 el.addWidget(recents_section)
 
@@ -558,6 +560,92 @@ class DashboardMixin:
         sec_lay.addWidget(self._build_recent_card())
         return section
 
+    def _build_first_run_card(self) -> QWidget | None:
+        """Empty state for a workbench with nothing saved yet.
+
+        Three concrete ways in — add a connection, quick connect, or import an
+        existing ``~/.ssh/config`` — instead of an empty region the user has to
+        interpret. Shown only when no connection is stored.
+        """
+        try:
+            if self.ctx.store.sessions():
+                return None
+        except Exception:  # noqa: BLE001 — never block the dashboard
+            return None
+
+        section = QWidget()
+        section.setObjectName("dashSectionEmpty")
+        lay = QVBoxLayout(section)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        label = QLabel("Get connected")
+        label.setObjectName("dashSection")
+        lay.addWidget(label)
+
+        card = QFrame()
+        card.setObjectName("dashEmptyCard")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(20, 18, 20, 18)
+        cl.setSpacing(10)
+
+        title = QLabel("No saved connections yet")
+        title.setObjectName("dashEmptyTitle")
+        cl.addWidget(title)
+
+        body = QLabel(
+            "Add your first SSH or RDP session — or paste "
+            "<b>user@host:port</b> into Quick connect above. "
+            "Port 3389 is treated as RDP automatically."
+        )
+        body.setObjectName("dashEmptyBody")
+        body.setWordWrap(True)
+        cl.addWidget(body)
+
+        for step, text in (
+            ("1", "Add a connection — host, username and password; everything else is optional."),
+            ("2", "Or import <b>~/.ssh/config</b> to pull in hosts you already use."),
+            ("3", "Double-click any saved session (or the Sessions panel) to connect."),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            num = QLabel(step)
+            num.setObjectName("dashStepNum")
+            num.setFixedSize(20, 20)
+            num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            row.addWidget(num, 0, Qt.AlignmentFlag.AlignTop)
+            step_lbl = QLabel(text)
+            step_lbl.setObjectName("dashEmptyBody")
+            step_lbl.setWordWrap(True)
+            row.addWidget(step_lbl, 1)
+            cl.addLayout(row)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        add_btn = QPushButton("New session")
+        add_btn.setObjectName("primary")
+        add_btn.setIcon(icon("plus"))
+        add_btn.setMinimumHeight(34)
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_btn.setAccessibleName("New session")
+        add_btn.setToolTip("Create a new connection (Ctrl+N)")
+        add_btn.clicked.connect(self.new_session)
+        actions.addWidget(add_btn)
+
+        import_btn = QPushButton("Import ~/.ssh/config")
+        import_btn.setObjectName("subtle")
+        import_btn.setIcon(icon("folder"))
+        import_btn.setMinimumHeight(34)
+        import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        import_btn.setAccessibleName("Import sessions from the SSH config file")
+        import_btn.setToolTip("Add every host from your OpenSSH config as a saved session")
+        import_btn.clicked.connect(getattr(self, "_import_ssh_config", lambda: None))
+        actions.addWidget(import_btn)
+        actions.addStretch(1)
+        cl.addLayout(actions)
+
+        lay.addWidget(card)
+        return section
+
     def _build_recent_card(self) -> QWidget:
         """Recent-sessions card: protocol badges, pinned first."""
         sessions = sorted(
@@ -573,13 +661,16 @@ class DashboardMixin:
         rc_hdr_row = QHBoxLayout()
         rc_hdr_row.setContentsMargins(2, 0, 2, 4)
         rc_hdr_row.setSpacing(8)
-        rc_header = QLabel("Recent & Pinned Sessions")
+        rc_header = QLabel("Recent & pinned sessions")
         rc_header.setObjectName("h2")
         rc_hdr_row.addWidget(rc_header)
         rc_count = QLabel(str(len(sessions)))
         rc_count.setObjectName("sideCount")
         rc_hdr_row.addWidget(rc_count)
         rc_hdr_row.addStretch(1)
+        rc_hint = QLabel("Click a row to connect · right-click the sidebar for options")
+        rc_hint.setObjectName("caption")
+        rc_hdr_row.addWidget(rc_hint)
         rc_lay.addLayout(rc_hdr_row)
 
         self._dash_recent_rows: list[tuple[QLabel, str, object]] = []
@@ -615,6 +706,18 @@ class DashboardMixin:
             proto = QLabel(sess.protocol.upper())
             proto.setObjectName("protoChip")
             il.addWidget(proto)
+            # An explicit Connect affordance per row: the whole row is
+            # clickable, but the primary action should not have to be guessed.
+            open_btn = QPushButton("Connect")
+            open_btn.setObjectName("dashRowConnect")
+            open_btn.setIcon(icon("connect"))
+            open_btn.setIconSize(QSize(14, 14))
+            open_btn.setMinimumHeight(26)
+            open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            open_btn.setToolTip(f"Connect to {sess.display_name()} ({sess.target()})")
+            open_btn.setAccessibleName(f"Connect to {sess.display_name()}")
+            open_btn.clicked.connect(lambda _checked=False, s=sess: self.connect_session(s.id))
+            il.addWidget(open_btn)
             _make_activatable(
                 item,
                 lambda s=sess: self.connect_session(s.id),

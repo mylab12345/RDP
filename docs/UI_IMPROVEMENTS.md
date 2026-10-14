@@ -1,5 +1,32 @@
 # UI improvement plan — current trends, zero core impact
 
+## Round 12 — Clear session states, header controls & a self-explaining start (2026-10)
+
+Presentation-layer only. No protocol, persistence, session-store or
+connection-flow behaviour changed: every new control calls the same
+controller/dialog/store APIs the menus already called.
+
+| Area | Change |
+|---|---|
+| **Session state surface** | New `ui/session_states.py` (`SessionStateOverlay`, QSS `#stateOverlay` / `#stateCard` / `#stateTitle` / `#stateDetail`) renders what the controller *already reports* over the session area: **connecting** (target + Cancel), **reconnecting** (attempt/delay + Cancel), **failed** (the real reason, the target tried, *Try again* / *Connection settings…* / *Close tab*), **disconnected** (*Reconnect* / settings / close) and a **ready-to-connect** state for a tab that has never been live. It is sized in the tab's `eventFilter`, raised over the terminal surface, keyboard-reachable (Tab/Enter) and never invents state — an unknown state falls back to the disconnected card rather than showing nothing. |
+| **Header controls** | The session header gains quiet icon buttons (QSS `#sessionCtrl`): **clipboard** (RDP — shows and writes the session's `rdp_clipboard`, persisted to the store), **fullscreen** (`F11`, glyph flips to *shrink*, mirrors the window state through both the menu action and `changeEvent`) and a **⋯ session menu** (settings, rename, duplicate, files/tunnels/sharing, *Test server reachability*, logging, Disconnect/Connect, Close). The redundant Reconnect button no longer appears on a tab that was never live — the state card owns that action. |
+| **Scaling & display** | The session menu carries RDP **Fit display to screen** (FreeRDP smart sizing) and **Fullscreen session display**, both checkable, both persisted on saved sessions, both labelled *applies on reconnect* — launch settings are never applied by yanking a live desktop. |
+| **New View → Fullscreen** | `View → Fullscreen` (`F11`, checkable) is a pure window-state switch; sessions keep running. `MainWindow._sync_fullscreen_ui()` keeps the menu entry and every open tab's header control in sync, including fullscreen changes made by the window manager. |
+| **Responsive header** | `SessionTab._apply_header_density()` sheds the *Files* / *Close* labels (icons keep their tooltips and accessible names) and hides the action separator below 760 px, in a fixed order, instead of letting the header overflow. |
+| **Readable state surface** | Failure cards show the reason on the body line and one short "what to check" caption (`Tried user@host:port — check the address, credentials and reachability`) with a 460 px wrap, so a long error never runs off the card. |
+| **Dashboard: first run & recents** | With no saved sessions the dashboard shows a **Get connected** card (three concrete steps, *New session*, *Import ~/.ssh/config*) instead of an empty region; the recents card gains per-row **Connect** buttons and says what the list is (`Recent & pinned sessions`). Consistent "session" wording with the rest of the app. |
+| **Sidebar session status** | `SessionTree.set_open_states()` + `theme.badge_icon(..., status=…)` paint a semantic dot (connected / connecting / reconnecting / failed / closed) on the Sessions-panel badge of every session open in a tab, with the state spelled out in the row tooltip. `MainWindow._sync_sidebar_status()` refreshes it on open, close and state change. |
+| **Wiring & safety** | Editing a saved session now pushes only the settings that can change without a redial onto its live tab (`_apply_saved_settings_to_tabs`); everything else stays deferred to the next connect. New `#sessionCtrl`/state-card/chip rules were added inside the existing 4/6/8/10 px design scale, and the new tokens (`accent_soft`, `*_soft`, `*_line`) are pre-blended for Qt's 8-digit-hex quirk. |
+| **Tests** | New `tests/test_ui_states.py` (17 tests): every overlay state and action, unknown-state fallback, failure/connecting/disconnected surfaces, header controls, F11 wiring both ways, clipboard/scaling persistence, narrow-header degradation, first-run dashboard, sidebar status marks, theme-switch survival. Screenshots regenerated with `make screenshots` (plus the new `dashboard-first-run.png` and `session-state-failed.png` captures). |
+
+**Assumptions recorded** (nothing was invented that the backend does not already
+do): *fullscreen* means the workbench window; the RDP client's own fullscreen
+stays where it was (View → Fullscreen and the RDP **Fullscreen session display**
+switch are separate on purpose); *scaling* means the session's existing
+fit-to-screen/smart-sizing switch; the RDP native **resize-on-refit** behaviour
+(the controller's refit relaunch) is untouched because changing it from a toggle
+would restart a live desktop without consent.
+
 ## Round 11 — Studio Workbench overhaul, updated icon set & dialog modernization (2026-10)
 
 A comprehensive UI/UX pass that modernizes every primary surface, replaces the

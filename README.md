@@ -12,6 +12,10 @@ NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
 |---|---|
 | ![SSH session](docs/screenshots/ssh-session.png) | ![Session editor](docs/screenshots/session-editor.png) |
 
+| First run — nothing saved yet | A session that cannot connect |
+|---|---|
+| ![First-run dashboard](docs/screenshots/dashboard-first-run.png) | ![Connection failed](docs/screenshots/session-state-failed.png) |
+
 ---
 
 ## Feature overview

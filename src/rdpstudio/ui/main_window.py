@@ -49,6 +49,7 @@ from .command_palette import CommandPaletteDialog
 from .dashboard import DashboardMixin
 from .docking import DockDragFilter
 from .main_actions import MainActionsMixin
+from .session_states import SessionStateOverlay
 from .sidebar import SessionTree
 from .theme import icon, palette, protocol_badge
 from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
@@ -195,9 +196,64 @@ class SessionTab(QWidget):
 
         caps = controller.capabilities()
 
+        # ── Compact icon controls: clipboard · fullscreen · session menu ──
+        # Quiet by default (see QSS `#sessionCtrl`), each one carries a
+        # tooltip *and* an accessible name, and every one is a real switch for
+        # state that already exists on the session definition.
+        def make_ctrl_btn(icon_name: str, tip: str, cb, *, checkable=False):
+            b = QPushButton()
+            b.setIcon(icon(icon_name))
+            self._themed_buttons.append((b, icon_name, None))
+            b.setObjectName("sessionCtrl")
+            b.setProperty("iconOnly", True)
+            b.setCheckable(checkable)
+            b.setToolTip(tip)
+            b.setAccessibleName(tip.split(" — ")[0].split(" (")[0])
+            b.setStatusTip(tip)
+            b.setFixedSize(30, 30)
+            b.setIconSize(QSize(16, 16))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            if cb is not None:
+                b.clicked.connect(cb)
+            return b
+
+        self._ctrl_buttons: list[QPushButton] = []
+
+        # Clipboard redirection is an RDP session setting: show the live state.
+        self.btn_clipboard = None
+        if defn_obj is not None and getattr(defn_obj, "protocol", "") == "rdp":
+            self.btn_clipboard = make_ctrl_btn(
+                "clipboard",
+                "Share the clipboard with this machine — saved with the session",
+                self._toggle_clipboard,
+                checkable=True,
+            )
+            self.btn_clipboard.setChecked(bool(getattr(defn_obj, "rdp_clipboard", False)))
+            ah.addWidget(self.btn_clipboard)
+            self._ctrl_buttons.append(self.btn_clipboard)
+
+        self.btn_fullscreen = make_ctrl_btn(
+            "expand",
+            "Fullscreen — the session fills the screen (F11)",
+            self._toggle_fullscreen,
+            checkable=True,
+        )
+        ah.addWidget(self.btn_fullscreen)
+        self._ctrl_buttons.append(self.btn_fullscreen)
+
+        self.btn_more = make_ctrl_btn(
+            "gear", "Session menu — settings, files, tunnels, logging, close", None
+        )
+        self.btn_more.setMenu(self._build_session_menu())
+        ah.addWidget(self.btn_more)
+        self._ctrl_buttons.append(self.btn_more)
+
         if caps.sftp:
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             ah.addWidget(b)
+            self._files_btn = b
+        else:
+            self._files_btn = None
 
         # Separator between actions and Close — visual grouping
         sep = QFrame()
@@ -206,6 +262,7 @@ class SessionTab(QWidget):
         sep.setFixedWidth(1)
         sep.setFixedHeight(22)
         ah.addWidget(sep)
+        self._actions_sep = sep
 
         # Clearly visible Close — labelled, not just an icon (modern professional)
         close_btn = QPushButton("Close")
@@ -245,6 +302,25 @@ class SessionTab(QWidget):
         tc_l.addWidget(self._content, 1)
         layout.addWidget(self._term_container, 1)
 
+        # ── State surface — connecting / reconnecting / failed / disconnected.
+        # Lives over the session area and covers what is not live, so the
+        # workbench never shows an empty black rectangle without an
+        # explanation and a next step. Presentation only: the actions call
+        # exactly the same controller methods the header buttons do.
+        self.overlay = SessionStateOverlay(self._term_container)
+        self.overlay.hide()
+        self._term_container.installEventFilter(self)
+        self.overlay.connectRequested.connect(self._overlay_connect)
+        self.overlay.retryRequested.connect(self._overlay_connect)
+        self.overlay.reconnectRequested.connect(self._overlay_reconnect)
+        self.overlay.cancelRequested.connect(lambda: self.controller.stop("cancelled by user"))
+        self.overlay.settingsRequested.connect(self._open_session_settings)
+        self.overlay.shareRequested.connect(self._open_sharing)
+        self.overlay.closeRequested.connect(self._request_close)
+        self._ever_connected = False
+        self._last_detail = ""
+        self._reconnect_note = ""
+
         # Command bar — distinct surface below terminal
         self.command_bar = None
         if caps.shell:
@@ -261,6 +337,295 @@ class SessionTab(QWidget):
         controller.statusInfo.connect(self._on_status)
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
+
+        # First paint: show the state the controller is already in (usually
+        # CONNECTING — open_session() starts the controller before this tab is
+        # returned), so the surface is never blank.
+        self._sync_overlay()
+
+    # ------------------------------------------------------------------
+    # Header controls
+    # ------------------------------------------------------------------
+    def _toggle_fullscreen(self) -> None:
+        """Fullscreen toggle — the same switch as View → Fullscreen (F11)."""
+        self.main.toggle_fullscreen()
+
+    def _toggle_clipboard(self, checked: bool) -> None:
+        """Flip clipboard redirection for this RDP session.
+
+        This writes the session's own `rdp_clipboard` option — the setting the
+        RDP client is launched with — and saves it when the connection is a
+        stored session, so it survives a reconnect.
+        """
+        defn = self.controller.definition
+        defn.rdp_clipboard = bool(checked)
+        saved = False
+        if getattr(defn, "id", ""):
+            try:
+                self.main.ctx.store.upsert(defn)
+                saved = True
+            except Exception:  # noqa: BLE001 — never break the session over this
+                log.exception("could not persist the clipboard setting")
+        suffix = " · applied on reconnect" if saved else ""
+        toast(
+            self.main,
+            f"Clipboard sharing {'on' if checked else 'off'}{suffix}",
+            "good" if checked else "warn",
+        )
+
+    def _toggle_fit_screen(self, checked: bool) -> None:
+        """RDP scaling: fit the remote desktop to the window (smart sizing)."""
+        self._set_session_option("rdp_fit_screen", bool(checked), "Fit display to screen")
+
+    def _toggle_rdp_fullscreen(self, checked: bool) -> None:
+        """RDP display: launch the client fullscreen."""
+        self._set_session_option("rdp_fullscreen", bool(checked), "Fullscreen display")
+
+    def _set_session_option(self, attr: str, value: bool, label: str) -> None:
+        """Persist one display/session option and say when it takes effect."""
+        defn = self.controller.definition
+        setattr(defn, attr, value)
+        saved = False
+        if getattr(defn, "id", ""):
+            try:
+                self.main.ctx.store.upsert(defn)
+                saved = True
+            except Exception:  # noqa: BLE001 — never break the session over this
+                log.exception("could not persist %s", attr)
+        suffix = " · applied on reconnect" if saved else ""
+        toast(
+            self.main,
+            f"{label} {'on' if value else 'off'}{suffix}",
+            "good" if value else "warn",
+        )
+
+    def _build_session_menu(self) -> QMenu:
+        """The ⋯ session menu — built from actions that already exist."""
+        menu = QMenu(self.btn_more if hasattr(self, "btn_more") else self)
+        self._session_menu = menu
+        # Populate once so the menu is never empty, then refresh on every
+        # open (the state-dependent entries must be current).
+        self._populate_session_menu(menu)
+        menu.aboutToShow.connect(lambda: self._populate_session_menu(menu))
+        return menu
+
+    def _populate_session_menu(self, menu: QMenu) -> None:
+        menu.clear()
+        defn = self.controller.definition
+        caps = self.controller.capabilities()
+        state = self.controller.state()
+
+        act = menu.addAction(icon("gear"), "Session settings…")
+        act.setStatusTip("Edit this connection's saved settings")
+        act.triggered.connect(self._open_session_settings)
+
+        act = menu.addAction(icon("edit"), "Rename tab…")
+        act.triggered.connect(self.main._rename_current_tab)
+
+        act = menu.addAction(icon("plus"), "Duplicate tab")
+        act.triggered.connect(self.main.duplicate_current_tab)
+
+        features = []
+        if caps.sftp:
+            features.append(("folder", "Browse files (SFTP)", self.controller.open_sftp))
+        if caps.tunnels:
+            features.append(("transfer", "Tunnels…", self.controller.open_tunnels))
+        if caps.file_sharing:
+            features.append(("transfer", "Share folders…", self._open_sharing))
+        if features:
+            menu.addSeparator()
+            for icon_name, label, cb in features:
+                act = menu.addAction(icon(icon_name), label)
+                act.triggered.connect(cb)
+
+        if getattr(defn, "protocol", "") == "rdp":
+            menu.addSeparator()
+            # Scaling: the session's own "fit display to screen" (FreeRDP smart
+            # sizing). A launch setting, so the change is saved and applied on
+            # the next connect rather than yanking a live desktop.
+            fit = menu.addAction(icon("fit"), "Fit display to screen")
+            fit.setCheckable(True)
+            fit.setChecked(bool(getattr(defn, "rdp_fit_screen", True)))
+            fit.setStatusTip(
+                "Scale the remote desktop to the window instead of scrolling"
+                " — applies on reconnect"
+            )
+            fit.toggled.connect(self._toggle_fit_screen)
+            full = menu.addAction(icon("expand"), "Fullscreen session display")
+            full.setCheckable(True)
+            full.setChecked(bool(getattr(defn, "rdp_fullscreen", False)))
+            full.setStatusTip("Launch the RDP client fullscreen — applies on reconnect")
+            full.toggled.connect(self._toggle_rdp_fullscreen)
+            probe = getattr(self.controller, "run_probe", None)
+            if probe is not None:
+                menu.addSeparator()
+                act = menu.addAction(icon("shield"), "Test server reachability")
+                act.setStatusTip("Probe the RDP port and negotiated security")
+                act.triggered.connect(probe)
+
+        menu.addSeparator()
+        term = getattr(self.controller, "term", None)
+        logging_on = bool(term is not None and getattr(term, "is_logging", lambda: False)())
+        act = menu.addAction(icon("clock"), "Stop session logging" if logging_on else "Start session logging…")
+        act.triggered.connect(self.main.toggle_session_logging)
+
+        menu.addSeparator()
+        if state in (SessionState.CONNECTED, SessionState.CONNECTING, SessionState.RECONNECTING):
+            act = menu.addAction(icon("stop"), "Disconnect")
+            act.setStatusTip("Close the connection, keep the tab open")
+            act.triggered.connect(lambda: self.controller.stop("disconnected by user"))
+        else:
+            act = menu.addAction(icon("connect"), "Connect")
+            act.triggered.connect(self._overlay_connect)
+        act = menu.addAction(icon("close"), "Close tab")
+        act.triggered.connect(self._request_close)
+
+    # ------------------------------------------------------------------
+    # State surface
+    # ------------------------------------------------------------------
+    def _overlay_connect(self) -> None:
+        if self.controller.state() in (SessionState.CONNECTING, SessionState.RECONNECTING):
+            return
+        self.controller.start()
+
+    def _overlay_reconnect(self) -> None:
+        self.controller.request_reconnect()
+
+    def _open_session_settings(self) -> None:
+        """Open the connection editor for this session (existing dialog)."""
+        defn = self.controller.definition
+        if getattr(defn, "id", ""):
+            self.main.edit_session(defn.id)
+        else:
+            # Nothing saved to edit yet — offer the snapshot path instead of
+            # silently writing a store entry the user never asked for.
+            self.main.save_session_snapshot()
+
+    def _open_sharing(self) -> None:
+        """File sharing for this session — the existing share dialog."""
+        service = getattr(self.main.ctx, "share_service", None)
+        if service is None:
+            toast(self.main, "File sharing is not available in this build", "warn")
+            return
+        from .share_server_dialog import open_share_dialog
+
+        open_share_dialog(self.main, service, self.controller.definition)
+
+    def apply_saved_settings(self, defn) -> None:
+        """Adopt edited settings on a live tab (no restart, no surprise)."""
+        live = self.controller.definition
+        live.rdp_clipboard = getattr(defn, "rdp_clipboard", live.rdp_clipboard)
+        if self.btn_clipboard is not None:
+            self.btn_clipboard.blockSignals(True)
+            self.btn_clipboard.setChecked(bool(live.rdp_clipboard))
+            self.btn_clipboard.blockSignals(False)
+
+    def set_fullscreen_state(self, active: bool) -> None:
+        """Mirror the window's fullscreen state on the header control."""
+        btn = getattr(self, "btn_fullscreen", None)
+        if btn is None:
+            return
+        btn.blockSignals(True)
+        btn.setChecked(bool(active))
+        btn.blockSignals(False)
+        btn.setIcon(icon("shrink" if active else "expand"))
+        btn.setToolTip(
+            "Leave fullscreen (F11)" if active
+            else "Fullscreen — the session fills the screen (F11)"
+        )
+
+    def _sync_overlay(self) -> None:
+        """Render the controller's *current* state on the session surface."""
+        if getattr(self, "_is_closing", False):
+            self.overlay.hide()
+            return
+        state = self.controller.state()
+        defn = self.controller.definition
+        target = defn.target() or defn.display_name()
+        if state == SessionState.CONNECTED:
+            self._ever_connected = True
+            self.overlay.hide()
+            return
+        # Size and raise *before* the state is written, so the card never
+        # flashes at a default geometry.
+        self.overlay.setGeometry(self._term_container.rect())
+        self.overlay.raise_()
+        self.overlay.show()
+        if state == SessionState.CONNECTING:
+            self.overlay.show_state(
+                "connecting",
+                detail=f"Opening {target}",
+                actions=("cancel",),
+                hint="You can keep working in other tabs",
+            )
+        elif state == SessionState.RECONNECTING:
+            self.overlay.show_state(
+                "reconnecting",
+                detail=self._reconnect_note or f"Retrying {target}",
+                actions=("cancel",),
+            )
+        elif state == SessionState.FAILED:
+            self.overlay.show_state(
+                "failed",
+                detail=self._last_detail or "The host did not accept the connection.",
+                hint=self._failure_hint(target),
+                actions=("retry", "settings", "close"),
+            )
+        elif self._ever_connected:
+            self.overlay.show_state(
+                "closed",
+                detail=self._last_detail or f"{target} is no longer live",
+                actions=("reconnect", "settings", "close"),
+            )
+        else:
+            actions = ("connect", "settings", "close")
+            self.overlay.show_state(
+                "idle",
+                title="Ready to connect",
+                detail=f"{target} · {defn.protocol.upper()}",
+                actions=actions,
+                hint="Nothing is connected yet in this tab",
+            )
+
+    def _failure_hint(self, target: str) -> str:
+        """The "what to check next" line under a failure message.
+
+        ``target`` already carries ``user@host:port``, so it is not repeated.
+        """
+        return f"Tried {target} — check the address, credentials and reachability."
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt naming
+        if obj is getattr(self, "_term_container", None) and event.type() == QEvent.Type.Resize:
+            if self.overlay.isVisible():
+                self.overlay.setGeometry(self._term_container.rect())
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        super().resizeEvent(event)
+        self._apply_header_density()
+        if self.overlay.isVisible():
+            self.overlay.setGeometry(self._term_container.rect())
+
+    def _apply_header_density(self) -> None:
+        """Shed header labels before anything can clip on a narrow window.
+
+        Labels first (icons keep their tooltips), then the separator: the
+        header degrades in a predictable order instead of overflowing.
+        """
+        compact = self.width() < 760
+        if compact == getattr(self, "_header_compact", None):
+            return
+        self._header_compact = compact
+        wide_max = 16777215  # Qt's QWIDGETSIZE_MAX
+        if self._files_btn is not None:
+            self._files_btn.setText("" if compact else "Files")
+            self._files_btn.setMinimumWidth(0 if compact else 78)
+            self._files_btn.setMaximumWidth(38 if compact else wide_max)
+        self._close_btn.setText("" if compact else "Close")
+        self._close_btn.setMinimumWidth(0 if compact else 84)
+        self._close_btn.setMaximumWidth(38 if compact else wide_max)
+        if self._actions_sep is not None:
+            self._actions_sep.setVisible(not compact)
 
     def _request_close(self) -> None:
         """User pressed the prominent Close button in the header."""
@@ -335,6 +700,8 @@ class SessionTab(QWidget):
         for btn, icon_name, tint_key in self._themed_buttons:
             tint = pal.get(tint_key) if tint_key else None
             btn.setIcon(icon(icon_name, tint))
+        # The fullscreen glyph depends on the window state, not the theme.
+        self.set_fullscreen_state(bool(self.main.isFullScreen()))
         # Re-runs chip colour, button icon and visibility — idempotent.
         self._on_state(self.controller.state())
 
@@ -342,7 +709,11 @@ class SessionTab(QWidget):
         pal = palette()
         self.chip.setText((state or "").upper())
         self.chip.set_color(STATE_COLORS.get(state, "fg_dim"))
-        visible = state in (SessionState.CONNECTED, SessionState.CLOSED, SessionState.FAILED)
+        # A tab that has never been live shows the overlay's Connect action
+        # instead of a duplicate Reconnect button in the header.
+        visible = state in (SessionState.CONNECTED, SessionState.FAILED) or (
+            state == SessionState.CLOSED and getattr(self, "_ever_connected", False)
+        )
         if visible and not self.btn_reconnect.isVisible():
             # first live connection: pulse the state chip once
             if state == SessionState.CONNECTED:
@@ -356,6 +727,8 @@ class SessionTab(QWidget):
             self.btn_reconnect.setText("Reconnect")
             self.btn_reconnect.setIcon(icon("connect", pal["accent_text"]))
             self.btn_reconnect.setToolTip("Reconnect this session")
+        # Same state, second surface: the session area explains itself.
+        self._sync_overlay()
 
     def _on_status(self, info: dict) -> None:
         if "connected" in info:
@@ -378,10 +751,16 @@ class SessionTab(QWidget):
             self.chip.setText(info["status_text"][:40])
         if info.get("error"):
             self.info.setText(str(info["error"]))
+            self._last_detail = str(info["error"])
+            self._sync_overlay()
 
     def _on_reconnect_scheduled(self, attempt: int, delay: float) -> None:
         self.chip.setText(f"reconnecting #{attempt} in {delay:.1f}s")
         self.chip.set_color("warn")
+        self._reconnect_note = (
+            f"Attempt {attempt} — next try in {delay:.0f}s. "
+            "Reconnecting is automatic; Cancel stops the tab."
+        )
 
     def _on_finished(self, reason: str) -> None:
         self.chip.setText("closed")
@@ -389,6 +768,8 @@ class SessionTab(QWidget):
         self.btn_reconnect.setVisible(True)
         if reason and "user" not in reason:
             self.info.setText(reason)
+            self._last_detail = reason
+        self._sync_overlay()
 
 
 class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
@@ -1250,6 +1631,28 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     # ------------------------------------------------------------------
     # Session snapshots
     # ------------------------------------------------------------------
+    def _sync_sidebar_status(self) -> None:
+        """Push open-session states onto the Sessions panel rows."""
+        sidebar = getattr(self, "sidebar", None)
+        if sidebar is None:
+            return
+        states: dict[str, str] = {}
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if not isinstance(tab, SessionTab):
+                continue
+            defn = tab.controller.definition
+            if defn.protocol == "local" or not getattr(defn, "id", ""):
+                continue
+            try:
+                states[defn.id] = tab.controller.state()
+            except Exception:  # noqa: BLE001 — panel polish must never raise
+                continue
+        try:
+            sidebar.set_open_states(states)
+        except Exception:  # noqa: BLE001
+            log.debug("sidebar status sync failed", exc_info=True)
+
     def _active_saved_session_ids(self) -> list[str]:
         """Saved, non-local session ids currently open, de-duplicated in tab order."""
         ids: list[str] = []
@@ -1464,6 +1867,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         controller.start()
         self._update_empty_state()
+        self._sync_sidebar_status()
         # Recently-connected sessions power the sidebar's Recent section.
         if defn.id and defn.protocol != "local":
             try:
@@ -1594,6 +1998,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                     pass
 
         self._update_empty_state()
+        self._sync_sidebar_status()
         self._update_session_status(self.current_controller())
 
     def current_controller(self) -> SessionController | None:
@@ -1687,6 +2092,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.state_chip.setText((state or "").upper())
 
     def _on_tab_state_changed(self, state: str, controller: SessionController) -> None:
+        self._sync_sidebar_status()
         if self.current_controller() is not controller:
             return
         self._update_state_chip(controller)
@@ -1721,8 +2127,50 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if dlg.exec():
             self.sidebar.reload()
             self._refresh_dashboard()
+            # A session that is already open adopts the settings that can
+            # change without a redial (clipboard redirection); the rest is
+            # explicitly deferred to the next connect instead of silently
+            # restarting a live desktop.
+            self._apply_saved_settings_to_tabs(dlg.session or defn)
             if dlg.connect_requested and dlg.session.id:
                 self.connect_session(dlg.session.id)
+
+    def _apply_saved_settings_to_tabs(self, defn) -> None:
+        """Push edited session settings onto any live tab of the same session."""
+        if defn is None or not getattr(defn, "id", ""):
+            return
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if isinstance(tab, SessionTab) and tab.controller.definition.id == defn.id:
+                tab.apply_saved_settings(defn)
+
+    # -- window chrome -------------------------------------------------------
+    def toggle_fullscreen(self) -> None:
+        """Fullscreen the workbench (View → Fullscreen, F11, header button).
+
+        Pure window state: sessions keep running, nothing reconnects. The
+        header control and the menu entry are kept in sync either way.
+        """
+        self.set_fullscreen(not self.isFullScreen())
+
+    def set_fullscreen(self, active: bool) -> None:
+        if active:
+            self.showFullScreen()
+        else:
+            self.showNormal()
+        self._sync_fullscreen_ui()
+
+    def _sync_fullscreen_ui(self) -> None:
+        active = bool(self.isFullScreen())
+        act = getattr(self, "_act_fullscreen", None)
+        if act is not None and act.isChecked() != active:
+            act.blockSignals(True)
+            act.setChecked(active)
+            act.blockSignals(False)
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if isinstance(tab, SessionTab):
+                tab.set_fullscreen_state(active)
 
     def _delete_session(self, session_id: str) -> None:
         defn = self.ctx.store.get(session_id)
@@ -2030,6 +2478,17 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                 toast(self, "Credential vault locked after inactivity", "info")
         except Exception:  # noqa: BLE001 — a lock failure must never crash the timer
             log.exception("vault auto-lock failed")
+
+    def changeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        """Keep the fullscreen affordances honest.
+
+        The window manager can enter or leave fullscreen behind our back
+        (OS shortcuts, tiling actions); the View menu entry and every tab's
+        header control follow the real window state, not our last request.
+        """
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._sync_fullscreen_ui()
+        super().changeEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Real, explicit application exit.
