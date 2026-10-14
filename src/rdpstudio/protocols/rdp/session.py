@@ -815,7 +815,7 @@ class RdpSessionController(SessionController):
         self._stdin_password = None
         if password and self._proc is not None:
             try:
-                self._proc.write((password + "\\n").encode("utf-8"))
+                self._proc.write((password + "\n").encode("utf-8"))
                 self._proc.closeWriteChannel()
             except Exception as exc:  # noqa: BLE001
                 log.warning("could not deliver FreeRDP password via stdin: %s", exc)
