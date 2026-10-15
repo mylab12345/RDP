@@ -9,6 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - run: pip install . pyinstaller ".[win]"
+      - run: pyinstaller packaging\windows\rdpstudio-windows.spec
+      - name: Update version in Inno script
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $ver = $ver.TrimStart('v')
+          (gc packaging\windows\kb-remote-setup.iss -Raw) -replace '#define AppVersion ".*"', "#define AppVersion `"`$ver`"" | sc packaging\windows\kb-remote-setup.iss -Encoding UTF8
+      - name: Build Inno Setup installer
+        run: iscc packaging\windows\kb-remote-setup.iss
+      - name: bundle zip (portable)
+        shell: pwsh
+        run: |
+          cd dist
+          Compress-Archive -Path KB-Remote -DestinationPath "KB-Remote-${{ github.ref_name }}-windows-x86_64.zip"
+      - name: bundle installer
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $ver = $ver.TrimStart('v')
+          Copy-Item installer\KB-Remote-Setup-$ver-windows-x86_64.exe dist\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kb-remote-windows
+          path: |
+            dist/*.zip
+            dist/KB-Remote-Setup-*-windows-x86_64.exe
+
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -90,7 +127,7 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
 
   release:
-    needs: [build-linux, build-appimage, build-flatpak, build-snap]
+    needs: [build-windows, build-linux, build-appimage, build-flatpak, build-snap]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
