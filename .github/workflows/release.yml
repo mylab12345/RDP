@@ -25,7 +25,7 @@ jobs:
         run: |
           $ver = "${{ github.ref_name }}"
           $ver = $ver.TrimStart('v')
-          (gc packaging\windows\kb-remote-setup.iss -Raw) -replace '#define AppVersion ".*"', "#define AppVersion `"`$ver`"" | sc packaging\windows\kb-remote-setup.iss -Encoding UTF8
+          (Get-Content packaging\windows\kb-remote-setup.iss -Raw) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content packaging\windows\kb-remote-setup.iss -Encoding utf8
       - name: Build Inno Setup installer
         run: iscc packaging\windows\kb-remote-setup.iss
       - name: bundle zip (portable)
