@@ -56,7 +56,6 @@ VersionInfoDescription={#AppName} - remote-access workbench (SSH/RDP/Local termi
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
 VersionInfoCopyright=MIT License
-SignedUninstaller=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
