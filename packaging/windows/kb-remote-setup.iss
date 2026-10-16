@@ -13,8 +13,11 @@
 #define AppExeName "KB-Remote.exe"
 ; Stable AppId keeps upgrades/uninstall matching across machines and versions.
 #define AppId "{{7F3B1C2E-9D4A-4E7B-8C1F-2A6E5B0D9C41}"
-#define SourceDir "dist\KB-Remote"
-#define OutputDir "installer"
+; Anchor paths to this script so compilation works regardless of the working
+; directory: CI runs from the repo root, build.ps1 from packaging\windows.
+#define RepoRoot SourcePath + "\..\.."
+#define SourceDir RepoRoot + "dist\KB-Remote"
+#define OutputDir RepoRoot + "installer"
 #define OutputBaseName "KB-Remote-Setup"
 
 [Setup]
