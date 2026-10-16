@@ -16,8 +16,8 @@
 ; Anchor paths to this script so compilation works regardless of the working
 ; directory: CI runs from the repo root, build.ps1 from packaging\windows.
 #define RepoRoot SourcePath + "\..\.."
-#define SourceDir RepoRoot + "dist\KB-Remote"
-#define OutputDir RepoRoot + "installer"
+#define SourceDir RepoRoot + "\dist\KB-Remote"
+#define OutputDir RepoRoot + "\installer"
 #define OutputBaseName "KB-Remote-Setup"
 
 [Setup]
