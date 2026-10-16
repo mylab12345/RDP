@@ -9,7 +9,14 @@ on its window and reacts to a resize by itself (re-scaling with
 ``/smart-sizing`` or requesting a new resolution with ``/dynamic-resolution``),
 so all that is needed is to resize the child window to the surface size.
 
-Only ``XQueryTree`` and ``XMoveResizeWindow`` are used; everything degrades to
+A reparented child is also not window-managed, so nothing ever moves the X
+input (keyboard) focus into it: this module additionally re-asserts focus with
+``XSetInputFocus`` (and raises the desktop window) so the embedded client keeps
+receiving keystrokes after the app, another tab or another application has
+taken focus away.
+
+Only ``XQueryTree``, ``XMoveResizeWindow``, ``XGetInputFocus``,
+``XSetInputFocus`` and ``XRaiseWindow`` are used; everything degrades to
 ``False`` (caller falls back) when no X display / libX11 is available — e.g.
 Windows, Wayland-native, headless tests.
 """
@@ -75,6 +82,19 @@ class XDisplay:
         ]
         lib.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
         lib.XFree.argtypes = [ctypes.c_void_p]
+        lib.XGetInputFocus.restype = ctypes.c_int
+        lib.XGetInputFocus.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        lib.XSetInputFocus.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_ulong,
+        ]
+        lib.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         lib.XSetErrorHandler.restype = ctypes.c_void_p
         lib.XSetErrorHandler.argtypes = [_XErrorHandler]
         self._lib = lib
@@ -105,7 +125,8 @@ class XDisplay:
         return 0
 
     # -- queries / requests ---------------------------------------------
-    def children(self, window: int) -> list[int]:
+    def _query_tree(self, window: int) -> tuple[int, int, list[int]] | None:
+        """``(root, parent, children)`` for ``window`` (None on BadWindow)."""
         root = ctypes.c_ulong()
         parent = ctypes.c_ulong()
         kids = ctypes.POINTER(ctypes.c_ulong)()
@@ -116,16 +137,69 @@ class XDisplay:
             ctypes.byref(kids), ctypes.byref(count),
         )
         if not ok or self.errors != before:
-            return []
-        out = [int(kids[i]) for i in range(count.value)]
+            return None
+        out = [int(kids[i]) for i in range(count.value)] if kids else []
         if kids:
             self._lib.XFree(kids)
-        return out
+        return int(root.value), int(parent.value), out
+
+    def children(self, window: int) -> list[int]:
+        result = self._query_tree(window)
+        return [] if result is None else result[2]
+
+    def top_level(self, window: int) -> int:
+        """Return the outermost ancestor of ``window`` (its top-level window).
+
+        Used to tell an in-process window (the app's own top level) from a
+        different application's window; 0 when the window is gone.  The walk is
+        bounded so a corrupt tree can never loop forever.
+        """
+        current = int(window)
+        for _ in range(128):
+            result = self._query_tree(current)
+            if result is None:
+                return 0
+            root, parent, _ = result
+            if parent == 0 or parent == root:  # child of root → top level
+                return current
+            current = parent
+        return current
 
     def move_resize(self, window: int, x: int, y: int, width: int, height: int) -> bool:
         before = self.errors
         self._lib.XMoveResizeWindow(self._dpy, window, x, y, max(1, width), max(1, height))
         self._lib.XSync(self._dpy, 0)  # deliver now; surfaces a BadWindow immediately
+        return self.errors == before
+
+    # -- keyboard focus ------------------------------------------------
+    def input_focus(self) -> int:
+        """Return the window that currently has X input (keyboard) focus."""
+        window = ctypes.c_ulong()
+        revert = ctypes.c_int()
+        before = self.errors
+        self._lib.XGetInputFocus(self._dpy, ctypes.byref(window), ctypes.byref(revert))
+        if self.errors != before:
+            return 0
+        return int(window.value)
+
+    def set_input_focus(self, window: int) -> bool:
+        """Give ``window`` the X input (keyboard) focus.
+
+        ``RevertToParent`` hands focus back to the parent when the window goes
+        away, so the app window stays keyboard-usable if FreeRDP exits.
+        """
+        before = self.errors
+        self._lib.XSetInputFocus(
+            self._dpy, ctypes.c_ulong(int(window)), _REVERT_TO_PARENT, _CURRENT_TIME
+        )
+        self._lib.XSync(self._dpy, 0)  # deliver now; surfaces a BadWindow immediately
+        return self.errors == before
+
+    def raise_window(self, window: int) -> bool:
+        """Raise ``window`` to the top of its parent's stacking order."""
+        before = self.errors
+        self._lib.XRaiseWindow(self._dpy, ctypes.c_ulong(int(window)))
+        self._lib.XSync(self._dpy, 0)
         return self.errors == before
 
     def close(self) -> None:
@@ -138,6 +212,10 @@ class XDisplay:
 
 _display: XDisplay | None = None
 _display_failed = False
+
+# X11 core-protocol constants (X.h) — kept local so no extra module is needed.
+_REVERT_TO_PARENT = 2
+_CURRENT_TIME = 0
 
 
 def _get_display() -> XDisplay | None:
@@ -175,6 +253,81 @@ def fit_child_windows(parent_xid: int, width: int, height: int) -> bool:
         if dpy.move_resize(kid, 0, 0, int(width), int(height)):
             done = True
     return done
+
+
+def focus_child_windows(parent_xid: int) -> bool:
+    """Give the embedded FreeRDP child window X input (keyboard) focus.
+
+    A window reparented through ``/parent-window`` is not managed by the
+    window manager, so nothing ever moves keyboard focus into it.  Without an
+    explicit ``XSetInputFocus`` the child only receives key events until the
+    Qt window (or another app) takes focus away — after which input silently
+    stops working.  Re-asserting focus after launch, on tab activation and on
+    returning the pointer into the desktop keeps the embedded client's
+    keyboard alive.
+
+    Returns True when a child accepted focus; False without an X connection,
+    before the client's window exists, or when the request failed.
+    """
+    if not parent_xid:
+        return False
+    dpy = _get_display()
+    if dpy is None:
+        return False
+    focused = False
+    for kid in dpy.children(int(parent_xid)):
+        # Raise first so the desktop (not a transient helper) sits on top, then
+        # hand it the keyboard; later children win the stacking order.
+        dpy.raise_window(kid)
+        if dpy.set_input_focus(kid):
+            focused = True
+    return focused
+
+
+def child_has_input_focus(parent_xid: int) -> bool:
+    """Whether the X input focus currently sits inside ``parent_xid``.
+
+    True when the focused window is one of the parent's children (the FreeRDP
+    desktop window) or a descendant of one; False when the Qt window or any
+    other unrelated window holds focus, and without an X connection.
+    """
+    if not parent_xid:
+        return False
+    dpy = _get_display()
+    if dpy is None:
+        return False
+    focus = dpy.input_focus()
+    if not focus:
+        return False
+    for kid in dpy.children(int(parent_xid)):
+        if focus == kid:
+            return True
+        if focus in dpy.children(kid):
+            return True
+    return False
+
+
+def focus_owned_by_another_app(parent_xid: int) -> bool:
+    """Whether X input focus sits on a *different* application's window.
+
+    The focus keeper must never pull the keyboard away from another app, so it
+    checks the focused window's top level against ours.  ``None``/``PointerRoot``
+    focus and windows that vanished are treated as *not* another app (safe to
+    re-assert).
+    """
+    if not parent_xid:
+        return True
+    dpy = _get_display()
+    if dpy is None:
+        return False
+    focus = dpy.input_focus()
+    if focus in (0, 1):  # None / PointerRoot — not a concrete foreign window
+        return False
+    ours = dpy.top_level(int(parent_xid))
+    theirs = dpy.top_level(focus)
+    if not ours or not theirs:
+        return False
+    return ours != theirs
 
 
 # Type of the hook the session controller uses (monkeypatchable in tests).

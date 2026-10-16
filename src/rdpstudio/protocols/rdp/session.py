@@ -71,7 +71,12 @@ from .embed import (
 from .negotiate import RdpProbeError, probe
 from .plugin import RdpPlugin
 from .rdpfile import write_rdp_file
-from .x11 import fit_child_windows
+from .x11 import (
+    child_has_input_focus,
+    fit_child_windows,
+    focus_child_windows,
+    focus_owned_by_another_app,
+)
 
 log = get_logger("rdp.session")
 
@@ -93,6 +98,10 @@ _REFIT_SETTLE_MS = 150
 _UI_SETTLE_MS = 150
 # Coalesce live X11 fits to approximately one request per display frame.
 _LIVE_FIT_MS = 16
+# While the embedded desktop is on screen and actively used, re-assert its X
+# keyboard focus this often so a FocusOut (app/tab/other-window focus change)
+# cannot silently stop keyboard input.
+_FOCUS_KEEP_MS = 250
 
 
 class _EmbeddedSurface(QWidget):
@@ -123,6 +132,17 @@ class _EmbeddedSurface(QWidget):
         self._live_fit.timeout.connect(self.fit_child)
         self._fitted_size: tuple[int, int] | None = None  # last size sent to X
         self.live_fit_enabled = False  # only while a client is embedded
+        # Keyboard focus keeper: a reparented FreeRDP window is not window
+        # managed, so when the app, another tab or another application takes
+        # focus the desktop silently stops receiving keys.  This re-asserts X
+        # input focus to the desktop while it is on screen and in use.
+        self._focuser = focus_child_windows
+        self._focus_check = child_has_input_focus
+        self._owner_check = focus_owned_by_another_app
+        self._focus_keep = QTimer(self)
+        self._focus_keep.setInterval(_FOCUS_KEEP_MS)
+        self._focus_keep.timeout.connect(self._keep_focus)
+        self._focus_keep.start()
 
     def set_launch_size(self, size: tuple[int, int]) -> None:
         self._launch_size = size
@@ -154,6 +174,88 @@ class _EmbeddedSurface(QWidget):
         if ok:
             self._fitted_size = size
         return ok
+
+    # -- keyboard focus -------------------------------------------------
+    def _embedded_xid(self) -> int:
+        """The surface's X window id, or 0 when it is gone/not created."""
+        try:
+            return int(self.winId())
+        except RuntimeError:  # C++ widget already gone
+            return 0
+
+    def focus_child(self) -> bool:
+        """Give the embedded FreeRDP window X input (keyboard) focus.
+
+        No-op unless a client is embedded; returns False when there is no X
+        connection or the child window does not exist yet.
+        """
+        if not self.live_fit_enabled:
+            return False
+        xid = self._embedded_xid()
+        if not xid:
+            return False
+        try:
+            return bool(self._focuser(xid))
+        except Exception:  # noqa: BLE001 - focus must never break the tab
+            log.exception("focusing the embedded desktop failed")
+            return False
+
+    def child_focused(self) -> bool:
+        """Whether X input focus currently sits in the embedded desktop."""
+        xid = self._embedded_xid()
+        if not xid:
+            return False
+        try:
+            return bool(self._focus_check(xid))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _focus_held_elsewhere(self) -> bool:
+        """True when another application owns the keyboard (never steal it)."""
+        xid = self._embedded_xid()
+        if not xid:
+            return True
+        try:
+            return bool(self._owner_check(xid))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _cursor_over_surface(self) -> bool:
+        from PySide6.QtGui import QCursor
+
+        try:
+            return self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+        except RuntimeError:  # C++ widget already gone
+            return False
+
+    def _keep_focus(self) -> None:
+        """Re-assert the desktop's keyboard focus while it is actively used.
+
+        Deliberately conservative: only while a client is embedded, the tab is
+        on screen, the pointer is over the desktop and no *other* application
+        owns the keyboard.  This restores typing after an accidental FocusOut
+        (clicking the app chrome, switching tabs) without stealing focus from
+        the local sidebar/fields or another application.
+        """
+        if not self.live_fit_enabled or not self.isVisible():
+            return
+        if not self._cursor_over_surface():
+            return
+        if self.child_focused():
+            return
+        if self._focus_held_elsewhere():
+            return
+        self.focus_child()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        # The desktop child normally swallows clicks, but when it is smaller
+        # than the surface (mid-transition) a click lands here: hand focus on.
+        super().mousePressEvent(event)
+        self.focus_child()
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().focusInEvent(event)
+        self.focus_child()
 
     def fitted_size(self) -> tuple[int, int] | None:
         return self._fitted_size
@@ -547,7 +649,21 @@ class RdpSessionController(SessionController):
             return False
         if self._proc is None or self._proc.state() != QProcess.ProcessState.Running:
             return False
-        return self._surface.fit_child()
+        ok = self._surface.fit_child()
+        # Hand the desktop the keyboard again — a relaunch/refit creates a new
+        # X window that starts without input focus.
+        self._surface.focus_child()
+        return ok
+
+    def focus_embedded(self) -> bool:
+        """Move keyboard focus onto the embedded FreeRDP window (if any).
+
+        Called when the tab is activated so returning to an in-app desktop
+        never leaves the keyboard dead; a no-op in external mode.
+        """
+        if self._mode != "embedded":
+            return False
+        return self._surface.focus_child()
 
     def _launch_client(self, path: str, args: list[str], direct_argv: list[str] | None = None) -> None:
         """Wire up and start the RDP client process.

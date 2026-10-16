@@ -418,6 +418,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._setup_tray()
         # Live theme switches re-tint icons and palette-baked chrome.
         theme.add_theme_changed_callback(self._refresh_theme)
+        # The window can be deleted without closeEvent (deleteLater, tests,
+        # teardown).  Drop the global callback with the C++ object, otherwise a
+        # later theme switch fires it on a deleted window and raises.
+        self.destroyed.connect(self._on_destroyed_remove_theme_callback)
 
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(30_000)
@@ -726,6 +730,9 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._bind_splitter_handle()
         # Startup restore is done — dock moves from here on get a toast.
         self._layout_ready = True
+        # Watch our own activation so an in-app RDP desktop gets its keyboard
+        # back the moment the application is brought to the front.
+        self.installEventFilter(self)
 
     def _bind_splitter_handle(self) -> None:
         """Double-clicking the divider moves the panel to the other side."""
@@ -866,6 +873,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt naming
         """Double-clicking the splitter divider flips the Sessions panel."""
+        if obj is self and event.type() == QEvent.Type.WindowActivate:
+            # Brought to the front (Alt+Tab, taskbar): the embedded RDP child
+            # is not window-managed, so nothing else would give it the
+            # keyboard back — do it here.
+            self._refocus_current_embedded()
         if obj is getattr(self, "_splitter_handle", None) and event.type() == QEvent.Type.MouseButtonDblClick:
             self.flip_sidebar_side()
             return True
@@ -975,6 +987,10 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                 self._toolbar.setIconSize(QSize(18, 18))
         # Dashboard title sizing (comfortable/compact) lives in the global
         # QSS (#dashTitle) — no inline overrides.
+
+    def _on_destroyed_remove_theme_callback(self, *_args) -> None:
+        """Drop the global theme callback when the C++ window is deleted."""
+        theme.remove_theme_changed_callback(self._refresh_theme)
 
     def _refresh_theme(self) -> None:
         """Re-tint every palette-baked icon after a live theme switch.
@@ -1629,9 +1645,22 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             caps = widget.controller.capabilities()
             if caps.shell:
                 QTimer.singleShot(0, lambda: widget.controller.widget().setFocus())
+            # An embedded (in-app) RDP desktop is a reparented X11 window that
+            # is not window-managed: activating its tab must hand it keyboard
+            # focus again, otherwise the keyboard stays dead after switching
+            # tabs (or back from another application).
+            focus_embedded = getattr(widget.controller, "focus_embedded", None)
+            if callable(focus_embedded):
+                QTimer.singleShot(0, focus_embedded)
         controller = self.current_controller()
         self._update_session_status(controller)
         self._update_state_chip(controller)
+
+    def _refocus_current_embedded(self) -> None:
+        """Give the current tab's in-app RDP desktop keyboard focus again."""
+        focus_embedded = getattr(self.current_controller(), "focus_embedded", None)
+        if callable(focus_embedded):
+            focus_embedded()
 
     # ------------------------------------------------------------------
     # Status-bar session summary

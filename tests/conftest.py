@@ -22,6 +22,24 @@ def home(tmp_path, monkeypatch) -> Path:
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _isolate_theme_callbacks():
+    """Drop leaked theme-change callbacks between tests.
+
+    A ``MainWindow`` registers ``_refresh_theme`` in the process-global theme
+    registry.  Tests that delete a window without going through ``closeEvent``
+    would otherwise leave a callback pointing at a dead C++ object, which then
+    explodes on the next theme switch (and cascades into unrelated tests).
+    """
+    yield
+    try:
+        from rdpstudio.ui import theme
+
+        theme._theme_changed_callbacks.clear()
+    except Exception:  # pragma: no cover - theme module always importable in tests
+        pass
+
+
 @pytest.fixture(scope="session")
 def qtapp():
     from PySide6.QtWidgets import QApplication

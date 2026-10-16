@@ -294,27 +294,46 @@ def test_embedded_launch_passes_parent_window(tmp_path, qtapp, monkeypatch):
 
 
 # --- sidebar toggle must not disturb a live session ---------------------------
-def _install_fake_fitter(monkeypatch, available: bool = True) -> list[tuple[int, int, int]]:
-    """Stand-in for the X11 child-window fit (no X server under offscreen Qt).
+def _install_fake_fitter(monkeypatch, available: bool = True, focus_available: bool = True) -> list:
+    """Stand-in for the X11 child-window fit/focus (no X server under offscreen Qt).
 
-    Records every ``(xid, width, height)`` request.  ``available=False``
+    Records every ``(xid, width, height)`` fit request (the returned list) and
+    every ``(xid)`` focus request (``result.focused``).  ``available=False``
     mimics a host without libX11 / DISPLAY, where the fit reports failure and
     the controller must fall back to the relaunch-based refit.
     """
     from rdpstudio.protocols.rdp import session as rdp_session
 
-    fits: list[tuple[int, int, int]] = []
+    class _XRequests(list):
+        def __init__(self) -> None:
+            super().__init__()
+            self.focused: list[int] = []
+
+    fits = _XRequests()
 
     def fake_fit(xid: int, w: int, h: int) -> bool:
         fits.append((int(xid), int(w), int(h)))
         return available
 
+    def fake_focus(xid: int) -> bool:
+        fits.focused.append(int(xid))
+        return focus_available
+
+    fake_check = lambda _xid: False  # noqa: E731 - pretend the child is unfocused
+    fake_owner = lambda _xid: False  # noqa: E731 - no foreign app owns the keyboard
+
     monkeypatch.setattr(rdp_session, "fit_child_windows", fake_fit)
+    monkeypatch.setattr(rdp_session, "focus_child_windows", fake_focus)
+    monkeypatch.setattr(rdp_session, "child_has_input_focus", fake_check)
+    monkeypatch.setattr(rdp_session, "focus_owned_by_another_app", fake_owner)
     original_init = rdp_session._EmbeddedSurface.__init__
 
     def patched_init(self, *a, **k):
         original_init(self, *a, **k)
         self._fitter = fake_fit
+        self._focuser = fake_focus
+        self._focus_check = fake_check
+        self._owner_check = fake_owner
 
     monkeypatch.setattr(rdp_session._EmbeddedSurface, "__init__", patched_init)
     return fits
@@ -747,6 +766,170 @@ def test_fit_child_windows_without_x11_is_a_noop(monkeypatch):
     assert x11.fit_child_windows(0x123, 800, 600) is False
     assert x11.fit_child_windows(0, 800, 600) is False
     assert x11.fit_child_windows(0x123, 0, 600) is False
+
+
+# --- embedded keyboard focus --------------------------------------------------
+class _FakeDisplay:
+    """Minimal x11.XDisplay stand-in for the focus helpers (no X server)."""
+
+    def __init__(self, kids, focus: int = 0, top: int = 0x100000) -> None:
+        self._kids = [int(k) for k in kids]
+        self._focus = int(focus)
+        self._top = {int(k): int(top) for k in kids}
+        self._top[0xABC] = int(top)  # the Qt top level owning the surface
+        self.raised: list[int] = []
+        self.set_focus: list[int] = []
+
+    def children(self, window: int) -> list[int]:
+        return list(self._kids)
+
+    def top_level(self, window: int) -> int:
+        return self._top.get(int(window), 0)
+
+    def input_focus(self) -> int:
+        return self._focus
+
+    def raise_window(self, window: int) -> bool:
+        self.raised.append(int(window))
+        return True
+
+    def set_input_focus(self, window: int) -> bool:
+        self.set_focus.append(int(window))
+        self._focus = int(window)
+        return True
+
+
+def test_focus_child_windows_without_x11_is_a_noop(monkeypatch):
+    """No DISPLAY (Windows, headless): the focus helpers never raise."""
+    from rdpstudio.protocols.rdp import x11
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(x11, "_display", None)
+    monkeypatch.setattr(x11, "_display_failed", False)
+    assert x11.focus_child_windows(0x123) is False
+    assert x11.focus_child_windows(0) is False
+    assert x11.child_has_input_focus(0x123) is False
+    assert x11.focus_owned_by_another_app(0x123) is False
+
+
+def test_focus_child_windows_hands_keyboard_to_the_desktop(monkeypatch):
+    """The embedded child gets X input focus (and is raised) via XSetInputFocus."""
+    from rdpstudio.protocols.rdp import x11
+
+    dpy = _FakeDisplay([0x11, 0x22])
+    monkeypatch.setattr(x11, "_display", dpy)
+    assert x11.focus_child_windows(0xABC) is True
+    assert dpy.raised == [0x11, 0x22]
+    assert dpy.set_focus == [0x11, 0x22], "each child is offered the keyboard"
+    assert dpy.input_focus() == 0x22, "the last (topmost) child ends up focused"
+
+
+def test_child_focus_queries_and_foreign_owner(monkeypatch):
+    from rdpstudio.protocols.rdp import x11
+
+    dpy = _FakeDisplay([0x11], focus=0x11)
+    monkeypatch.setattr(x11, "_display", dpy)
+    assert x11.child_has_input_focus(0xABC) is True
+    assert x11.focus_owned_by_another_app(0xABC) is False
+
+    dpy._focus = 0x999
+    dpy._top[0x999] = 0x777  # a different top level → a different application
+    assert x11.child_has_input_focus(0xABC) is False
+    assert x11.focus_owned_by_another_app(0xABC) is True
+
+    dpy._focus = 0  # None/PointerRoot is never treated as a foreign app
+    assert x11.focus_owned_by_another_app(0xABC) is False
+
+
+@posix_shell_client
+def test_embedded_launch_hands_keyboard_to_the_desktop(tmp_path, qtapp, monkeypatch):
+    """Regression: a reparented FreeRDP window is not window-managed, so it
+    never receives X input focus on its own and the keyboard silently dies.
+    Connecting (and every refit) must hand the desktop the keyboard."""
+    win, tab, ctrl, launches = _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp)
+    try:
+        xid = int(ctrl._surface.winId())
+        assert xid
+        assert launches.fits.focused, "the embedded desktop was given keyboard focus"
+        assert xid in launches.fits.focused
+    finally:
+        ctrl.stop("test done")
+        win.close()
+        _pump(qtapp, 0.3)
+
+
+@posix_shell_client
+def test_switching_back_to_embedded_tab_requests_focus(tmp_path, qtapp, monkeypatch):
+    """Activating the in-app desktop's tab hands it the keyboard again, so
+    returning to a session never leaves typing dead."""
+    win, tab, ctrl, launches = _open_connected_rdp_tab(tmp_path, monkeypatch, qtapp)
+    try:
+        surface = ctrl._surface
+        xid = int(surface.winId())
+        calls: list[int] = []
+        surface._focuser = lambda value: calls.append(value) or True
+
+        assert ctrl.focus_embedded() is True
+        assert xid in calls
+
+        calls.clear()
+        win._tab_changed(win.tabs.currentIndex())  # as if the tab was re-activated
+        _pump(qtapp, 0.05)  # the queued refocus fires
+        assert calls and all(value == xid for value in calls)
+    finally:
+        ctrl.stop("test done")
+        win.close()
+        _pump(qtapp, 0.3)
+
+
+def test_focus_keeper_reasserts_only_while_active_over_desktop(qtapp, tmp_path, monkeypatch):
+    """The keeper restores the desktop's keyboard only when the pointer is over
+    it, it has lost focus, and no other application owns the keyboard."""
+    from rdpstudio.core.models import Session
+    from rdpstudio.protocols.rdp.session import RdpSessionController
+
+    _install_fake_fitter(monkeypatch)
+    ctx = _ctx(tmp_path)
+    ctx.settings.rdp_client = "embedded"
+    ctrl = RdpSessionController(Session(protocol="rdp", host="w"), ctx, qtapp)
+    surface = ctrl._surface
+    page = ctrl._page_emb
+    page.resize(800, 600)
+    page.show()
+    qtapp.processEvents()
+
+    calls: list[int] = []
+    surface._focus_keep.stop()  # drive the keeper manually for determinism
+    surface._focuser = lambda value: calls.append(value) or True
+    surface._focus_check = lambda _xid: False
+    surface._owner_check = lambda _xid: False
+    surface.live_fit_enabled = True
+    monkeypatch.setattr(surface, "isVisible", lambda: True)
+    xid = int(surface.winId())
+    assert xid
+
+    monkeypatch.setattr(surface, "_cursor_over_surface", lambda: False)
+    surface._keep_focus()
+    assert calls == [], "pointer away from the desktop: nothing to do"
+
+    monkeypatch.setattr(surface, "_cursor_over_surface", lambda: True)
+    surface._keep_focus()
+    assert calls == [xid], "pointer over the desktop: focus restored"
+
+    calls.clear()
+    surface._focus_check = lambda _xid: True  # already focused
+    surface._keep_focus()
+    assert calls == [], "no redundant focus request when already focused"
+
+    surface._focus_check = lambda _xid: False
+    surface._owner_check = lambda _xid: True  # another app owns the keyboard
+    surface._keep_focus()
+    assert calls == [], "never steal the keyboard from another application"
+
+    surface.live_fit_enabled = False  # client gone: keeper goes quiet
+    surface._owner_check = lambda _xid: False
+    surface._keep_focus()
+    assert calls == []
 
 
 @posix_shell_client
