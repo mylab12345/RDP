@@ -433,7 +433,8 @@ def _indicator_image_urls(pal: dict[str, str]) -> dict[str, str]:
     so we regenerate the small glyphs in the theme's colours every time the
     palette changes.
     """
-    cache = Path(tempfile.gettempdir()) / f"kb-remote-indicators-{os.getuid()}"
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    cache = Path(tempfile.gettempdir()) / f"kb-remote-indicators-{uid}"
     empty = {
         "check_url": "", "dot_url": "", "chev_right_url": "",
         "chev_down_url": "", "chev_up_url": "", "chev_down_dim_url": "",

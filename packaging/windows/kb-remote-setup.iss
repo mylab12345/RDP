@@ -7,7 +7,7 @@
 ; on Windows 10 1809+ / Server 2019+ (x64, and ARM64 via x64 emulation).
 
 #define AppName "KB-Remote"
-#define AppVersion "0.9.0"
+#define AppVersion "0.9.1"
 #define AppPublisher "KB-Remote contributors"
 #define AppURL "https://github.com/mylab12345/RDP"
 #define AppExeName "KB-Remote.exe"

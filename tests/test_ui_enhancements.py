@@ -473,3 +473,16 @@ def test_sidebar_filter_and_session_tab_proto_chip(qtapp) -> None:
         win.close()
         qtapp.processEvents()
 
+
+def test_theme_glyph_cache_survives_without_posix_getuid(qtapp, monkeypatch) -> None:
+    """Windows' ``os`` has no ``getuid``: the per-theme glyph cache (and the
+    whole theme application, which runs at startup) must still work."""
+    from rdpstudio.ui import theme
+
+    monkeypatch.delattr(theme.os, "getuid", raising=False)
+    urls = theme._indicator_image_urls(theme.palette("studio_dark"))
+    assert urls["check_url"], "indicator URLs must be generated without os.getuid"
+    # The exact startup path that used to raise AttributeError on Windows.
+    theme.apply_theme(qtapp, "studio_dark", animations=False)
+
+
