@@ -77,12 +77,16 @@ powershell -Command "(gc '%INNO_SPEC%' -Raw) -replace '#define AppVersion \".*\"
 cd /d "%WINDOWS_PACKAGING_DIR%"
 "%ISCC%" "%INNO_SPEC%"
 
-set INSTALLER_NAME=KB-Remote-Setup-%VERSION%-windows-x86_64.exe
+set INSTALLER_NAME=KB-Remote-Setup-%VERSION%-windows-x64.exe
 if exist "%INSTALLER_DIR%\%INSTALLER_NAME%" (
     echo.
     echo ==== Build complete ====
     echo Bundle: dist\KB-Remote\KB-Remote.exe
     echo Installer: installer\%INSTALLER_NAME%
+    copy /y "%INSTALLER_DIR%\%INSTALLER_NAME%" "%INSTALLER_DIR%\KB-Remote-Setup.exe" >nul
+    copy /y "%REPO_ROOT%\install.ps1" "%INSTALLER_DIR%\install.ps1" >nul
+    copy /y "%WINDOWS_PACKAGING_DIR%\install.cmd" "%INSTALLER_DIR%\install.cmd" >nul
+    echo Stable : installer\KB-Remote-Setup.exe  (+ install.ps1 / install.cmd)
     for %%f in ("%INSTALLER_DIR%\%INSTALLER_NAME%") do echo Size: %%~zf bytes
 ) else (
     echo WARNING: Installer not found at expected path

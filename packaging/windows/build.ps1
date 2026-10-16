@@ -6,12 +6,13 @@
     1. Creates venv, installs deps + PyInstaller
     2. Builds onedir bundle with PyInstaller
     3. Builds NSIS/Inno Setup installer
-    Output: installer\KB-Remote-Setup-<version>-windows-x86_64.exe
+    Output: installer\KB-Remote-Setup-<version>-windows-x64.exe
+            installer\KB-Remote-Setup.exe  (+ install.ps1 / install.cmd)
 
 .PREREQUISITES
-    - Windows 10/11 / Server 2016+
+    - Windows 10/11 / Server 2019+
     - Python 3.10+ in PATH
-    - Inno Setup 6+ (https://jrsoftware.org/isinfo.php) in PATH as 'iscc'
+    - Inno Setup 6.3+ (https://jrsoftware.org/isinfo.php) in PATH as 'iscc'
     - Git (for version tag)
 
 .EXAMPLE
@@ -120,11 +121,16 @@ if (-not $SkipInstaller) {
     Set-Location $WindowsPackagingDir
     & $iscc @isccArgs
 
-    $installerPattern = "KB-Remote-Setup-${AppVersion}-windows-x86_64.exe"
+    $installerPattern = "KB-Remote-Setup-${AppVersion}-windows-x64.exe"
     $installerPath = Join-Path $InstallerDir $installerPattern
     if (Test-Path $installerPath) {
         Write-Host "Installer created: $installerPath" -ForegroundColor Green
         Write-Host "Size: {0:N2} MB" -f ((Get-Item $installerPath).Length / 1MB)
+        # Stable names so the one universal link keeps working release to
+        # release: .../releases/latest/download/KB-Remote-Setup.exe
+        Copy-Item $installerPath (Join-Path $InstallerDir "KB-Remote-Setup.exe") -Force
+        Copy-Item (Join-Path $RepoRoot "install.ps1") (Join-Path $InstallerDir "install.ps1") -Force
+        Copy-Item (Join-Path $WindowsPackagingDir "install.cmd") (Join-Path $InstallerDir "install.cmd") -Force
     } else {
         # Try to find any matching file
         $found = Get-ChildItem $InstallerDir -Filter "KB-Remote-Setup-*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -138,4 +144,5 @@ if (-not $SkipInstaller) {
 
 Write-Host "`n=== Build complete ===" -ForegroundColor Cyan
 Write-Host "Bundle: dist\KB-Remote\KB-Remote.exe"
-Write-Host "Installer: installer\KB-Remote-Setup-${AppVersion}-windows-x86_64.exe"
+Write-Host "Installer: installer\KB-Remote-Setup-${AppVersion}-windows-x64.exe"
+Write-Host "Stable : installer\KB-Remote-Setup.exe (publish as a release asset)"

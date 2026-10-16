@@ -70,24 +70,44 @@ to its native platform and RDP uses the external window.
 
 ## Windows
 
+One universal installer covers Windows 10 1809+/11 and Windows Server
+2019/2022/2025 (x64, and ARM64 via x64 emulation). Everything needed at run
+time — Python, Qt/PySide6 and the SSH/crypto libraries — is bundled, so the
+machine needs nothing else and no administrator rights (per-user install).
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
+# Universal link — always the newest release, silent install
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/mylab12345/RDP/releases/latest/download/install.ps1 -OutFile $env:TEMP\kbri.ps1; & $env:TEMP\kbri.ps1"
 ```
 
-- creates `%LOCALAPPDATA%\KB-Remote\venv`, installs the package, adds a
-  Start-Menu shortcut.
+Or download
+[KB-Remote-Setup.exe](https://github.com/mylab12345/RDP/releases/latest/download/KB-Remote-Setup.exe)
+directly (double-click for the wizard), or the double-clickable
+[install.cmd](https://github.com/mylab12345/RDP/releases/latest/download/install.cmd).
+
+- Installs to `%LOCALAPPDATA%\Programs\KB-Remote` (or `%ProgramFiles%` when
+  run elevated / with `-InstallDir`), with a Start-Menu shortcut.
 - RDP uses the built-in `mstsc.exe` — nothing to install.
-- optional: `pip install rdp-studio[win]` for ConPTY-backed local shells
-  (`pywinpty`).
+- Local shells use the bundled ConPTY support (`pywinpty`).
+- Options: `-Version X.Y.Z`, `-Interactive`, `-InstallDir <path>`, `-NoLaunch`,
+  `-Force`.
+- Developer flow from a checkout:
+  `powershell -ExecutionPolicy Bypass -File install.ps1 -FromSource` creates a
+  venv in the repo and runs `pip install -e ".[win]"`.
+
+See [packaging/windows/README.md](../packaging/windows/README.md) for details
+and code-signing.
 
 ## From CI artifacts
 
 Every tagged release builds (see `packaging/ci/release.yml` — run
-`packaging/ci/install-workflows.sh` once to enable GitHub Actions CI):
+`packaging/ci/install-workflows.sh` once to enable GitHub Actions CI) and
+attaches to the GitHub release:
 
-- `KB-Remote-<ver>-windows-x64.zip` — standalone PyInstaller bundle
-  (+ `KB-Remote-Setup-<ver>.exe` Inno Setup installer built from
-  `packaging/windows/KB-Remote.iss`)
+- `KB-Remote-Setup.exe` — universal Windows installer (stable link name)
+- `KB-Remote-Setup-<ver>-windows-x64.exe` — versioned copy of the same
+- `install.ps1` / `install.cmd` — bootstrap scripts for the universal link
+- `KB-Remote-<ver>-windows-x64.zip` — portable PyInstaller bundle
 - `KB-Remote-<ver>-linux-x86_64.tar.gz` — PyInstaller onedir bundle
 
 ## Building packages yourself
@@ -97,8 +117,11 @@ pip install pyinstaller
 pyinstaller packaging/rdpstudio.spec          # → dist/KB-Remote/
 ```
 
-Windows installer: install [Inno Setup](https://jrsoftware.org/isinfo.php)
-and compile `packaging/windows/KB-Remote.iss` after the PyInstaller build.
+Windows installer: install [Inno Setup
+6.3+](https://jrsoftware.org/isinfo.php) and run
+`packaging\windows\build.ps1` (or `build.bat`) after the PyInstaller build; it
+produces the versioned installer plus the stable `KB-Remote-Setup.exe` copy
+and the bootstrap scripts.
 
 ## Uninstall
 
@@ -107,5 +130,5 @@ rm -rf ~/.kb-remote ~/.local/bin/kb-remote ~/.local/bin/rdpstudio ~/.local/share
 # state (sessions/vault) lives in ~/.config/kb-remote — remove if desired
 ```
 
-Windows: delete `%LOCALAPPDATA%\KB-Remote` and the Start-Menu folder; state
-lives in `%APPDATA%\KB-Remote`.
+Windows: use *Settings → Apps → KB-Remote → Uninstall* (or "Apps & features"),
+then delete `%APPDATA%\KB-Remote` if you also want to drop saved state.

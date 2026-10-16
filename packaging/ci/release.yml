@@ -32,19 +32,27 @@ jobs:
         shell: pwsh
         run: |
           cd dist
-          Compress-Archive -Path KB-Remote -DestinationPath "KB-Remote-${{ github.ref_name }}-windows-x86_64.zip"
-      - name: bundle installer
+          Compress-Archive -Path KB-Remote -DestinationPath "KB-Remote-${{ github.ref_name }}-windows-x64.zip"
+      - name: stage universal release assets
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}"
-          $ver = $ver.TrimStart('v')
-          Copy-Item installer\KB-Remote-Setup-$ver-windows-x86_64.exe dist\
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          Copy-Item "installer\KB-Remote-Setup-$ver-windows-x64.exe" "dist\KB-Remote-Setup-$ver-windows-x64.exe"
+          # Stable names so the universal link always resolves:
+          #   .../releases/latest/download/KB-Remote-Setup.exe
+          #   .../releases/latest/download/install.ps1
+          #   .../releases/latest/download/install.cmd
+          Copy-Item "installer\KB-Remote-Setup-$ver-windows-x64.exe" "dist\KB-Remote-Setup.exe"
+          Copy-Item "install.ps1" "dist\install.ps1"
+          Copy-Item "packaging\windows\install.cmd" "dist\install.cmd"
       - uses: actions/upload-artifact@v4
         with:
           name: kb-remote-windows
           path: |
             dist/*.zip
-            dist/KB-Remote-Setup-*-windows-x86_64.exe
+            dist/KB-Remote-Setup*.exe
+            dist/install.ps1
+            dist/install.cmd
 
   build-linux:
     runs-on: ubuntu-latest
@@ -128,6 +136,9 @@ jobs:
 
   release:
     needs: [build-windows, build-linux, build-appimage, build-flatpak, build-snap]
+    # Publish whatever built successfully: a Flatpak/Snap hiccup must never
+    # block the universal Windows installer link from going live.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

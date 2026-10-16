@@ -71,17 +71,27 @@ native Wayland window instead? Set *Settings → Connection → RDP display* to
 
 ### Windows
 
+One universal installer covers Windows 10 1809+/11 and Server 2019/2022/2025
+(x64, and ARM64 via x64 emulation). It bundles the Python runtime, Qt and every
+dependency, needs no admin rights, and installs silently:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-kb-remote
+# Universal link — always the latest release
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/mylab12345/RDP/releases/latest/download/install.ps1 -OutFile $env:TEMP\kbri.ps1; & $env:TEMP\kbri.ps1"
 ```
 
-RDP uses the built-in `mstsc.exe`. The optional `pywinpty` extra gives local
-ConPTY shells: `pip install rdp-studio[win]`.
+Or grab the setup executable directly:
+[**KB-Remote-Setup.exe**](https://github.com/mylab12345/RDP/releases/latest/download/KB-Remote-Setup.exe)
+(there is also a double-clickable
+[install.cmd](https://github.com/mylab12345/RDP/releases/latest/download/install.cmd)).
 
-See [docs/INSTALL.md](docs/INSTALL.md) for details, PyInstaller builds
-(`packaging/rdpstudio.spec`), and the Inno Setup installer
-(`packaging/windows/KB-Remote.iss`).
+Prefer to run from a checkout / source? `powershell -ExecutionPolicy Bypass
+-File install.ps1 -FromSource` creates a venv and installs `rdp-studio[win]`.
+
+RDP uses the built-in `mstsc.exe`. See
+[packaging/windows/README.md](packaging/windows/README.md) for the installer,
+its options and code-signing, and [docs/INSTALL.md](docs/INSTALL.md) for
+PyInstaller/CI details.
 
 ## Quick start
 
