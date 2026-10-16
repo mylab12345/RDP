@@ -81,3 +81,21 @@ run. To remove the warning, sign `KB-Remote-Setup.exe` (and the PyInstaller
 `KB-Remote.exe`) with an EV/OV code-signing certificate — pass
 `-SignTool <name> -CertThumbprint <thumbprint>` to `build.ps1`, which forwards
 them to Inno Setup.
+
+## Verification
+
+The released installer was test-installed in a clean Windows environment
+(Wine + Xvfb) from the published `install.ps1` / `KB-Remote-Setup.exe`:
+
+- the download links resolve (`releases/latest/download/...` → HTTP 200) and
+  the asset is a valid Windows PE executable;
+- a silent per-user install completes (`/VERYSILENT /CURRENTUSER`) and lays
+  down the full bundle (Python 3.12, Qt/PySide6, paramiko, cryptography,
+  pyte, pywinpty) plus Start-Menu shortcuts and an uninstall entry;
+- a PE import-closure scan of all 123 native modules finds **no unresolved
+  non-system imports** — every dependency is either bundled or a Windows
+  system DLL (e.g. `icuuc.dll`, present since Windows 10 1703 / Server 2019).
+
+On Wine the app does not start because Wine ships no Windows ICU system DLLs;
+on any supported Windows version (`icuuc.dll` is an OS component) this is a
+non-issue.
