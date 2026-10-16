@@ -76,4 +76,3 @@ exe = EXE(
 )
 
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="KB-Remote")
-"""
