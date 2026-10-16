@@ -36,7 +36,6 @@ a = Analysis(
     binaries=native_binaries + winpty_binaries,
     datas=[
         (str(ROOT / "src" / "rdpstudio" / "resources" / "icons"), "rdpstudio/resources/icons"),
-        (str(ROOT / "src" / "rdpstudio" / "resources" / "*.qss"), "rdpstudio/resources"),
         *native_datas,
         *winpty_datas,
     ],
