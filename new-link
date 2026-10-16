@@ -1,0 +1,6 @@
+# KB-Remote — universal Windows installer link (always the latest release)
+
+https://github.com/mylab12345/RDP/releases/latest/download/KB-Remote-Setup.exe
+
+# One-line silent install (PowerShell / cmd):
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/mylab12345/RDP/releases/latest/download/install.ps1 -OutFile $env:TEMP\kbri.ps1; & $env:TEMP\kbri.ps1"
