@@ -91,7 +91,18 @@ def snippets_file() -> Path:
     return app_dir() / "snippets.json"
 
 
+def activity_log_file() -> Path:
+    """Bounded JSONL log of user and session activity events."""
+    return logs_dir() / "activity.jsonl"
+
+
+def feedback_file() -> Path:
+    """Bounded JSONL store of user-submitted UI feedback and suggestions."""
+    return app_dir() / "feedback.jsonl"
+
+
 def share_host_key_file() -> Path:
     """Host key that authenticates the built-in SFTP share server."""
     return keys_dir() / "share_host_key"
+
 

@@ -132,5 +132,22 @@ def log_transfer(record: TransferRecord) -> None:
     """Best-effort append to the process-wide history (never raises)."""
     try:
         default_log().append(record)
+        from .activity import log_activity
+
+        direction = record.direction or "transfer"
+        proto = (record.protocol or "sftp").upper()
+        status = "completed" if record.ok else "failed"
+        detail = f"{record.files_total} file(s), {record.bytes_total} B → {record.destination}"
+        if not record.ok and record.error:
+            detail += f" ({record.error})"
+        log_activity(
+            "transfer",
+            f"{proto} {direction} {status}",
+            detail,
+            level="good" if record.ok else "bad",
+            session=record.session,
+            protocol=record.protocol or "sftp",
+        )
     except Exception:  # noqa: BLE001 — history must not break transfers
         pass
+

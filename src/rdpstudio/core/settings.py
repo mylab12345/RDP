@@ -137,6 +137,7 @@ SHARE_DEFAULT_USER = "kbshare"
 # keep the empty workbench minimal. Unknown ids are dropped on load.
 DASHBOARD_TILE_IDS: tuple[str, ...] = (
     "new_session",
+    "new_rdp",
     "local_terminal",
     "commands",
     "settings",
@@ -145,6 +146,10 @@ DASHBOARD_TILE_IDS: tuple[str, ...] = (
     "rdp_servers",
     "tunnels",
     "cluster",
+    "activity_log",
+    "support_chat",
+    "onboarding",
+    "feedback",
 )
 DASHBOARD_SECTION_KEYS: tuple[str, ...] = (
     "show_quick_connect",
@@ -276,9 +281,18 @@ class Settings:
     palette_recents: list = field(default_factory=list)
     # recently connected session ids (newest first, capped at 10)
     recent_session_ids: list = field(default_factory=list)
+    # connection frequency per saved session id (session_id -> count)
+    session_connect_counts: dict = field(default_factory=dict)
     # named sets of saved session ids for restoring a working tab layout
     # [{"name": str, "session_ids": [str], "created_at": float}]
     session_snapshots: list = field(default_factory=list)
+    # preferred dark theme restored when toggling back from light mode
+    preferred_dark_theme: str = DEFAULT_THEME
+    # onboarding & interactive guidance
+    onboarding_completed: bool = False
+    interactive_tooltips: bool = True
+    # responsive tablet/smartphone touch layout override
+    mobile_touch_mode: bool = False
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -354,9 +368,16 @@ class Settings:
             "terminal_override_remote": False,
             "bell_flash": True,
             "default_auto_reconnect": True,
+            "onboarding_completed": False,
+            "interactive_tooltips": True,
+            "mobile_touch_mode": False,
         }
         for name, default in bool_defaults.items():
             setattr(s, name, as_bool(getattr(s, name), default))
+
+        s.preferred_dark_theme = as_text(s.preferred_dark_theme, DEFAULT_THEME)
+        if s.preferred_dark_theme not in DARK_THEMES:
+            s.preferred_dark_theme = DEFAULT_THEME
 
         from .shares import shares_from_dicts
 
@@ -377,6 +398,15 @@ class Settings:
         if not isinstance(s.recent_session_ids, list):
             s.recent_session_ids = []
         s.recent_session_ids = [t for t in s.recent_session_ids if isinstance(t, str)][:10]
+        if not isinstance(s.session_connect_counts, dict):
+            s.session_connect_counts = {}
+        clean_counts: dict[str, int] = {}
+        for k, v in list(s.session_connect_counts.items())[:50]:
+            if isinstance(k, str) and k:
+                cnt = as_int(v, 0, minimum=0)
+                if cnt > 0:
+                    clean_counts[k] = cnt
+        s.session_connect_counts = clean_counts
         s.session_snapshots = _coerce_session_snapshots(s.session_snapshots)
         s.dashboard_layout = coerce_dashboard_layout(s.dashboard_layout)
         if not isinstance(s.geometry, dict):
@@ -384,12 +414,33 @@ class Settings:
         return s
 
     def touch_recent_session(self, session_id: str) -> None:
-        """Record a connect: newest-first, de-duplicated, capped at 10."""
+        """Record a connect: newest-first, de-duplicated, capped at 10, plus frequency."""
         if not session_id:
             return
         recents = [s for s in self.recent_session_ids if s != session_id]
         recents.insert(0, session_id)
         self.recent_session_ids = recents[:10]
+        if not isinstance(self.session_connect_counts, dict):
+            self.session_connect_counts = {}
+        self.session_connect_counts[session_id] = int(self.session_connect_counts.get(session_id, 0) or 0) + 1
+        if len(self.session_connect_counts) > 50:
+            # Retain the highest-frequency entries
+            top = sorted(self.session_connect_counts.items(), key=lambda kv: kv[1], reverse=True)[:50]
+            self.session_connect_counts = dict(top)
+
+    def frequent_session_ids(self, limit: int = 6) -> list[str]:
+        """Return session ids ordered by frequency (highest first), then recency."""
+        limit = max(1, int(limit))
+        counts = self.session_connect_counts if isinstance(self.session_connect_counts, dict) else {}
+        recents = list(self.recent_session_ids or [])
+        all_ids = list(dict.fromkeys([*recents, *counts.keys()]))
+        rec_rank = {sid: idx for idx, sid in enumerate(recents)}
+        all_ids.sort(key=lambda sid: (-int(counts.get(sid, 0) or 0), rec_rank.get(sid, 999)))
+        return all_ids[:limit]
+
+    def is_dark_mode(self) -> bool:
+        """Whether the active theme is a dark palette."""
+        return self.theme in DARK_THEMES
 
     @classmethod
     def load(cls, path: Path) -> Settings:

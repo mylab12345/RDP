@@ -15,11 +15,13 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QTreeWidget,
@@ -218,6 +220,7 @@ class SftpDialog(QDialog):
         self.setWindowTitle(f"Files (SFTP) — {controller.definition.display_name()}")
         self.resize(1100, 660)
         self.setMinimumSize(800, 500)
+        self.setAcceptDrops(True)
 
         proto = getattr(ctx.settings, "transfer_protocol", "sftp")
         if proto not in ("sftp", "scp"):
@@ -270,6 +273,19 @@ class SftpDialog(QDialog):
         top_bar.addWidget(btn_refresh_all)
         layout.addLayout(top_bar)
 
+        # Interactive Drag-and-Drop Banner
+        self.drop_banner = QFrame()
+        self.drop_banner.setObjectName("sftpDropBanner")
+        db_lay = QHBoxLayout(self.drop_banner)
+        db_lay.setContentsMargins(10, 6, 10, 6)
+        db_lay.setSpacing(8)
+        self.drop_banner_label = QLabel(
+            "⇣ Drag & drop files between REMOTE and LOCAL panes, or drop files from your desktop to upload immediately."
+        )
+        self.drop_banner_label.setObjectName("caption")
+        db_lay.addWidget(self.drop_banner_label, 1)
+        layout.addWidget(self.drop_banner)
+
         # Splitter panes
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.remote = _Pane("REMOTE (SFTP)", True)
@@ -302,8 +318,8 @@ class SftpDialog(QDialog):
         self.queue.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.queue)
 
-        # Bottom transfer status bar — live bytes, rate and a shimmering
-        # progress line while files move.
+        # Bottom transfer status bar — live bytes, rate, percentage bar,
+        # cancel button, and a shimmering progress line while files move.
         pal = palette()
         self._transfer_row = QWidget()
         tr_lay = QHBoxLayout(self._transfer_row)
@@ -313,11 +329,28 @@ class SftpDialog(QDialog):
         self._transfer_label.setStyleSheet(f"font-size: 11.5px; font-weight: 600; color: {pal['fg_dim']};")
         tr_lay.addWidget(self._transfer_label)
         tr_lay.addStretch(1)
+
+        self.transfer_progress_bar = QProgressBar()
+        self.transfer_progress_bar.setObjectName("sftpTransferProgressBar")
+        self.transfer_progress_bar.setRange(0, 100)
+        self.transfer_progress_bar.setValue(0)
+        self.transfer_progress_bar.setFixedWidth(180)
+        self.transfer_progress_bar.setFixedHeight(16)
+        tr_lay.addWidget(self.transfer_progress_bar)
+
         self._transfer_rate = QLabel("")
         self._transfer_rate.setStyleSheet(
             f"font-family: {pal.get('ui_mono') or 'monospace'}; font-size: 11px; color: {pal['fg_muted']};"
         )
         tr_lay.addWidget(self._transfer_rate)
+
+        self.btn_cancel_transfer = QPushButton("Cancel")
+        self.btn_cancel_transfer.setObjectName("danger")
+        self.btn_cancel_transfer.setFixedHeight(24)
+        self.btn_cancel_transfer.setToolTip("Cancel active transfer")
+        self.btn_cancel_transfer.clicked.connect(self.engine.cancel)
+        tr_lay.addWidget(self.btn_cancel_transfer)
+
         self._shimmer = ShimmerProgressBar()
         self._shimmer.setFixedHeight(4)
         self._transfer_row.setVisible(False)
@@ -658,6 +691,8 @@ class SftpDialog(QDialog):
         self.queue.addTopLevelItem(item)
         self._ops[op_id] = {"item": item, "pct": 0.0}
         self._transfer_row.setVisible(True)
+        self.transfer_progress_bar.setRange(0, 100)
+        self.transfer_progress_bar.setValue(0)
         self._shimmer.set_percent(0)
         self._shimmer.start_shimmer()
         self._transfer_label.setText(f"{arrow} — {len(names)} item(s)")
@@ -671,11 +706,14 @@ class SftpDialog(QDialog):
             pct = int(done * 100 / total)
             progress_text = f"{pct} %  ({format_bytes(done)} / {format_bytes(total)})"
             files_text = f"{format_bytes(rate)}/s · {files}/{files_total} files"
+            self.transfer_progress_bar.setRange(0, 100)
+            self.transfer_progress_bar.setValue(max(0, min(100, pct)))
         else:
             # Indeterminate total (blind SCP without SFTP for sizing).
             pct = -1
             progress_text = f"{format_bytes(done)} transferred"
             files_text = f"{format_bytes(rate)}/s · {files} file(s)"
+            self.transfer_progress_bar.setRange(0, 0)
         op["pct"] = pct if pct >= 0 else 0
         item.setText(2, progress_text)
         item.setText(3, files_text)
@@ -692,11 +730,48 @@ class SftpDialog(QDialog):
         if not self._ops:  # nothing left in flight — park the status line
             self._shimmer.stop_shimmer()
             self._shimmer.set_percent(100 if ok else 0)
+            self.transfer_progress_bar.setRange(0, 100)
+            self.transfer_progress_bar.setValue(100 if ok else 0)
             self._transfer_label.setText("Transfer finished" if ok else "Transfer stopped")
             self._transfer_rate.setText("")
             QTimer.singleShot(1800, self._transfer_row.hide)
         self._call("list_dir", self.remote.path.text())
         self._call("list_local", self.local.path.text())
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        mime = event.mimeData()
+        if FileTree._can_accept(mime):
+            self.drop_banner_label.setText(
+                f"⇣ Release to transfer file(s) into {self.remote.current_dir()}"
+            )
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self.drop_banner_label.setText(
+            "⇣ Drag & drop files between REMOTE and LOCAL panes, or drop files from your desktop to upload immediately."
+        )
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        self.drop_banner_label.setText(
+            "⇣ Drag & drop files between REMOTE and LOCAL panes, or drop files from your desktop to upload immediately."
+        )
+        mime = event.mimeData()
+        target_is_remote = not mime.hasFormat(MIME_REMOTE_FILES)
+        target_dir = self.remote.current_dir() if target_is_remote else self.local.current_dir()
+        action = classify_drop(
+            target_is_remote=target_is_remote,
+            target_dir=target_dir,
+            has_remote_mime=mime.hasFormat(MIME_REMOTE_FILES),
+            remote_payload=bytes(mime.data(MIME_REMOTE_FILES)) if mime.hasFormat(MIME_REMOTE_FILES) else b"",
+            has_local_mime=mime.hasFormat(MIME_LOCAL_FILES),
+            local_payload=bytes(mime.data(MIME_LOCAL_FILES)) if mime.hasFormat(MIME_LOCAL_FILES) else b"",
+            urls=[u.toString() for u in mime.urls()] if mime.hasUrls() else [],
+        )
+        self._on_pane_drop(target_is_remote, action)
+        event.acceptProposedAction()
 
     def _on_opdone(self, op, ok, message) -> None:
         if op in ("mkdir", "remove", "rename"):

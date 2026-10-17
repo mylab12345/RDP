@@ -344,7 +344,27 @@ class SettingsDialog(QDialog):
 
         # -- theme card grid --
         grp, grp_lay = _make_group("Theme", pal)
-        grp_lay.addSpacing(6)
+        grp_lay.addSpacing(4)
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        mode_row.addWidget(_make_row_label("Quick mode switch", pal))
+        self.btn_quick_dark = QPushButton("☾ Dark Mode")
+        self.btn_quick_dark.setObjectName("subtle")
+        self.btn_quick_dark.setToolTip("Switch to your preferred dark theme")
+        self.btn_quick_dark.clicked.connect(
+            lambda: self._on_theme_card_clicked(
+                getattr(settings, "preferred_dark_theme", "studio_dark") or "studio_dark"
+            )
+        )
+        mode_row.addWidget(self.btn_quick_dark)
+        self.btn_quick_light = QPushButton("☀ Light Mode")
+        self.btn_quick_light.setObjectName("subtle")
+        self.btn_quick_light.setToolTip("Switch to the high-clarity Light theme")
+        self.btn_quick_light.clicked.connect(lambda: self._on_theme_card_clicked("mobaxterm"))
+        mode_row.addWidget(self.btn_quick_light)
+        mode_row.addStretch(1)
+        grp_lay.addLayout(mode_row)
 
         grid = QGridLayout()
         grid.setSpacing(10)
@@ -434,6 +454,20 @@ class SettingsDialog(QDialog):
         r1.addWidget(self.font_size)
         grp2_lay.addLayout(r1)
 
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(6)
+        preset_row.addWidget(_make_row_label("Accessibility size presets", pal))
+        self.font_size_presets: list[QPushButton] = []
+        for pts, label in ((9, "Small (9pt)"), (10, "Default (10pt)"), (12, "Large (12pt)"), (14, "XL (14pt)")):
+            pbtn = QPushButton(label)
+            pbtn.setObjectName("subtle")
+            pbtn.setMinimumHeight(24)
+            pbtn.clicked.connect(lambda _=False, p=pts: self.font_size.setValue(p))
+            self.font_size_presets.append(pbtn)
+            preset_row.addWidget(pbtn)
+        preset_row.addStretch(1)
+        grp2_lay.addLayout(preset_row)
+
         # font preview
         self._font_preview = QLabel("ABCDEFGHIJK  0123456789  ls -la  ~/ops  ERROR  NOMINAL")
         self._font_preview.setObjectName("card")
@@ -498,6 +532,20 @@ class SettingsDialog(QDialog):
         self.animations.setChecked(settings.animations)
         self.animations.setToolTip("Turn off for reduced motion — sidebar, dialogs and pulses go static")
         grp4_lay.addWidget(self.animations)
+
+        self.interactive_tooltips = QCheckBox("Interactive tooltips with keyboard shortcuts & pro-tips")
+        self.interactive_tooltips.setChecked(getattr(settings, "interactive_tooltips", True))
+        self.interactive_tooltips.setToolTip("Show rich HTML tooltips with keyboard shortcuts and workflow tips")
+        grp4_lay.addWidget(self.interactive_tooltips)
+
+        self.mobile_touch_mode = QCheckBox(
+            "Mobile / tablet responsive touch layout (compact toolbar, touch-sized controls)"
+        )
+        self.mobile_touch_mode.setChecked(getattr(settings, "mobile_touch_mode", False))
+        self.mobile_touch_mode.setToolTip(
+            "Optimize layout for tablet and smartphone screens (Ctrl+Shift+M)"
+        )
+        grp4_lay.addWidget(self.mobile_touch_mode)
 
         dash_row = QHBoxLayout()
         dash_row.setSpacing(12)
@@ -1027,6 +1075,8 @@ class SettingsDialog(QDialog):
         self.density.setCurrentIndex(self.density.findData(defaults.density))
         self.toolbar_labels.setChecked(defaults.toolbar_labels)
         self.animations.setChecked(defaults.animations)
+        self.interactive_tooltips.setChecked(defaults.interactive_tooltips)
+        self.mobile_touch_mode.setChecked(defaults.mobile_touch_mode)
         self.accent_color.setCurrentIndex(self.accent_color.findData(defaults.accent_color))
         self.accent_custom.setText(defaults.accent_color)
         self._refresh_accent_controls()
@@ -1058,11 +1108,17 @@ class SettingsDialog(QDialog):
             self._on_theme_card_clicked(defaults.theme)
 
     def _save(self) -> None:
+        from ..core.settings import DARK_THEMES
+
         s = self.result_settings
         s.theme = self._selected_theme
+        if s.theme in DARK_THEMES:
+            s.preferred_dark_theme = s.theme
         s.density = self.density.currentData() or "comfortable"
         s.toolbar_labels = self.toolbar_labels.isChecked()
         s.animations = self.animations.isChecked()
+        s.interactive_tooltips = self.interactive_tooltips.isChecked()
+        s.mobile_touch_mode = self.mobile_touch_mode.isChecked()
         s.accent_color = self._selected_accent_color()
         s.font_family = self.font_family.currentText()
         s.font_size = self.font_size.value()
