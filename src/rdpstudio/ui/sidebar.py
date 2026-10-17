@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -24,7 +22,7 @@ from ..core.models import Session
 from ..core.plugin import registry
 from ..core.store import SessionStore
 from .theme import icon, palette, protocol_badge, toolbar_icon
-from .widgets import EmptyState, FlowLayout
+from .widgets import EmptyState
 
 ROLE_ID = Qt.ItemDataRole.UserRole + 1
 ROLE_GROUP = Qt.ItemDataRole.UserRole + 2
@@ -55,10 +53,6 @@ class SessionTree(QWidget):
     rdpServerRequested = Signal()
     paletteRequested = Signal()
     settingsRequested = Signal()
-    activityLogRequested = Signal()
-    supportChatRequested = Signal()
-    onboardingRequested = Signal()
-    feedbackRequested = Signal()
 
     def __init__(self, store: SessionStore, parent: QWidget | None = None, settings=None) -> None:
         super().__init__(parent)
@@ -212,22 +206,6 @@ class SessionTree(QWidget):
         self.side_quick.returnPressed.connect(self.quickConnectRequested.emit)
         layout.addWidget(self.side_quick)
 
-        # Frequent & Pinned Servers one-click strip
-        self.frequent_panel = QFrame()
-        self.frequent_panel.setObjectName("sideFrequentPanel")
-        fp_lay = QVBoxLayout(self.frequent_panel)
-        fp_lay.setContentsMargins(2, 2, 2, 2)
-        fp_lay.setSpacing(4)
-        fp_hdr = QLabel("One-Click Frequent Servers")
-        fp_hdr.setObjectName("caption")
-        fp_lay.addWidget(fp_hdr)
-        self._frequent_chips_host = QWidget()
-        self._frequent_flow = FlowLayout(self._frequent_chips_host, margin=0, spacing=4)
-        fp_lay.addWidget(self._frequent_chips_host)
-        self.frequent_buttons: list[QPushButton] = []
-        self.frequent_panel.setVisible(False)
-        layout.addWidget(self.frequent_panel)
-
         # Filter row — full width for search + tag filter so neither truncates
         bar_wrap = QWidget()
         bl = QHBoxLayout(bar_wrap)
@@ -338,10 +316,6 @@ class SessionTree(QWidget):
             ("Network tools…", "server", "networkToolsRequested"),
             ("SSH key utility…", "key", "keyUtilityRequested"),
             ("RDP servers…", "windows", "rdpServerRequested"),
-            ("Activity & status log…", "activity", "activityLogRequested"),
-            ("Support & troubleshooting…", "help", "supportChatRequested"),
-            ("Onboarding guide…", "star", "onboardingRequested"),
-            ("Send feedback…", "edit", "feedbackRequested"),
             ("Command palette…", "search", "paletteRequested"),
             ("Settings…", "gear", "settingsRequested"),
         ):
@@ -420,7 +394,6 @@ class SessionTree(QWidget):
         sessions = self.store.sessions()
         total = len(sessions)
         self._sync_tag_filter(sessions)
-        self._sync_frequent_panel(sessions)
 
         # Count badge — styled by the global QSS (#sideCount)
         self._count_label.setText(str(total) if total else "")
@@ -505,62 +478,6 @@ class SessionTree(QWidget):
             self.tree.setVisible(not show_empty)
             self._empty_state.setVisible(show_empty)
             self._no_match_state.setVisible(False)
-
-    def _sync_frequent_panel(self, sessions: list[Session]) -> None:
-        """Populate the one-click Frequent & Saved Servers quick-connect chips."""
-        while self._frequent_flow.count():
-            item = self._frequent_flow.takeAt(0)
-            w = item.widget() if item else None
-            if w is not None:
-                w.deleteLater()
-        self.frequent_buttons.clear()
-
-        if not sessions:
-            self.frequent_panel.setVisible(False)
-            return
-
-        counts = (
-            getattr(self._settings, "session_connect_counts", {})
-            if self._settings is not None
-            else {}
-        ) or {}
-        recents = (
-            list(getattr(self._settings, "recent_session_ids", []) or [])
-            if self._settings is not None
-            else []
-        )
-        ordered = sorted(
-            sessions,
-            key=lambda s: (
-                not bool(s.options.get("pinned", False)),
-                -int(counts.get(s.id, 0) or 0),
-                recents.index(s.id) if s.id in recents else 999,
-                s.display_name().lower(),
-            ),
-        )[:5]
-
-        for s in ordered:
-            pinned = bool(s.options.get("pinned", False))
-            cnt = int(counts.get(s.id, 0) or 0)
-            text = f"★ {s.display_name()}" if pinned else s.display_name()
-            if cnt > 1:
-                text += f" ({cnt}×)"
-            btn = QPushButton(text)
-            btn.setObjectName("subtle")
-            btn.setFixedHeight(22)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setIcon(
-                protocol_badge(s.protocol, _PROTO_ICONS.get(s.protocol, "server"))
-            )
-            btn.setIconSize(QSize(13, 13))
-            btn.setToolTip(
-                f"One-click connect to {s.display_name()} ({s.protocol.upper()} · {s.target()})"
-            )
-            btn.clicked.connect(lambda _=False, sid=s.id: self.connectRequested.emit(sid))
-            self._frequent_flow.addWidget(btn)
-            self.frequent_buttons.append(btn)
-
-        self.frequent_panel.setVisible(bool(self.frequent_buttons))
 
     def _sync_tag_filter(self, sessions: list[Session]) -> None:
         """Refresh the tag/category dropdown while preserving the selection."""
@@ -675,12 +592,6 @@ class SessionTree(QWidget):
                     "Unpin session" if pinned else "Pin session",
                     lambda: self._toggle_pin(session_id),
                 )
-                if s and (s.host or s.target()):
-                    menu.addAction(
-                        icon("copy"),
-                        "Copy host",
-                        lambda: QGuiApplication.clipboard().setText(s.host or s.target()),
-                    )
                 menu.addSeparator()
                 menu.addAction(icon("edit"), "Edit…", lambda: self.editRequested.emit(session_id))
                 menu.addAction(icon("plus"), "Duplicate", lambda: self.duplicateRequested.emit(session_id))

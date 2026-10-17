@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QSize, Qt, QTimer
-from PySide6.QtGui import QDropEvent, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSplitter,
     QStatusBar,
@@ -33,9 +32,8 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, __version__
 from ..core import paths
-from ..core.activity import default_activity_log, log_activity
 from ..core.log import get_logger
-from ..core.models import PROTOCOL_RDP, Session
+from ..core.models import Session
 from ..core.plugin import (
     SessionContext,
     SessionController,
@@ -51,19 +49,9 @@ from .command_palette import CommandPaletteDialog
 from .dashboard import DashboardMixin
 from .docking import DockDragFilter
 from .main_actions import MainActionsMixin
-from .onboarding import set_interactive_tooltip
 from .sidebar import SessionTree
-from .support_chat import SupportChatPanel
 from .theme import icon, palette, protocol_badge
-from .widgets import (
-    STATE_COLORS,
-    ShimmerProgressBar,
-    StateChip,
-    StatusIndicator,
-    animate_in,
-    pulse,
-    toast,
-)
+from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
 
 log = get_logger("ui.main")
 
@@ -118,7 +106,6 @@ class SessionTab(QWidget):
         self._custom_title: str | None = None
         self._toolbar_visible = True
         self._is_closing = False
-        self.setAcceptDrops(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -144,10 +131,6 @@ class SessionTab(QWidget):
         self.proto_chip = QLabel(proto_str)
         self.proto_chip.setObjectName("protoChip")
         left_l.addWidget(self.proto_chip)
-
-        self.status_dot = StatusIndicator("connecting")
-        self.status_dot.setObjectName("sessionStatusIndicator")
-        left_l.addWidget(self.status_dot)
 
         self.chip = StateChip("connecting", "info")
         left_l.addWidget(self.chip)
@@ -216,14 +199,6 @@ class SessionTab(QWidget):
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             ah.addWidget(b)
 
-        self.btn_support = make_action_btn(
-            "Support",
-            "help",
-            "Toggle in-session support & instant troubleshooting chat",
-            self.toggle_support_panel,
-        )
-        ah.addWidget(self.btn_support)
-
         # Separator between actions and Close — visual grouping
         sep = QFrame()
         sep.setObjectName("sessionSep")
@@ -270,61 +245,13 @@ class SessionTab(QWidget):
         tc_l.addWidget(self._content, 1)
         layout.addWidget(self._term_container, 1)
 
-        # Command bar — distinct surface below terminal (must remain at layout index 3)
+        # Command bar — distinct surface below terminal
         self.command_bar = None
         if caps.shell:
             self.command_bar = CommandBar()
             self.command_bar.setObjectName("sessionCommandBar")
             self.command_bar.commandSent.connect(self._on_command_sent)
             layout.addWidget(self.command_bar)
-
-        # Visual Drag-and-Drop File Transfer Progress Bar (index 4+)
-        self.transfer_bar = QFrame()
-        self.transfer_bar.setObjectName("sessionTransferBar")
-        tb_lay = QVBoxLayout(self.transfer_bar)
-        tb_lay.setContentsMargins(12, 6, 12, 6)
-        tb_lay.setSpacing(4)
-        tb_top = QHBoxLayout()
-        tb_top.setSpacing(8)
-        self.transfer_label = QLabel("Ready for drag-and-drop file transfer")
-        self.transfer_label.setObjectName("caption")
-        tb_top.addWidget(self.transfer_label, 1)
-        self.transfer_progress = QProgressBar()
-        self.transfer_progress.setObjectName("sessionTransferProgress")
-        self.transfer_progress.setRange(0, 100)
-        self.transfer_progress.setValue(0)
-        self.transfer_progress.setFixedWidth(180)
-        self.transfer_progress.setFixedHeight(16)
-        tb_top.addWidget(self.transfer_progress)
-        tb_lay.addLayout(tb_top)
-        self.transfer_shimmer = ShimmerProgressBar()
-        self.transfer_shimmer.setFixedHeight(4)
-        tb_lay.addWidget(self.transfer_shimmer)
-        self.transfer_bar.setVisible(False)
-        layout.addWidget(self.transfer_bar)
-
-        # In-Session Support & Troubleshooting Chat Panel (index 5+)
-        defn_name = defn_obj.display_name() if defn_obj and hasattr(defn_obj, "display_name") else "Session"
-        defn_host = getattr(defn_obj, "host", "") or ""
-        defn_port = int(getattr(defn_obj, "port", 0) or 0)
-        self.support_panel = SupportChatPanel(
-            session_name=defn_name,
-            protocol=proto_str.lower(),
-            host=defn_host,
-            port=defn_port,
-            state="connecting",
-            compact=True,
-            parent=self,
-        )
-        self.support_panel.setVisible(False)
-        self.support_panel.closeRequested.connect(lambda: self.support_panel.setVisible(False))
-        self.support_panel.reconnectRequested.connect(self.controller.request_reconnect)
-        self.support_panel.feedbackRequested.connect(
-            lambda prefill: self.main.open_feedback_dialog(
-                prefill_description=prefill, category="bug"
-            )
-        )
-        layout.addWidget(self.support_panel)
 
         widget_changed = getattr(controller, "widgetChanged", None)
         if widget_changed is not None:
@@ -334,77 +261,6 @@ class SessionTab(QWidget):
         controller.statusInfo.connect(self._on_status)
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
-
-    def toggle_support_panel(self) -> bool:
-        """Show or hide the embedded in-session support chat panel."""
-        vis = self.support_panel.isHidden()
-        self.support_panel.setVisible(vis)
-        if vis:
-            self.support_panel.input.setFocus()
-        return vis
-
-    def show_transfer_progress(self, label: str, percent: int) -> None:
-        """Display the visual file-transfer progress bar on this session tab."""
-        pct = max(0, min(100, int(percent)))
-        self.transfer_bar.setVisible(True)
-        self.transfer_label.setText(label)
-        self.transfer_progress.setValue(pct)
-        self.transfer_shimmer.set_percent(pct)
-        if 0 < pct < 100:
-            self.transfer_shimmer.start_shimmer()
-        else:
-            self.transfer_shimmer.stop_shimmer()
-
-    def handle_dropped_files(self, local_paths: list[str]) -> int:
-        """Handle local file paths dropped onto the session tab."""
-        valid = [str(p) for p in local_paths if p]
-        if not valid:
-            return 0
-        defn = getattr(self.controller, "definition", None)
-        sess_name = defn.display_name() if defn and hasattr(defn, "display_name") else "Session"
-        proto = (getattr(defn, "protocol", "") or "ssh").lower()
-        count = len(valid)
-        names_preview = ", ".join(Path(p).name for p in valid[:3])
-        if count > 3:
-            names_preview += f" (+{count - 3} more)"
-
-        self.show_transfer_progress(f"Uploading {count} file(s): {names_preview}", 100)
-        log_activity(
-            "transfer",
-            f"Drag-and-drop transfer ({count} file{'s' if count != 1 else ''})",
-            names_preview,
-            level="good",
-            session=sess_name,
-            protocol=proto,
-        )
-        caps = self.controller.capabilities()
-        if caps.sftp and hasattr(self.main, "open_sftp_for_controller"):
-            try:
-                self.main.open_sftp_for_controller(self.controller)
-                dlg = self.main._tool_dialogs.get(id(self.controller))
-                if dlg is not None and hasattr(dlg, "_upload_paths"):
-                    dlg._upload_paths(valid, dlg.remote.current_dir() or ".")
-            except Exception:  # noqa: BLE001
-                log.debug("sftp drop handoff skipped", exc_info=True)
-        toast(self.main, f"Queued {count} dropped file(s) for transfer", "good")
-        return count
-
-    def dragEnterEvent(self, event) -> None:  # noqa: N802
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
-        mime = event.mimeData()
-        if mime.hasUrls():
-            paths_list = [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
-            if not paths_list:
-                paths_list = [u.toString() for u in mime.urls()]
-            self.handle_dropped_files(paths_list)
-            event.acceptProposedAction()
-        else:
-            super().dropEvent(event)
 
     def _request_close(self) -> None:
         """User pressed the prominent Close button in the header."""
@@ -486,17 +342,6 @@ class SessionTab(QWidget):
         pal = palette()
         self.chip.setText((state or "").upper())
         self.chip.set_color(STATE_COLORS.get(state, "fg_dim"))
-        dot_state = {
-            SessionState.CONNECTED: "connected",
-            SessionState.CONNECTING: "connecting",
-            SessionState.RECONNECTING: "reconnecting",
-            SessionState.FAILED: "failed",
-            SessionState.CLOSED: "disconnected",
-        }.get(state, "disconnected")
-        if hasattr(self, "status_dot"):
-            self.status_dot.set_status(dot_state)
-        if hasattr(self, "support_panel"):
-            self.support_panel.update_session_context(state=state or "standby")
         visible = state in (SessionState.CONNECTED, SessionState.CLOSED, SessionState.FAILED)
         if visible and not self.btn_reconnect.isVisible():
             # first live connection: pulse the state chip once
@@ -564,14 +409,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # Open (non-modal) tool dialogs keyed by controller id — reuse instead
         # of stacking a new window on every click.
         self._tool_dialogs: dict[int, QWidget] = {}
-        self._is_compact_viewport = False
-
-        # Real-time user & connection activity log
-        self.activity_log = default_activity_log()
-        self._activity_bus_unsub = self.activity_log.attach_bus(self.ctx.bus)
-        self._activity_listener_unsub = self.activity_log.subscribe(
-            lambda _entry: QTimer.singleShot(0, self._update_activity_badge)
-        )
 
         self._build_menu()
         self._build_toolbar()
@@ -579,9 +416,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._build_status_bar()
         self._bind_shortcuts()
         self._setup_tray()
-        self._apply_interactive_tooltips()
-        if getattr(self.ctx.settings, "mobile_touch_mode", False):
-            self.set_mobile_touch_mode(True)
         # Live theme switches re-tint icons and palette-baked chrome.
         theme.add_theme_changed_callback(self._refresh_theme)
         # The window can be deleted without closeEvent (deleteLater, tests,
@@ -776,10 +610,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.sidebar.rdpServerRequested.connect(self.open_rdp_server_manager)
         self.sidebar.paletteRequested.connect(self.open_command_palette)
         self.sidebar.settingsRequested.connect(self.open_settings)
-        self.sidebar.activityLogRequested.connect(self.open_activity_log)
-        self.sidebar.supportChatRequested.connect(self.open_support_chat)
-        self.sidebar.onboardingRequested.connect(self.open_onboarding_guide)
-        self.sidebar.feedbackRequested.connect(self.open_feedback_dialog)
 
         # Track manual splitter drag so the sidebar width survives a
         # hide/show toggle and persists across restarts.
@@ -1062,7 +892,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             return
         if checked is None:
             checked = self._sidebar_collapsed  # invert the current state
-        self._sidebar_collapsed = not bool(checked)
         self._sync_sidebar_actions(checked)
         # The tween resizes every open tab ~10 times in 140 ms. Sessions with
         # an embedded native surface (RDP) must not read that as the user
@@ -1162,14 +991,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     def _on_destroyed_remove_theme_callback(self, *_args) -> None:
         """Drop the global theme callback when the C++ window is deleted."""
         theme.remove_theme_changed_callback(self._refresh_theme)
-        for attr in ("_activity_bus_unsub", "_activity_listener_unsub"):
-            fn = getattr(self, attr, None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:
-                    pass
-                setattr(self, attr, None)
 
     def _refresh_theme(self) -> None:
         """Re-tint every palette-baked icon after a live theme switch.
@@ -1212,8 +1033,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # Tabs-menu actions — duplicating them here would fire twice).
         QShortcut(QKeySequence("Ctrl+K"), self, self.open_command_palette)
         QShortcut(QKeySequence("Ctrl+Shift+K"), self, self._focus_quick_connect)
-        QShortcut(QKeySequence("Ctrl+F"), self, self._focus_sidebar_search)
-        QShortcut(QKeySequence("Ctrl+="), self, self.increase_font_size)
         # Ctrl+W and Ctrl+Shift+W are terminal editing keys (backward-word
         # delete).  They deliberately have no tab-closing binding.
 
@@ -1224,14 +1043,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         """Ctrl+Shift+K — jump to the toolbar quick-connect input."""
         self.quick.setFocus()
         self.quick.selectAll()
-
-    def _focus_sidebar_search(self) -> None:
-        """Ctrl+F — focus the sidebar session search box."""
-        if getattr(self, "_sidebar_collapsed", False):
-            self._toggle_sidebar(True)
-        if hasattr(self, "sidebar") and hasattr(self.sidebar, "search"):
-            self.sidebar.search.setFocus()
-            self.sidebar.search.selectAll()
 
     def _update_empty_state(self) -> None:
         has_tabs = self.tabs.count() > 0
@@ -1395,16 +1206,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if caps.sftp:
             menu.addSeparator()
             menu.addAction("Browse Files (SFTP)", widget.controller.open_sftp)
-
-        menu.addSeparator()
-        menu.addAction("In-Session Support Chat", widget.toggle_support_panel)
-        menu.addAction("Connection Activity Log…", self.open_activity_log)
-        defn = widget.controller.definition
-        if defn.host or defn.target():
-            menu.addAction(
-                f"Copy Host ({defn.host or defn.target()})",
-                lambda: QGuiApplication.clipboard().setText(defn.host or defn.target()),
-            )
 
         menu.exec(tab_bar.mapToGlobal(pos))
 
@@ -1679,14 +1480,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         controller.start()
         self._update_empty_state()
-        log_activity(
-            "session",
-            f"Opened {defn.protocol.upper()} session",
-            f"Target: {defn.target()}",
-            level="info",
-            session=defn.display_name(),
-            protocol=defn.protocol,
-        )
         # Recently-connected sessions power the sidebar's Recent section.
         if defn.id and defn.protocol != "local":
             try:
@@ -1826,7 +1619,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         return None
 
     def _build_status_bar(self) -> None:
-        """Status bar: session identity left, live indicators + accessibility & feedback right."""
+        """Status bar: session identity left, live state chip + summary right."""
         status = QStatusBar()
         status.setSizeGripEnabled(False)
         self.setStatusBar(status)
@@ -1836,76 +1629,15 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self.session_info_label.setAccessibleName("Current session")
         status.addWidget(self.session_info_label, 1)
 
-        # Real-time connection status indicator dot + label
-        self.status_indicator = StatusIndicator("disconnected")
-        self.status_indicator.setObjectName("statusConnectionIndicator")
-        status.addPermanentWidget(self.status_indicator)
-
         # Live connection state of the *current* tab (CONNECTING/CONNECTED/
         # RECONNECTING/CLOSED/FAILED) — the at-a-glance health indicator.
         self.state_chip = StateChip("STANDBY", "fg_dim")
         self.state_chip.setAccessibleName("Session state")
         status.addPermanentWidget(self.state_chip)
 
-        # Live user & connection activity log button
-        self.activity_btn = QPushButton("0 events")
-        self.activity_btn.setObjectName("subtle")
-        self.activity_btn.setIcon(icon("activity", size=13))
-        self.activity_btn.setFixedHeight(22)
-        self.activity_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.activity_btn.setToolTip("Open real-time Connection Status & Activity Log (Ctrl+Shift+A)")
-        self.activity_btn.clicked.connect(self.open_activity_log)
-        status.addPermanentWidget(self.activity_btn)
-
-        # Accessibility font scaling controls
-        self.font_dec_btn = QPushButton("A-")
-        self.font_dec_btn.setObjectName("subtle")
-        self.font_dec_btn.setFixedSize(26, 22)
-        self.font_dec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.font_dec_btn.setToolTip("Decrease font size (Ctrl+-)")
-        self.font_dec_btn.clicked.connect(self.decrease_font_size)
-        status.addPermanentWidget(self.font_dec_btn)
-
-        self.font_size_label = QLabel(f"{self.ctx.settings.font_size}pt")
-        self.font_size_label.setObjectName("caption")
-        self.font_size_label.setToolTip("Current terminal & UI font size (Ctrl+0 to reset)")
-        status.addPermanentWidget(self.font_size_label)
-
-        self.font_inc_btn = QPushButton("A+")
-        self.font_inc_btn.setObjectName("subtle")
-        self.font_inc_btn.setFixedSize(26, 22)
-        self.font_inc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.font_inc_btn.setToolTip("Increase font size (Ctrl++)")
-        self.font_inc_btn.clicked.connect(self.increase_font_size)
-        status.addPermanentWidget(self.font_inc_btn)
-
-        # One-click Dark / Light mode toggle button
-        self.theme_toggle_btn = QPushButton(
-            "☾ Dark" if self.ctx.settings.is_dark_mode() else "☀ Light"
-        )
-        self.theme_toggle_btn.setObjectName("subtle")
-        self.theme_toggle_btn.setFixedHeight(22)
-        self.theme_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.theme_toggle_btn.setToolTip("Toggle Dark / Light theme mode (Ctrl+Alt+T)")
-        self.theme_toggle_btn.clicked.connect(self.toggle_dark_light_theme)
-        status.addPermanentWidget(self.theme_toggle_btn)
-
-        # Direct UI Feedback button
-        self.feedback_status_btn = QPushButton("Feedback")
-        self.feedback_status_btn.setObjectName("subtle")
-        self.feedback_status_btn.setIcon(icon("edit", size=13))
-        self.feedback_status_btn.setFixedHeight(22)
-        self.feedback_status_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.feedback_status_btn.setToolTip(
-            "Suggest improvements or report an issue directly from the UI (Ctrl+Shift+I)"
-        )
-        self.feedback_status_btn.clicked.connect(self.open_feedback_dialog)
-        status.addPermanentWidget(self.feedback_status_btn)
-
         self.status_label = QLabel("")
         self.status_label.setObjectName("caption")
         status.addPermanentWidget(self.status_label)
-        self._update_activity_badge()
 
     def _tab_changed(self, index: int) -> None:
         widget = self.tabs.widget(index)
@@ -1973,58 +1705,22 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
     # Live state chip (status bar)
     # ------------------------------------------------------------------
     def _update_state_chip(self, controller: SessionController | None) -> None:
-        """Mirror the current tab's session state in the status-bar chip & live dot."""
+        """Mirror the current tab's session state in the status-bar chip."""
         if controller is None:
             self.state_chip.set_color("fg_dim")
             self.state_chip.setText("STANDBY")
-            if hasattr(self, "status_indicator"):
-                self.status_indicator.set_status("disconnected")
             self.setWindowTitle(APP_NAME)
             return
         state = controller.state()
         self.state_chip.set_color(STATE_COLORS.get(state, "fg_dim"))
         self.state_chip.setText((state or "").upper())
-        if hasattr(self, "status_indicator"):
-            dot_state = {
-                SessionState.CONNECTED: "connected",
-                SessionState.CONNECTING: "connecting",
-                SessionState.RECONNECTING: "reconnecting",
-                SessionState.FAILED: "failed",
-                SessionState.CLOSED: "disconnected",
-            }.get(state, "disconnected")
-            self.status_indicator.set_status(dot_state)
 
     def _on_tab_state_changed(self, state: str, controller: SessionController) -> None:
-        defn = getattr(controller, "definition", None)
-        sess_name = defn.display_name() if defn and hasattr(defn, "display_name") else "Session"
-        proto = getattr(defn, "protocol", "") or "ssh"
-        level_map = {
-            SessionState.CONNECTED: "good",
-            SessionState.CONNECTING: "info",
-            SessionState.RECONNECTING: "warn",
-            SessionState.FAILED: "bad",
-            SessionState.CLOSED: "info",
-        }
-        if state:
-            log_activity(
-                "connection",
-                f"Session state → {state.upper()}",
-                f"{proto.upper()} · {defn.target() if defn else ''}",
-                level=level_map.get(state, "info"),
-                session=sess_name,
-                protocol=proto,
-            )
         if self.current_controller() is not controller:
             return
         self._update_state_chip(controller)
         if state and controller.definition.protocol != "local":
             self.setWindowTitle(f"{state.upper()} · {APP_NAME}")
-
-    def _update_activity_badge(self) -> None:
-        if not hasattr(self, "activity_btn"):
-            return
-        total = self.activity_log.count() if hasattr(self, "activity_log") else 0
-        self.activity_btn.setText(f"{total} event{'s' if total != 1 else ''}")
 
     # -- dialogs -------------------------------------------------------------
     def new_session(self, *args) -> None:
@@ -2037,39 +1733,6 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             self._refresh_dashboard()
             if dlg.connect_requested and dlg.session.id:
                 self.connect_session(dlg.session.id)
-
-    def new_rdp_session(self, *args) -> None:
-        """Open the New Session dialog pre-set to RDP (port 3389)."""
-        from .session_dialog import SessionDialog
-
-        group = self.sidebar.selected_group()
-        dlg = SessionDialog(
-            self.ctx,
-            Session(protocol=PROTOCOL_RDP, port=3389, group=group),
-            self,
-        )
-        if dlg.exec():
-            self.sidebar.reload()
-            self._refresh_dashboard()
-            if dlg.connect_requested and dlg.session.id:
-                self.connect_session(dlg.session.id)
-
-    def new_sftp_session(self, *args) -> None:
-        """Open SFTP on the current SSH tab, or prompt to create an SSH/SFTP session."""
-        tab = self._current_tab()
-        if tab is not None and tab.controller.capabilities().sftp:
-            tab.controller.open_sftp()
-            return
-        self.new_session()
-
-    def toggle_pin_session(self, session_id: str) -> None:
-        """Pin or unpin a saved session and refresh sidebar + dashboard."""
-        if hasattr(self, "sidebar") and hasattr(self.sidebar, "_toggle_pin"):
-            self.sidebar._toggle_pin(session_id)
-        self._refresh_dashboard()
-
-    def delete_session(self, session_id: str) -> None:
-        self._delete_session(session_id)
 
     def open_local_terminal(self, *args) -> SessionTab | None:
         from ..core.models import PROTOCOL_LOCAL
@@ -2234,13 +1897,11 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
                 log.exception("apply terminal preferences failed")
 
     def apply_theme_id(self, theme_id: str) -> None:
-        from ..core.settings import DARK_THEMES, THEME_CHOICES, THEME_IDS
+        from ..core.settings import THEME_CHOICES, THEME_IDS
 
         if theme_id not in THEME_IDS:
             return
         self.ctx.settings.theme = theme_id
-        if theme_id in DARK_THEMES:
-            self.ctx.settings.preferred_dark_theme = theme_id
         self.ctx.settings.save(paths.settings_file())
         theme.apply_theme(
             QApplication.instance(),
@@ -2251,218 +1912,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         )
         self._sync_theme_actions()
         self._apply_terminal_prefs()
-        if hasattr(self, "theme_toggle_btn"):
-            self.theme_toggle_btn.setText(
-                "☾ Dark" if self.ctx.settings.is_dark_mode() else "☀ Light"
-            )
         label = dict(THEME_CHOICES).get(theme_id, theme_id)
-        short_label = label.split("—")[0].strip()
-        log_activity("ui", f"Theme changed to {short_label}", f"theme_id={theme_id}", level="info")
-        toast(self, f"Theme: {short_label}", "info")
-
-    def toggle_dark_light_theme(self) -> str:
-        """Switch between Dark mode (preferred dark theme) and Light mode ('mobaxterm')."""
-        from ..core.settings import DARK_THEMES, DEFAULT_THEME
-
-        if self.ctx.settings.is_dark_mode():
-            self.ctx.settings.preferred_dark_theme = self.ctx.settings.theme
-            target = "mobaxterm"
-        else:
-            pref = getattr(self.ctx.settings, "preferred_dark_theme", DEFAULT_THEME)
-            target = pref if pref in DARK_THEMES else DEFAULT_THEME
-        self.apply_theme_id(target)
-        return target
-
-    def set_font_size(self, size: int) -> int:
-        """Set terminal & UI font size (clamped to 7..24 pt) and apply live."""
-        clamped = max(7, min(24, int(size)))
-        self.ctx.settings.font_size = clamped
-        self._save_settings()
-        if hasattr(self, "font_size_label"):
-            self.font_size_label.setText(f"{clamped}pt")
-        self._apply_terminal_prefs()
-        log_activity("ui", f"Font size set to {clamped}pt", "", level="info")
-        toast(self, f"Font size: {clamped}pt", "info")
-        return clamped
-
-    def increase_font_size(self) -> int:
-        return self.set_font_size(int(self.ctx.settings.font_size) + 1)
-
-    def decrease_font_size(self) -> int:
-        return self.set_font_size(int(self.ctx.settings.font_size) - 1)
-
-    def reset_font_size(self) -> int:
-        return self.set_font_size(10)
-
-    def _current_session_tab(self) -> SessionTab | None:
-        return self._current_tab()
-
-    def toggle_current_session_support(self) -> None:
-        tab = self._current_tab()
-        if tab is not None:
-            tab.toggle_support_panel()
-        else:
-            self.open_support_chat()
-
-    def open_activity_log(self, *_args):
-        """Open the real-time Connection Status & Activity Log dialog."""
-        from .activity_dialog import ActivityLogDialog
-
-        dlg = ActivityLogDialog(self, self.activity_log, self)
-        animate_in(dlg)
-        dlg.show()
-        dlg.raise_()
-        return dlg
-
-    def open_support_chat(self, *_args):
-        """Open the In-Session Support & Instant Troubleshooting Chat dialog."""
-        from .support_chat import SupportChatDialog
-
-        dlg = SupportChatDialog(self, self)
-        animate_in(dlg)
-        dlg.show()
-        dlg.raise_()
-        return dlg
-
-    def open_onboarding_guide(self, *_args):
-        """Open the step-by-step Interactive Onboarding Tour for new users."""
-        from .onboarding import OnboardingGuideDialog
-
-        dlg = OnboardingGuideDialog(self, self)
-        animate_in(dlg)
-        dlg.show()
-        dlg.raise_()
-        return dlg
-
-    def open_feedback_dialog(
-        self,
-        *_args,
-        prefill_title: str = "",
-        prefill_description: str = "",
-        category: str = "improvement",
-    ):
-        """Open the User Feedback dialog to suggest improvements from the UI."""
-        from .feedback_dialog import FeedbackDialog
-
-        dlg = FeedbackDialog(
-            self,
-            prefill_title=prefill_title,
-            prefill_description=prefill_description,
-            category=category,
-            parent=self,
-        )
-        animate_in(dlg)
-        dlg.show()
-        dlg.raise_()
-        return dlg
-
-    def set_interactive_tooltips(self, enabled: bool) -> None:
-        self.ctx.settings.interactive_tooltips = bool(enabled)
-        self._save_settings()
-        self._apply_interactive_tooltips()
-
-    def _apply_interactive_tooltips(self) -> None:
-        enabled = bool(getattr(self.ctx.settings, "interactive_tooltips", True))
-        if hasattr(self, "quick"):
-            set_interactive_tooltip(
-                self.quick,
-                "Quick Connect",
-                "Connect to any SSH or RDP host immediately (port 3389 opens RDP).",
-                shortcut="Ctrl+Shift+K",
-                tip="Type user@host:3389 and press Enter for a one-step RDP session.",
-                enabled=enabled,
-            )
-        if hasattr(self, "activity_btn"):
-            set_interactive_tooltip(
-                self.activity_btn,
-                "Connection Status & Activity Log",
-                "Inspect live session state transitions, file transfers, and user events.",
-                shortcut="Ctrl+Shift+A",
-                tip="Filter events by severity or export the log to JSON.",
-                enabled=enabled,
-            )
-        if hasattr(self, "theme_toggle_btn"):
-            set_interactive_tooltip(
-                self.theme_toggle_btn,
-                "Dark / Light Theme Toggle",
-                "Switch between your preferred Dark palette and Light mode.",
-                shortcut="Ctrl+Alt+T",
-                tip="Customise 7 palettes and accent colours in Settings (Ctrl+,).",
-                enabled=enabled,
-            )
-        if hasattr(self, "feedback_status_btn"):
-            set_interactive_tooltip(
-                self.feedback_status_btn,
-                "Send Feedback",
-                "Suggest improvements or report issues directly from the UI.",
-                shortcut="Ctrl+Shift+I",
-                tip="Includes optional anonymous UI diagnostics.",
-                enabled=enabled,
-            )
-
-    def set_mobile_touch_mode(self, enabled: bool) -> None:
-        """Enable or disable responsive tablet/smartphone touch layout."""
-        enabled = bool(enabled)
-        self.ctx.settings.mobile_touch_mode = enabled
-        self._save_settings()
-        act = getattr(self, "_act_mobile_mode", None)
-        if act is not None:
-            act.blockSignals(True)
-            act.setChecked(enabled)
-            act.blockSignals(False)
-        self._apply_responsive_layout(force_mobile=enabled)
-        log_activity(
-            "ui",
-            f"Mobile / Touch mode {'enabled' if enabled else 'disabled'}",
-            "",
-            level="info",
-        )
-
-    def toggle_mobile_touch_mode(self) -> bool:
-        new_state = not bool(getattr(self.ctx.settings, "mobile_touch_mode", False))
-        self.set_mobile_touch_mode(new_state)
-        return new_state
-
-    def _apply_responsive_layout(self, *, force_mobile: bool | None = None) -> None:
-        """Adapt toolbar, sidebar, and touch targets for compact/mobile viewports."""
-        is_mobile = (
-            bool(force_mobile)
-            if force_mobile is not None
-            else (
-                bool(getattr(self.ctx.settings, "mobile_touch_mode", False))
-                or self._is_compact_viewport
-            )
-        )
-        self.setProperty("mobileMode", is_mobile)
-        if hasattr(self, "_toolbar"):
-            if is_mobile:
-                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(22, 22))
-                if not getattr(self, "_sidebar_collapsed", False):
-                    self._toggle_sidebar(False)
-            else:
-                if self.ctx.settings.toolbar_labels:
-                    self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                else:
-                    self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(18, 18))
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        try:
-            w = event.size().width()
-            compact = 0 < w < 760
-            if compact != getattr(self, "_is_compact_viewport", False):
-                self._is_compact_viewport = compact
-                self._apply_responsive_layout()
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _save_settings(self) -> None:
-        try:
-            self.ctx.settings.save(paths.settings_file())
-        except OSError:
-            log.debug("failed to save settings", exc_info=True)
+        toast(self, f"Theme: {label.split('—')[0].strip()}", "info")
 
     def cycle_theme(self) -> None:
         from ..core.settings import THEME_CHOICES
@@ -2624,7 +2075,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         global _MAIN
         if _MAIN is self:
             _MAIN = None
-        self._on_destroyed_remove_theme_callback()
+        theme.remove_theme_changed_callback(self._refresh_theme)
         for dlg in list(self._tool_dialogs.values()):
             try:
                 dlg.close()
