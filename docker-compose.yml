@@ -1,0 +1,27 @@
+services:
+  kb-remote:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kb-remote:latest
+    container_name: kb-remote
+    # Shared IPC is required by X11 MIT-SHM and embedded FreeRDP (/parent-window)
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XAUTHORITY=${XAUTHORITY:-}
+      - QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-}
+      - KB_REMOTE_HOME=/home/kbremote/.config/kb-remote
+    volumes:
+      # Persist sessions, encrypted vault, known_hosts, keys, and logs
+      - kb-remote-data:/home/kbremote/.config/kb-remote
+      # Forward host X11 socket for GUI and embedded FreeRDP display
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    ports:
+      # Built-in SFTP share server (only bound when started in the GUI)
+      - "127.0.0.1:2222:2222"
+    restart: "no"
+
+volumes:
+  kb-remote-data:

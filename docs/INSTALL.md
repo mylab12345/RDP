@@ -68,6 +68,30 @@ window, or start with an explicit `QT_QPA_PLATFORM` to opt out of the restart.
 If the xcb platform cannot load in the restarted process, the app falls back
 to its native platform and RDP uses the external window.
 
+## Docker
+
+A multi-stage `Dockerfile` builds a minimal Debian Bookworm image that bundles
+all Python dependencies (`PySide6-Essentials`, `paramiko`, `cryptography`,
+`pyte`, and the native `pyside6-qtermwidget` terminal renderer) alongside all
+system runtime dependencies (FreeRDP X11 client for embedded/external RDP,
+OpenSSH client/key tools, X11/XCB, Wayland, OpenGL/EGL, D-Bus, PulseAudio/ALSA,
+and DejaVu fonts) while pruning unused Qt addons, WebEngine/3D/QML modules,
+translations, headers, and debug symbols (`packaging/docker/prune_venv.py`).
+
+```bash
+# Build the image
+docker build -t kb-remote:latest .
+# or: make docker-build
+
+# Run with X11 forwarding and persistent state (Linux desktop)
+xhost +local:docker
+docker compose up
+# or: make docker-run
+
+# Verify CLI / headless mode without a display
+docker run --rm kb-remote:latest --version
+```
+
 ## Windows
 
 One universal installer covers Windows 10 1809+/11 and Windows Server
