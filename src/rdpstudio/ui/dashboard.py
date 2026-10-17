@@ -11,8 +11,7 @@ page stays usable on narrow windows.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -22,7 +21,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -103,41 +101,6 @@ DASHBOARD_TILES: dict[str, dict] = {
         "label": "Cluster runner",
         "caption": "Run on many hosts",
         "tooltip": "Run a command across many saved sessions",
-    },
-    "new_rdp": {
-        "method": "new_rdp_session",
-        "icon": "windows",
-        "label": "New RDP desktop",
-        "caption": "Windows · xrdp",
-        "tooltip": "Create or connect to a remote desktop (RDP 3389)",
-    },
-    "activity_log": {
-        "method": "open_activity_log",
-        "icon": "activity",
-        "label": "Activity & status",
-        "caption": "Live event log",
-        "tooltip": "View real-time connection status & activity log (Ctrl+Shift+A)",
-    },
-    "support_chat": {
-        "method": "open_support_chat",
-        "icon": "help",
-        "label": "Support chat",
-        "caption": "Troubleshooting",
-        "tooltip": "Open in-session support & troubleshooting chat (Ctrl+Shift+H)",
-    },
-    "onboarding": {
-        "method": "open_onboarding_guide",
-        "icon": "star",
-        "label": "Interactive tour",
-        "caption": "Onboarding guide",
-        "tooltip": "Walk through KB-Remote features step by step",
-    },
-    "feedback": {
-        "method": "open_feedback_dialog",
-        "icon": "edit",
-        "label": "Send feedback",
-        "caption": "Suggest features",
-        "tooltip": "Suggest an improvement or report an issue (Ctrl+Shift+F)",
     },
 }
 
@@ -372,19 +335,15 @@ class DashboardMixin:
         lay_pref = self._dashboard_layout()
         w = QWidget()
         w.setObjectName("dashboard")
-        w.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        w.customContextMenuRequested.connect(
-            lambda pos: self._show_dashboard_context_menu(w.mapToGlobal(pos))
-        )
         el = QVBoxLayout(w)
         el.setAlignment(Qt.AlignmentFlag.AlignTop)
         el.setSpacing(16)
         el.setContentsMargins(28, 24, 28, 20)
 
-        # Header: logo mark + name + version + quick access affordances
+        # Header: logo mark + name + version + customize affordance
         header_row = QHBoxLayout()
         header_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        header_row.setSpacing(10)
+        header_row.setSpacing(12)
         logo_tile = QLabel()
         self._dash_logo_tile = logo_tile
         logo_tile.setFixedSize(42, 42)
@@ -409,47 +368,6 @@ class DashboardMixin:
         version.setObjectName("dashVersion")
         header_row.addWidget(version, 0, Qt.AlignmentFlag.AlignVCenter)
         header_row.addStretch(1)
-
-        if hasattr(self, "open_onboarding_guide"):
-            tour_btn = QPushButton("Tour")
-            tour_btn.setObjectName("subtle")
-            tour_btn.setIcon(icon("star", size=14))
-            tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            tour_btn.setToolTip("Interactive onboarding guide for new users")
-            tour_btn.setAccessibleName("Interactive tour")
-            tour_btn.clicked.connect(self.open_onboarding_guide)
-            header_row.addWidget(tour_btn)
-
-        if hasattr(self, "open_activity_log"):
-            act_btn = QPushButton("Activity")
-            act_btn.setObjectName("subtle")
-            act_btn.setIcon(icon("activity", size=14))
-            act_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            act_btn.setToolTip("Real-time connection status & user activity log (Ctrl+Shift+A)")
-            act_btn.setAccessibleName("Activity log")
-            act_btn.clicked.connect(self.open_activity_log)
-            header_row.addWidget(act_btn)
-
-        if hasattr(self, "open_support_chat"):
-            sup_btn = QPushButton("Support")
-            sup_btn.setObjectName("subtle")
-            sup_btn.setIcon(icon("help", size=14))
-            sup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            sup_btn.setToolTip("In-session support chat & instant troubleshooting (Ctrl+Shift+H)")
-            sup_btn.setAccessibleName("Support chat")
-            sup_btn.clicked.connect(self.open_support_chat)
-            header_row.addWidget(sup_btn)
-
-        if hasattr(self, "open_feedback_dialog"):
-            fb_btn = QPushButton("Feedback")
-            fb_btn.setObjectName("subtle")
-            fb_btn.setIcon(icon("edit", size=14))
-            fb_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            fb_btn.setToolTip("Suggest improvements or report an issue (Ctrl+Shift+F)")
-            fb_btn.setAccessibleName("Send feedback")
-            fb_btn.clicked.connect(self.open_feedback_dialog)
-            header_row.addWidget(fb_btn)
-
         customize_btn = QPushButton("Customize…")
         customize_btn.setObjectName("subtle")
         customize_btn.setIcon(icon("edit", size=14))
@@ -463,7 +381,7 @@ class DashboardMixin:
         header_row.addWidget(customize_btn)
         el.addLayout(header_row)
 
-        # Hero — quick connect + one-click RDP feature bar + frequent servers
+        # Hero — quick connect, the primary path from an empty workbench
         if lay_pref["show_quick_connect"]:
             quick_section = QFrame()
             quick_section.setObjectName("dashSectionQuick")
@@ -481,22 +399,6 @@ class DashboardMixin:
             hero_label.setObjectName("dashSection")
             hero_hdr.addWidget(hero_label)
             hero_hdr.addStretch(1)
-
-            for proto_label, proto_hint, proto_code in (
-                ("RDP 3389", "Pre-fill RDP port 3389 for remote desktop", "rdp"),
-                ("SSH 22", "Pre-fill SSH port 22 for remote shell", "ssh"),
-                ("SFTP", "Open SFTP file transfer browser", "sftp"),
-            ):
-                pbtn = QPushButton(proto_label)
-                pbtn.setObjectName("subtle")
-                pbtn.setFixedHeight(24)
-                pbtn.setCursor(Qt.CursorShape.PointingHandCursor)
-                pbtn.setToolTip(proto_hint)
-                pbtn.clicked.connect(
-                    lambda _=False, pc=proto_code: self._set_dash_quick_protocol(pc)
-                )
-                hero_hdr.addWidget(pbtn)
-
             for hint_txt in ("ssh user@host", "host:3389 (RDP)"):
                 hint_chip = QLabel(hint_txt)
                 hint_chip.setObjectName("protoChip")
@@ -524,54 +426,7 @@ class DashboardMixin:
             dash_go.setAccessibleName("Connect")
             dash_go.clicked.connect(lambda: self._quick_connect_from(self.dash_quick))
             hero_row.addWidget(dash_go)
-
-            if hasattr(self, "new_rdp_session"):
-                rdp_btn = QPushButton("New RDP Desktop")
-                rdp_btn.setObjectName("subtle")
-                rdp_btn.setIcon(icon("windows", size=14))
-                rdp_btn.setFixedHeight(38)
-                rdp_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                rdp_btn.setToolTip("Configure & launch a full Windows / Linux RDP desktop session")
-                rdp_btn.clicked.connect(self.new_rdp_session)
-                hero_row.addWidget(rdp_btn)
             qs.addLayout(hero_row)
-
-            # One-click Frequent & Saved Servers bar inside Quick Connect
-            freq_sessions = self._frequent_sessions_for_dashboard(limit=6)
-            if freq_sessions:
-                freq_wrap = QWidget()
-                freq_wrap.setObjectName("dashFrequentPanel")
-                fl = QHBoxLayout(freq_wrap)
-                fl.setContentsMargins(0, 4, 0, 0)
-                fl.setSpacing(6)
-                freq_lbl = QLabel("Frequent servers:")
-                freq_lbl.setObjectName("caption")
-                fl.addWidget(freq_lbl)
-                counts = getattr(self.ctx.settings, "session_connect_counts", {}) or {}
-                for sess in freq_sessions:
-                    cnt = int(counts.get(sess.id, 0) or 0)
-                    badge_txt = f"{sess.display_name()} ({ sess.protocol.upper() })"
-                    if cnt > 1:
-                        badge_txt += f" · {cnt}×"
-                    sbtn = QPushButton(badge_txt)
-                    sbtn.setObjectName("subtle")
-                    sbtn.setFixedHeight(26)
-                    sbtn.setCursor(Qt.CursorShape.PointingHandCursor)
-                    sbtn.setToolTip(
-                        f"One-click connect to {sess.display_name()} ({sess.protocol.upper()} {sess.target()})\n"
-                        "Right-click for session options"
-                    )
-                    sbtn.clicked.connect(lambda _=False, sid=sess.id: self.connect_session(sid))
-                    sbtn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                    sbtn.customContextMenuRequested.connect(
-                        lambda pos, b=sbtn, s=sess: self._show_dashboard_session_menu(
-                            s, b.mapToGlobal(pos)
-                        )
-                    )
-                    fl.addWidget(sbtn)
-                fl.addStretch(1)
-                qs.addWidget(freq_wrap)
-
             el.addWidget(quick_section)
 
         # Action tiles — launcher shortcuts (flow-wrapped for narrow windows)
@@ -766,120 +621,8 @@ class DashboardMixin:
                 accessible_name=f"Connect to {sess.display_name()}",
                 tooltip=f"{sess.protocol.upper()} · {sess.target()}",
             )
-            item.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            item.customContextMenuRequested.connect(
-                lambda pos, it=item, s=sess: self._show_dashboard_session_menu(
-                    s, it.mapToGlobal(pos)
-                )
-            )
             rc_lay.addWidget(item)
         return recent_card
-
-    def _frequent_sessions_for_dashboard(self, limit: int = 6) -> list:
-        """Return saved sessions ordered by pinned status, connection frequency, and recency."""
-        store = getattr(getattr(self, "ctx", None), "store", None)
-        settings = getattr(getattr(self, "ctx", None), "settings", None)
-        if store is None:
-            return []
-        by_id = {s.id: s for s in store.sessions()}
-        if not by_id:
-            return []
-        freq_ids = settings.frequent_session_ids(limit=limit * 2) if settings is not None else []
-        counts = getattr(settings, "session_connect_counts", {}) if settings is not None else {}
-        ordered = sorted(
-            by_id.values(),
-            key=lambda s: (
-                not bool(s.options.get("pinned", False)),
-                -int(counts.get(s.id, 0) or 0),
-                freq_ids.index(s.id) if s.id in freq_ids else 999,
-                s.display_name().lower(),
-            ),
-        )
-        return ordered[:limit]
-
-    def _set_dash_quick_protocol(self, proto_code: str) -> None:
-        """Apply a protocol quick-preset to the dashboard quick-connect box."""
-        quick = getattr(self, "dash_quick", None)
-        if quick is None:
-            return
-        cur = quick.text().strip()
-        if proto_code == "rdp":
-            if cur and ":" not in cur:
-                quick.setText(f"{cur}:3389")
-            elif not cur:
-                quick.setPlaceholderText("user@rdp-host:3389  —  press Enter to open RDP desktop")
-            quick.setFocus()
-        elif proto_code == "ssh":
-            if cur.endswith(":3389"):
-                quick.setText(cur[:-5] + ":22")
-            elif not cur:
-                quick.setPlaceholderText("user@ssh-host:22  —  press Enter to open SSH shell")
-            quick.setFocus()
-        elif proto_code == "sftp":
-            if hasattr(self, "new_sftp_session"):
-                self.new_sftp_session()
-            else:
-                quick.setFocus()
-
-    def _show_dashboard_context_menu(self, global_pos: QPoint) -> None:
-        """Context menu when right-clicking the dashboard background."""
-        menu = QMenu(self)
-        act_new = menu.addAction(icon("plus"), "New Session…\tCtrl+N")
-        act_rdp = menu.addAction(icon("windows"), "New RDP Desktop…")
-        act_local = menu.addAction(icon("console"), "Open Local Terminal\tCtrl+Shift+T")
-        act_cmd = menu.addAction(icon("search"), "Command Palette…\tCtrl+K")
-        menu.addSeparator()
-        act_act = menu.addAction(icon("activity"), "Connection Status & Activity Log…\tCtrl+Shift+A")
-        act_sup = menu.addAction(icon("help"), "In-Session Support Chat…\tCtrl+Shift+H")
-        act_tour = menu.addAction(icon("star"), "Interactive Onboarding Tour…")
-        act_fb = menu.addAction(icon("edit"), "Send Feedback…\tCtrl+Shift+F")
-        menu.addSeparator()
-        act_theme = menu.addAction(icon("appearance"), "Toggle Dark / Light Theme\tCtrl+Shift+L")
-        act_cust = menu.addAction(icon("gear"), "Customize Dashboard…")
-
-        chosen = menu.exec(global_pos)
-        if chosen is None:
-            return
-        dispatch = {
-            act_new: "new_session",
-            act_rdp: "new_rdp_session",
-            act_local: "open_local_terminal",
-            act_cmd: "open_command_palette",
-            act_act: "open_activity_log",
-            act_sup: "open_support_chat",
-            act_tour: "open_onboarding_guide",
-            act_fb: "open_feedback_dialog",
-            act_theme: "toggle_dark_light_theme",
-            act_cust: "open_dashboard_customizer",
-        }
-        method_name = dispatch.get(chosen)
-        if method_name and hasattr(self, method_name):
-            getattr(self, method_name)()
-
-    def _show_dashboard_session_menu(self, sess, global_pos: QPoint) -> None:
-        """Context menu for a saved session chip or recent row on the dashboard."""
-        menu = QMenu(self)
-        act_conn = menu.addAction(icon("play"), f"Connect to {sess.display_name()}")
-        act_edit = menu.addAction(icon("edit"), "Edit Session…")
-        pinned = bool(sess.options.get("pinned", False))
-        act_pin = menu.addAction(
-            icon("star"), "Unpin from Frequent" if pinned else "Pin to Frequent"
-        )
-        act_copy = menu.addAction(icon("copy"), f"Copy Host ({sess.host or sess.target()})")
-        menu.addSeparator()
-        act_del = menu.addAction(icon("trash"), "Delete Session…")
-
-        chosen = menu.exec(global_pos)
-        if chosen == act_conn:
-            self.connect_session(sess.id)
-        elif chosen == act_edit and hasattr(self, "edit_session"):
-            self.edit_session(sess.id)
-        elif chosen == act_pin and hasattr(self, "toggle_pin_session"):
-            self.toggle_pin_session(sess.id)
-        elif chosen == act_copy:
-            QGuiApplication.clipboard().setText(sess.host or sess.target())
-        elif chosen == act_del and hasattr(self, "delete_session"):
-            self.delete_session(sess.id)
 
     def open_dashboard_customizer(self) -> None:
         """Open the dashboard personalisation dialog and rebuild on apply."""
