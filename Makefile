@@ -1,7 +1,8 @@
-.PHONY: dev venv test lint format screenshots build dist clean help
+.PHONY: dev venv test lint format screenshots build dist docker-build docker-run clean help
 
 VENV ?= .venv
 PY := $(VENV)/bin/python
+DOCKER_IMAGE ?= kb-remote:latest
 
 venv:
 	python3 -m venv $(VENV)
@@ -30,9 +31,22 @@ build: venv ## PyInstaller onedir build
 dist: build
 	@echo "artifacts in dist/KB-Remote"
 
+docker-build: ## build minimal multi-stage Docker image
+	docker build -t $(DOCKER_IMAGE) .
+
+docker-run: ## run KB-Remote container with X11 forwarding and persistent state
+	docker run --rm -it \
+		--ipc=host \
+		-e DISPLAY="$$DISPLAY" \
+		-e WAYLAND_DISPLAY="$$WAYLAND_DISPLAY" \
+		-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+		-v kb-remote-data:/home/kbremote/.config/kb-remote \
+		-p 127.0.0.1:2222:2222 \
+		$(DOCKER_IMAGE)
+
 clean:
 	rm -rf build dist *.spec.bak .pytest_cache .ruff_cache
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
 help:
-	@grep -E '^[a-z]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

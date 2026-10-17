@@ -1,0 +1,46 @@
+# Git & VCS
+.git
+.gitignore
+.gitattributes
+
+# Virtual environments & Python caches
+.venv
+venv
+.kb-remote
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.eggs
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Build & distribution artifacts
+build
+dist
+*.AppImage
+*.flatpak
+*.snap
+*.tar.gz
+*.zip
+*.exe
+*.spec.bak
+*.log
+
+# Non-Docker packaging, docs screenshots, tests & dev scripts
+docs/screenshots
+tests
+scripts
+snap
+packaging/windows
+packaging/flatpak
+packaging/ci
+
+# IDE / OS metadata
+.idea
+.vscode
+.DS_Store
+Thumbs.db
