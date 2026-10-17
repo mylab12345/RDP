@@ -66,6 +66,11 @@ class MainActionsMixin:
             self.new_session, shortcut="Ctrl+N",
         )
         self._menu_action(
+            m_file, "windows", "New &RDP desktop session…",
+            "Configure and connect to a remote desktop (Ctrl+Shift+R)",
+            self.new_rdp_session, shortcut="Ctrl+Shift+R",
+        )
+        self._menu_action(
             m_file, "console", "New local &terminal",
             "Open a native local shell in a new tab (Ctrl+Shift+T)",
             self.open_local_terminal, shortcut="Ctrl+Shift+T",
@@ -170,6 +175,40 @@ class MainActionsMixin:
             self._theme_group.addAction(act)
             m_themes.addAction(act)
             self._theme_actions[tid] = act
+        m_themes.addSeparator()
+        self._menu_action(
+            m_themes, "appearance", "Toggle &Dark / Light Mode",
+            "Switch between Dark and Light mode instantly (Ctrl+Alt+T)",
+            self.toggle_dark_light_theme, shortcut="Ctrl+Alt+T",
+        )
+
+        self._menu_action(
+            m_view, "plus", "Increase &Font Size",
+            "Increase terminal and UI font size for readability (Ctrl++)",
+            self.increase_font_size, shortcut="Ctrl++",
+        )
+        self._menu_action(
+            m_view, "minus", "Decrease Font &Size",
+            "Decrease terminal and UI font size (Ctrl+-)",
+            self.decrease_font_size, shortcut="Ctrl+-",
+        )
+        self._menu_action(
+            m_view, "refresh", "&Reset Font Size",
+            "Reset font size to default 10pt (Ctrl+0)",
+            self.reset_font_size, shortcut="Ctrl+0",
+        )
+
+        m_view.addSeparator()
+
+        self._act_mobile_mode = QAction(icon("panel"), "&Mobile / Touch Responsive Mode", self)
+        self._act_mobile_mode.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self._act_mobile_mode.setCheckable(True)
+        self._act_mobile_mode.setChecked(bool(getattr(self.ctx.settings, "mobile_touch_mode", False)))
+        self._act_mobile_mode.setStatusTip(
+            "Optimize layout, sidebar and touch targets for tablet and smartphone screens (Ctrl+Shift+M)"
+        )
+        self._act_mobile_mode.toggled.connect(self.set_mobile_touch_mode)
+        m_view.addAction(self._act_mobile_mode)
 
         # ── Tools: diagnostics · credentials · configuration ──
         m_tools = self.menuBar().addMenu("&Tools")
@@ -187,6 +226,16 @@ class MainActionsMixin:
             m_tools, "windows", "RDP server &manager…",
             "Check and enable or disable this machine's RDP listener",
             self.open_rdp_server_manager,
+        )
+        self._menu_action(
+            m_tools, "activity", "Connection Status & &Activity Log…",
+            "View real-time connection status indicators and user activity log (Ctrl+Shift+A)",
+            self.open_activity_log, shortcut="Ctrl+Shift+A",
+        )
+        self._menu_action(
+            m_tools, "help", "In-Session &Support & Troubleshooting…",
+            "Instant troubleshooting assistant and session support chat (Ctrl+Shift+H)",
+            self.open_support_chat, shortcut="Ctrl+Shift+H",
         )
 
         m_tools.addSeparator()
@@ -290,13 +339,29 @@ class MainActionsMixin:
             "Browse and transfer files on the current session's host",
             self._sftp_current,
         )
+        self._menu_action(
+            m_session, "help", "Toggle In-Session &Support Chat",
+            "Show or hide the instant troubleshooting support chat inside the active tab",
+            self.toggle_current_session_support,
+        )
 
         # ── Help ──
         m_help = self.menuBar().addMenu("&Help")
         self._menu_action(
+            m_help, "star", "&Interactive Onboarding Tour…",
+            "Step-by-step walkthrough of KB-Remote features for new users (Ctrl+Shift+G)",
+            self.open_onboarding_guide, shortcut="Ctrl+Shift+G",
+        )
+        self._menu_action(
+            m_help, "edit", "Send &Feedback & Suggestions…",
+            "Suggest improvements or report issues directly from the UI (Ctrl+Shift+I)",
+            self.open_feedback_dialog, shortcut="Ctrl+Shift+I",
+        )
+        m_help.addSeparator()
+        self._menu_action(
             m_help, "shield", "&Keyboard shortcuts…",
-            "See every keyboard shortcut in one place",
-            self.open_shortcuts,
+            "See every keyboard shortcut in one place (F1)",
+            self.open_shortcuts, shortcut="F1",
         )
         self._menu_action(
             m_help, "logo", "&About",
@@ -402,8 +467,32 @@ class MainActionsMixin:
         bar.addWidget(spacer)
 
         bar.addSeparator()
+        self._act_activity_toolbar = add_tool(
+            "activity",
+            "Activity",
+            "Connection Status & Activity Log (Ctrl+Shift+A)",
+            self.open_activity_log,
+        )
+        self._act_support_toolbar = add_tool(
+            "help",
+            "Support",
+            "In-Session Support & Troubleshooting Chat (Ctrl+Shift+H)",
+            self.open_support_chat,
+        )
+        self._act_theme_toolbar = add_tool(
+            "appearance",
+            "Theme",
+            "Toggle Dark / Light Theme (Ctrl+Alt+T)",
+            self.toggle_dark_light_theme,
+        )
+        self._act_feedback_toolbar = add_tool(
+            "edit",
+            "Feedback",
+            "Suggest Improvements & Send Feedback (Ctrl+Shift+I)",
+            self.open_feedback_dialog,
+        )
         add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
-        add_tool("shield", "Help", "Keyboard shortcuts & help", self.open_shortcuts)
+        add_tool("shield", "Help", "Keyboard shortcuts & help (F1)", self.open_shortcuts)
 
         # Close all tabs button
         self._close_all_btn = themed_action("close", "Close all")

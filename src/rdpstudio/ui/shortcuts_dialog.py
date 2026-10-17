@@ -9,12 +9,17 @@ from .theme import icon, palette
 
 _GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     (
-        "General",
+        "General & Appearance",
         [
             ("New saved session", "Ctrl + N"),
+            ("New RDP desktop session", "Ctrl + Shift + R"),
             ("Command palette / switcher", "Ctrl + P  or  Ctrl + K"),
             ("Settings", "Ctrl + ,"),
+            ("Toggle Dark / Light theme", "Ctrl + Alt + T"),
+            ("Increase / decrease / reset font size", "Ctrl + +  /  Ctrl + -  /  Ctrl + 0"),
+            ("Toggle Mobile / Touch responsive mode", "Ctrl + Shift + M"),
             ("Toggle sidebar", "Ctrl + B"),
+            ("Keyboard shortcuts reference", "F1"),
             ("Quit", "Ctrl + Q"),
         ],
     ),
@@ -39,8 +44,12 @@ _GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ],
     ),
     (
-        "Tools",
+        "Tools, Support & Feedback",
         [
+            ("Connection status & activity log", "Ctrl + Shift + A"),
+            ("In-session support & troubleshooting chat", "Ctrl + Shift + H"),
+            ("Send feedback / suggest improvement", "Ctrl + Shift + I"),
+            ("Interactive onboarding guide", "Ctrl + Shift + G"),
             ("Network tools / port scanner", "Ctrl + Shift + N"),
             ("SSH key utility", "Ctrl + Shift + U"),
             ("Local terminal tab", "Ctrl + Shift + T"),
