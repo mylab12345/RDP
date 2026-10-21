@@ -41,14 +41,11 @@ from ..core.plugin import (
     registry,
 )
 from . import theme
-from .command_bar import (
-    CommandBar,
-    _HistoryLineEdit,  # noqa: F401  (compat re-export)
-)
 from .command_palette import CommandPaletteDialog
 from .dashboard import DashboardMixin
 from .docking import DockDragFilter
 from .main_actions import MainActionsMixin
+from .monitor_bar import MonitorBar
 from .sidebar import SessionTree
 from .theme import icon, palette, protocol_badge
 from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
@@ -140,6 +137,11 @@ class SessionTab(QWidget):
         self.rec_chip.setToolTip("Logging active session output to file")
         left_l.addWidget(self.rec_chip)
 
+        self.multi_chip = StateChip("BROADCAST", "warn")
+        self.multi_chip.setVisible(False)
+        self.multi_chip.setToolTip("Typing here is sent to every connected shell tab")
+        left_l.addWidget(self.multi_chip)
+
         sep_left = QFrame()
         sep_left.setObjectName("sessionSep")
         sep_left.setFrameShape(QFrame.Shape.VLine)
@@ -199,6 +201,16 @@ class SessionTab(QWidget):
             b = make_action_btn("Files", "folder", "Browse remote files (SFTP)", controller.open_sftp)
             ah.addWidget(b)
 
+        # SSH sessions expose live host stats from the tab header, where the
+        # user already looks for Files/Tunnels.
+        if hasattr(controller, "exec_command"):
+            b = make_action_btn(
+                "Monitor", "server",
+                "Live CPU, memory, disk and network of this host (Ctrl+Shift+M)",
+                self._open_monitor,
+            )
+            ah.addWidget(b)
+
         # Separator between actions and Close — visual grouping
         sep = QFrame()
         sep.setObjectName("sessionSep")
@@ -245,14 +257,6 @@ class SessionTab(QWidget):
         tc_l.addWidget(self._content, 1)
         layout.addWidget(self._term_container, 1)
 
-        # Command bar — distinct surface below terminal
-        self.command_bar = None
-        if caps.shell:
-            self.command_bar = CommandBar()
-            self.command_bar.setObjectName("sessionCommandBar")
-            self.command_bar.commandSent.connect(self._on_command_sent)
-            layout.addWidget(self.command_bar)
-
         widget_changed = getattr(controller, "widgetChanged", None)
         if widget_changed is not None:
             widget_changed.connect(self._swap_content)
@@ -261,6 +265,10 @@ class SessionTab(QWidget):
         controller.statusInfo.connect(self._on_status)
         controller.finished.connect(self._on_finished)
         controller.reconnectScheduled.connect(self._on_reconnect_scheduled)
+
+    def set_broadcast(self, enabled: bool) -> None:
+        """Show/hide the broadcast badge for MultiExec mode."""
+        self.multi_chip.setVisible(bool(enabled))
 
     def _request_close(self) -> None:
         """User pressed the prominent Close button in the header."""
@@ -318,8 +326,8 @@ class SessionTab(QWidget):
             container_layout.addWidget(self._content, 1)
         self._content.show()
 
-    def _on_command_sent(self, text: str) -> None:
-        self.main._on_command_sent(self, text)
+    def _open_monitor(self) -> None:
+        self.main.open_remote_monitor_for(self.controller)
 
     def _on_action_btn(self) -> None:
         if self.controller.state() == SessionState.CONNECTED:
@@ -332,6 +340,7 @@ class SessionTab(QWidget):
         pal = palette()
         self.chip.refresh_theme()
         self.rec_chip.refresh_theme()
+        self.multi_chip.refresh_theme()
         for btn, icon_name, tint_key in self._themed_buttons:
             tint = pal.get(tint_key) if tint_key else None
             btn.setIcon(icon(icon_name, tint))
@@ -404,6 +413,8 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         # tiles flow-wrap and the sidebar can be dragged narrower.
         self.setMinimumSize(880, 540)
         self.controllers: dict[int, SessionTab] = {}
+        # MultiExec: broadcast input from any shell tab to all connected ones.
+        self._broadcast_input = False
         # Last "connected" info per controller, for the status-bar summary.
         self._last_connected_info: dict[int, dict] = {}
         # Open (non-modal) tool dialogs keyed by controller id — reuse instead
@@ -580,6 +591,12 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         self._tabs_container.setVisible(False)
 
         tl.addWidget(self._center_stack, 1)
+        # MobaXterm-style live monitoring strip, visible for SSH sessions only.
+        self.monitor_bar = MonitorBar()
+        self.monitor_bar.openDetails.connect(
+            lambda: self.open_remote_monitor_for(self.monitor_bar.controller())
+        )
+        tl.addWidget(self.monitor_bar, 0)
         self.main_splitter.addWidget(tabs_wrap)
 
         self.main_splitter.setStretchFactor(0, 0)
@@ -1166,13 +1183,75 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         else:
             toast(self, "Open an SSH session first — SFTP rides on SSH.", "warn")
 
-    def _on_command_sent(self, source_tab: SessionTab, text: str) -> None:
-        """CommandBar Enter: run the command in the tab's terminal."""
-        data = (text + "\r").encode("utf-8")
-        try:
-            source_tab.controller.write(data)
-        except Exception:  # noqa: BLE001 - never break the command line
-            log.exception("command send failed")
+    # ------------------------------------------------------------------
+    # MultiExec (broadcast input) and remote monitoring
+    # ------------------------------------------------------------------
+    def set_broadcast_input(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        self._broadcast_input = enabled
+        for action in (
+            getattr(self, "_act_broadcast", None),
+            getattr(self, "_act_broadcast_toolbar", None),
+        ):
+            if action is not None and action.isChecked() != enabled:
+                action.blockSignals(True)
+                action.setChecked(enabled)
+                action.blockSignals(False)
+        for i in range(self.tabs.count()):
+            widget = self.tabs.widget(i)
+            if isinstance(widget, SessionTab):
+                widget.set_broadcast(enabled)
+        if enabled:
+            toast(
+                self,
+                "MultiExec ON — keystrokes and commands go to every connected shell tab.",
+                "warn",
+            )
+        if hasattr(self, "status_label"):
+            self.status_label.setText("MULTIEXEC ON" if enabled else "")
+
+    def _broadcast_bytes(self, source, data: bytes) -> None:
+        if not self._broadcast_input or not data:
+            return
+        for i in range(self.tabs.count()):
+            widget = self.tabs.widget(i)
+            if not isinstance(widget, SessionTab):
+                continue
+            controller = widget.controller
+            if controller is source:
+                continue
+            if not controller.capabilities().shell:
+                continue
+            if controller.state() != SessionState.CONNECTED:
+                continue
+            try:
+                controller.write(data)
+            except Exception:  # noqa: BLE001 - one dead tab must not stop the rest
+                log.debug("broadcast write failed", exc_info=True)
+
+    def open_remote_monitor(self) -> None:
+        self.open_remote_monitor_for(self.current_controller())
+
+    def open_remote_monitor_for(self, controller) -> None:
+        from .monitor_dialog import RemoteMonitorDialog
+
+        if controller is None or not hasattr(controller, "exec_command"):
+            toast(self, "Remote monitoring needs an SSH session.", "warn")
+            return
+        if controller.state() != SessionState.CONNECTED:
+            toast(self, "Connect the session first, then open monitoring.", "warn")
+            return
+        key = id(controller)
+        dialog = self._tool_dialogs.get(key)
+        if isinstance(dialog, RemoteMonitorDialog):
+            dialog.show()
+            dialog.raise_()
+            return
+        dialog = RemoteMonitorDialog(controller, self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.destroyed.connect(lambda _=None, k=key: self._tool_dialogs.pop(k, None))
+        self._tool_dialogs[key] = dialog
+        dialog.show()
 
     def _tab_context_menu(self, pos: QPoint) -> None:
         tab_bar = self.tabs.tabBar()
@@ -1478,6 +1557,14 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         controller.stateChanged.connect(
             lambda state, c=controller: self._on_tab_state_changed(state, c)
         )
+        # MultiExec input bridge: controller.write() does not re-emit
+        # dataWritten, so echoing to the other tabs cannot loop back.
+        term = getattr(controller, "term", None)
+        if controller.capabilities().shell and term is not None:
+            term.dataWritten.connect(
+                lambda data, c=controller: self._broadcast_bytes(c, data)
+            )
+        tab.set_broadcast(self._broadcast_input)
         controller.start()
         self._update_empty_state()
         # Recently-connected sessions power the sidebar's Recent section.
@@ -1655,6 +1742,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         controller = self.current_controller()
         self._update_session_status(controller)
         self._update_state_chip(controller)
+        self.monitor_bar.bind(controller)
 
     def _refocus_current_embedded(self) -> None:
         """Give the current tab's in-app RDP desktop keyboard focus again."""
@@ -1719,6 +1807,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
         if self.current_controller() is not controller:
             return
         self._update_state_chip(controller)
+        self.monitor_bar.bind(controller)
         if state and controller.definition.protocol != "local":
             self.setWindowTitle(f"{state.upper()} · {APP_NAME}")
 
@@ -2083,6 +2172,7 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             except Exception:
                 pass
         self._tool_dialogs.clear()
+        self.monitor_bar.shutdown()
 
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)

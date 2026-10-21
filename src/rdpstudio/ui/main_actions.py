@@ -285,6 +285,22 @@ class MainActionsMixin:
 
         m_session.addSeparator()
 
+        self._act_broadcast = QAction(icon("transfer"), "&MultiExec (broadcast input)", self)
+        self._act_broadcast.setCheckable(True)
+        self._act_broadcast.setShortcut(QKeySequence("Ctrl+Alt+B"))
+        self._act_broadcast.setStatusTip(
+            "Send every keystroke and command to all connected shell tabs"
+        )
+        self._act_broadcast.toggled.connect(self.set_broadcast_input)
+        m_session.addAction(self._act_broadcast)
+        self._menu_action(
+            m_session, "clock", "Remote &monitoring…",
+            "Live CPU, memory, swap, disk and network of the current SSH host (Ctrl+Shift+M)",
+            self.open_remote_monitor, shortcut="Ctrl+Shift+M",
+        )
+
+        m_session.addSeparator()
+
         self._menu_action(
             m_session, "folder", "Browse &Files (SFTP)…",
             "Browse and transfer files on the current session's host",

@@ -108,7 +108,7 @@ def test_snippets_panel_standalone(home, qtapp):
     main.close()
 
 
-def test_removed_power_tools_are_not_in_chrome(home, qtapp):
+def test_legacy_power_tools_are_not_in_chrome(home, qtapp):
     ctx = _ctx(home, qtapp)
     main = MainWindow(ctx)
     main.show()
@@ -120,13 +120,12 @@ def test_removed_power_tools_are_not_in_chrome(home, qtapp):
         for child in menu.actions():
             texts.append((child.text() or "").replace("&", "").lower())
     blob = " | ".join(texts)
-    assert "broadcast" not in blob
+    # MultiExec and remote monitoring were reintroduced on request; the rest
+    # of the old power-tool strip stays out of the chrome.
     assert "snippet" not in blob
     assert "vault" not in blob
     assert "port forwarding" not in blob
     assert "parallel" not in blob
-    toolbar_tips = " ".join(a.toolTip().lower() for a in main.findChildren(type(main.menuBar().actions()[0])))
-    assert "broadcast" not in toolbar_tips
     main.close()
 
 

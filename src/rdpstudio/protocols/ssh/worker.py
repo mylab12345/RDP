@@ -121,7 +121,7 @@ class SshWorker(QObject):
                  prompter,  # PromptProvider, must be thread-safe
                  keepalive: int = 30, compression: bool = True,
                  timeout: int = 10, term_size: tuple[int, int] = (80, 24),
-                 startup_command: str = "") -> None:
+                 startup_command: str = "", x11_forwarding: bool = False) -> None:
         super().__init__()
         self.host = host
         self.port = port
@@ -134,6 +134,7 @@ class SshWorker(QObject):
         self.timeout = timeout
         self.term_size = term_size
         self.startup_command = startup_command
+        self.x11_forwarding = x11_forwarding
 
         self._client: paramiko.SSHClient | None = None
         self._hop_clients: list[paramiko.SSHClient] = []
@@ -473,6 +474,8 @@ class SshWorker(QObject):
         self._shell_requested = True
         if self.material.forward_agent:
             self._request_agent_forwarding(chan)
+        if self.x11_forwarding:
+            self._request_x11_forwarding(chan)
         if self.startup_command:
             self.write_input(self.startup_command.encode("utf-8") + b"\n")
 
@@ -491,6 +494,59 @@ class SshWorker(QObject):
             try:
                 self.stateInfo.emit("agent forwarding unavailable")
             except RuntimeError:
+                pass
+
+    def _request_x11_forwarding(self, chan) -> None:
+        """Best-effort ssh -X: ask the server to forward X11 to the local display.
+
+        Like agent forwarding this is never fatal; a server without
+        ``X11Forwarding yes`` (or a machine with no local display) must not
+        stop the shell from opening.
+        """
+        from .x11 import handle_connection, local_display
+
+        display = local_display()
+        if display is None:
+            self.stateInfo.emit("X11 forwarding skipped: no local DISPLAY")
+            return
+        try:
+            chan.request_x11(handler=handle_connection)
+            self.stateInfo.emit(f"X11 forwarding enabled (DISPLAY {display[0] or 'unix'}:{display[1]})")
+        except Exception as exc:  # noqa: BLE001 — opt-in feature, never fatal
+            log.warning("X11 forwarding unavailable for %s: %s", self.host, exc)
+            try:
+                self.stateInfo.emit(f"X11 forwarding refused: {exc}")
+            except RuntimeError:
+                pass
+
+    def run_command(self, command: str, timeout: float = 8.0) -> str:
+        """Run a one-shot command on a fresh channel (remote monitoring).
+
+        Thread-safe: the monitor dialog calls this from its own thread.  The
+        client reference is resolved once so a concurrent reconnect cannot
+        turn it into ``None`` mid-call.
+        """
+        client = self._client
+        if client is None:
+            raise RuntimeError("session is not connected")
+        transport = client.get_transport()
+        if transport is None or not transport.is_active():
+            raise RuntimeError("connection is down")
+        chan = transport.open_session(timeout=min(timeout, 5.0))
+        try:
+            chan.settimeout(timeout)
+            chan.exec_command(command)
+            buf = bytearray()
+            while len(buf) < 256 * 1024:
+                chunk = chan.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            return bytes(buf).decode("utf-8", "replace")
+        finally:
+            try:
+                chan.close()
+            except Exception:  # noqa: BLE001 - already closing
                 pass
 
     def _pump(self) -> None:

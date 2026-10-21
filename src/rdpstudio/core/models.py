@@ -138,6 +138,7 @@ class Session:
 
     # --- ssh-specific ---
     agent_forwarding: bool = False
+    x11_forwarding: bool = False
     compression: bool = True
 
     # --- rdp-specific ---
@@ -213,6 +214,7 @@ class Session:
             "tags": list(self.tags),
             "forwards": [f.to_dict() for f in self.forwards],
             "agent_forwarding": self.agent_forwarding,
+            "x11_forwarding": self.x11_forwarding,
             "compression": self.compression,
             "domain": self.domain,
             "rdp_width": self.rdp_width,
@@ -280,6 +282,7 @@ class Session:
                     except Exception:
                         continue
         s.agent_forwarding = as_bool(d.get("agent_forwarding", False), False)
+        s.x11_forwarding = as_bool(d.get("x11_forwarding", False), False)
         s.compression = as_bool(d.get("compression", True), True)
         s.domain = str(d.get("domain") or "")
         s.rdp_width = as_int(d.get("rdp_width", 1600) or 1600, 1600, minimum=640, maximum=7680)

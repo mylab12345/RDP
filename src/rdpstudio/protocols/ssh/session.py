@@ -110,6 +110,7 @@ class SshSessionController(SessionController):
             timeout=self.definition.timeout,
             term_size=(cols, rows),
             startup_command=self.definition.startup_command,
+            x11_forwarding=self.definition.x11_forwarding,
         )
         self._worker.connected.connect(self._on_connected)
         self._worker.disconnected.connect(self._on_disconnected)
@@ -386,6 +387,13 @@ class SshSessionController(SessionController):
 
     def stop_forward(self, port: int) -> None:
         self._worker_call("stop_forward", port)
+
+    def exec_command(self, command: str, timeout: float = 8.0) -> str:
+        """Run a one-shot command on this session's transport (monitoring)."""
+        worker = self._worker
+        if worker is None:
+            raise RuntimeError("session is not connected")
+        return worker.run_command(command, timeout)
 
     def open_sftp(self) -> None:
         if self._worker is None:

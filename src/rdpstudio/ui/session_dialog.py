@@ -598,8 +598,15 @@ class SessionDialog(QDialog):
             "Only enable for hosts you trust — a malicious server could use "
             "your agent to authenticate elsewhere."
         )
+        self.x11_forward = self._make_checkbox("X11 forwarding", self.session.x11_forwarding)
+        self.x11_forward.setToolTip(
+            "Forward remote X11 apps to your local display (ssh -X). "
+            "Needs a local X server and xauth; the SSH server must allow "
+            "X11 forwarding."
+        )
         agent_row = QHBoxLayout()
         agent_row.addWidget(self.agent_forward)
+        agent_row.addWidget(self.x11_forward)
         agent_row.addStretch(1)
         form.addRow(agent_row)
         layout.addWidget(beh_card)
@@ -906,6 +913,7 @@ class SessionDialog(QDialog):
             s.compression = self.compression.isChecked()
             s.auto_reconnect = self.auto_reconnect.isChecked()
             s.agent_forwarding = self.agent_forward.isChecked()
+            s.x11_forwarding = self.x11_forward.isChecked()
         elif s.protocol == PROTOCOL_RDP:
             method = normalize_auth_for_protocol(s.protocol, auth_ui["auth"].currentData())
             s.auth = method

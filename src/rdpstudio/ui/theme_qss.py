@@ -830,6 +830,36 @@ QProgressBar::chunk {{
     border-radius: 4px;
 }}
 
+/* ================= Live monitor strip (MobaXterm-style) =============== */
+QWidget#monitorBar {{
+    background: {panel};
+    border-top: 1px solid {border_strong};
+}}
+QLabel#monitorTitle {{
+    color: {fg_dim};
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}}
+QLabel#monitorHost {{
+    color: {fg_dim};
+    font-size: 11px;
+}}
+QLabel#monitorValue {{
+    color: {fg};
+    font-size: 11px;
+    font-family: {ui_mono};
+}}
+QWidget#monitorMeter QProgressBar {{
+    background: {bg3};
+    border: none;
+    border-radius: 3px;
+}}
+QWidget#monitorMeter QProgressBar::chunk {{
+    background: {accent};
+    border-radius: 3px;
+}}
+
 /* ================= Checkboxes & Radios ================================= */
 QCheckBox, QRadioButton {{
     spacing: 7px;
@@ -1308,40 +1338,6 @@ QTabBar::close-button:hover {{
 QTabBar::close-button:pressed {{
     background: {bad_active};
     border-color: {bad_active};
-}}
-
-/* ================= Command bar — distinct from terminal ============= */
-QWidget#commandBar, QWidget#sessionCommandBar {{
-    background: {panel};
-    border-top: 1px solid {border_strong};
-    padding: 0px;
-}}
-QLabel#commandPrompt {{
-    color: {accent};
-    background: {bg3};
-    border: 1px solid {border};
-    border-radius: 6px;
-    font-size: 11.5px;
-    font-weight: 600;
-    font-family: {ui_mono};
-    padding: 3px 9px;
-}}
-QLineEdit#commandLine {{
-    background: {bg2};
-    border: 1px solid {border_strong};
-    border-radius: 6px;
-    padding: 5px 10px;
-    font-size: 12.5px;
-    font-family: {ui_mono};
-    min-height: 22px;
-    color: {fg};
-}}
-QLineEdit#commandLine:focus {{
-    border-color: {accent};
-    background: {bg2};
-}}
-QLineEdit#commandLine:hover {{
-    border-color: {fg_muted};
 }}
 
 /* ================= Status session chip ================================ */

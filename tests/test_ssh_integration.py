@@ -182,3 +182,25 @@ def test_sftp_roundtrip(sshd, tmp_path):
     sftp.rmdir(remote_dir)
     sftp.close()
     client.close()
+
+
+def test_worker_run_command_for_monitoring(sshd, home):
+    """Remote monitoring runs on a fresh channel and never touches the shell."""
+    from rdpstudio.protocols.ssh.worker import SshWorker
+    from rdpstudio.ui.prompter import HeadlessPromptProvider
+
+    worker = SshWorker(
+        host=sshd["host"],
+        port=sshd["port"],
+        material=_material(sshd),
+        known_hosts_path=home / "known_hosts",
+        host_key_policy="accept-new",
+        prompter=HeadlessPromptProvider(accept_host_keys=True),
+    )
+    client = worker._connect(worker.material)
+    worker._client = client
+    try:
+        out = worker.run_command("echo monitor-ok; hostname")
+    finally:
+        client.close()
+    assert "monitor-ok" in out
