@@ -3,15 +3,16 @@
 ## Unreleased
 
 ### Added — MobaXterm parity features (2026-10)
-- **MultiExec broadcast input** (`Ctrl+Alt+B`): keystrokes and command-bar
-  commands from any shell tab are mirrored to every other connected shell
-  tab. Each participating tab shows a `BROADCAST` badge.
+- **MultiExec broadcast input** (`Ctrl+Alt+B`): keystrokes from any shell tab
+  are mirrored to every other connected shell tab. Each participating tab
+  shows a `BROADCAST` badge.
 - **SSH X11 forwarding** (`ssh -X`) as a per-session advanced option. A
   paramiko X11 handler bridges each remote client to the local display and
   replaces the fake cookie with the real `MIT-MAGIC-COOKIE-1`.
 - **Remote monitoring** now runs as an always-visible strip under the
   workspace (MobaXterm-style) and follows the active SSH tab: CPU, memory,
   disk, network, load and uptime refresh every 2 s over a separate channel.
+  SSH sessions only — RDP carries no system counters and is not monitored.
   The full window remains at `Session → Remote monitoring…` (`Ctrl+Shift+M`).
 - **Removed** the per-tab command line at the bottom of every terminal tab;
   typing goes directly into the terminal. Broadcast/MultiExec is unaffected.

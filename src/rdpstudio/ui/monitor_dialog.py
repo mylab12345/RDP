@@ -98,18 +98,8 @@ def _percent(used: float, total: float) -> float:
     return max(0.0, min(100.0, 100.0 * used / total)) if total > 0 else 0.0
 
 
-def parse_monitor_output(
-    text: str,
-    prev_net: tuple[int, int] | None = None,
-    elapsed: float | None = None,
-) -> dict:
-    """Parse the ``MONITOR_COMMAND`` output into a stats dict.
-
-    ``prev_net``/``elapsed`` come from the previous poll and add network
-    rates; without them the rate fields are None.
-    """
-    sec = _sections(text)
-    stats: dict = {
+def _empty_stats() -> dict:
+    return {
         "host": "",
         "os": "",
         "uptime_s": None,
@@ -130,6 +120,20 @@ def parse_monitor_output(
         "net_rx_rate": None,
         "net_tx_rate": None,
     }
+
+
+def parse_monitor_output(
+    text: str,
+    prev_net: tuple[int, int] | None = None,
+    elapsed: float | None = None,
+) -> dict:
+    """Parse the ``MONITOR_COMMAND`` output into a stats dict.
+
+    ``prev_net``/``elapsed`` come from the previous poll and add network
+    rates; without them the rate fields are None.
+    """
+    sec = _sections(text)
+    stats = _empty_stats()
 
     host_lines = [ln.strip() for ln in sec.get("HOST", []) if ln.strip()]
     if host_lines:

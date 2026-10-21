@@ -3,8 +3,8 @@
 **A cross-platform remote-access workbench, inspired by MobaXterm.**
 Tabbed SSH/OpenSSH sessions to Linux, Windows, BSD and macOS hosts, RDP sessions to Windows hosts,
 SFTP file transfer, and a plugin architecture for adding protocols — all in one
-NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
-**command line under each terminal tab**. SSH tabs keep the remote VM’s own console colors.
+NASA-style flight-ops GUI: a **Roster** sidebar and tabbed sessions.
+SSH tabs keep the remote VM’s own console colors.
 
 ![Main window](docs/screenshots/main-window.png)
 
@@ -20,8 +20,8 @@ NASA-style flight-ops GUI: a **Roster** sidebar, tabbed sessions, and a
 |---|---|
 | **SSH/OpenSSH (all OSes)** | Interactive shells in tabs with a real VT emulator (native QTermWidget on displayed Linux desktops when installed, pyte fallback elsewhere: scrollback, mouse-selection, bracketed paste, OSC-52 clipboard), agent/key/password auth, ProxyJump chaining, compression, keepalives, throughput-tuned channels (OpenSSH-sized 2 MiB window / 32 KiB packets for shell, SFTP, tunnels and jump hops) and a burst-draining, coalescing output pump. **Remote console colors stay native** — Tools → Settings theme is not applied to SSH tabs |
 | **Fonts** | Settings lists many console typefaces (DejaVu, Liberation, Cascadia, Fira, JetBrains, IBM Plex, Hack, Consolas, …) plus every monospaced face on this machine, with a live preview |
-| **MultiExec** | Broadcast typing and command-bar commands to every connected shell tab (`Session → MultiExec`, `Ctrl+Alt+B`); each participating tab shows a `BROADCAST` badge |
-| **Remote monitoring** | **Live strip under the workspace** (MobaXterm-style) for the active SSH tab: CPU, memory, disk, network, load and uptime, refreshed every 2 s over the existing transport. `Details` opens the full window (`Ctrl+Shift+M`) |
+| **MultiExec** | Broadcast typing to every connected shell tab (`Session → MultiExec`, `Ctrl+Alt+B`); each participating tab shows a `BROADCAST` badge |
+| **Remote monitoring** | **Live strip under the workspace** (MobaXterm-style) for the active SSH tab: CPU, memory, disk, network, load and uptime, refreshed every 2 s. `Details` opens the full window (`Ctrl+Shift+M`) |
 | **X11 forwarding** | Opt-in per session (`ssh -X`): remote X11 apps open on the local display, with the local `MIT-MAGIC-COOKIE-1` substituted on each forwarded connection |
 | **RDP (Windows)** | **Built-in display**: the remote desktop renders *inside the app* (FreeRDP embedded via X11 `/parent-window` — no separate window, like MobaXterm) on Linux — **including Wayland desktops**, where KB-Remote restarts itself through XWayland automatically when an RDP session is in play; mstsc/FreeRDP external window on Windows or as a fallback. Saved settings, **fit display to screen** (smart sizing), fullscreen, drive/clipboard redirection, RD-gateway; **protocol-level server probes** (X.224 negotiation) to verify reachability + negotiated security; local RDP **server** status/enable/disable |
 | **Local terminal** | One-click native shell in a tab (toolbar, `Session → New local terminal`, `Ctrl+Shift+T`): real PTY on Linux/macOS, ConPTY on Windows — colors, resize, `vim`/`top` all work. On Linux, the optional native QTermWidget engine keeps VT parsing and painting in compiled code, like SSH Pilot’s VTE path |
@@ -112,7 +112,7 @@ PyInstaller/CI details.
 ### Look & layout
 
 KB-Remote opens in **Studio Dark**: deep slate surfaces, a quiet mint accent,
-and a compact command bar with labels beside the icons. **MobaXterm Dark** and
+and a compact toolbar with labels beside the icons. **MobaXterm Dark** and
 classic light chrome remain available, alongside Midnight, Dracula, Ocean and
 a high-contrast preset in **View → Theme** or **Settings → General**. Settings
 also lets you override the primary accent colour with a preset or custom
