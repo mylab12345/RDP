@@ -26,13 +26,18 @@ classifiers = [
   "Topic :: Terminals",
 ]
 dependencies = [
-  # Floors chosen to exclude versions with known CVEs:
-  #  - paramiko  >= 3.4.0 : CVE-2023-48795 (Terrapin SSH prefix truncation)
-  #  - cryptography >= 44.0.1 : CVE-2024-12797 (OpenSSL RFC7250 handshake)
+  # Floors exclude every advisory known at the 2026-10 hardening pass:
+  #  - paramiko >= 5.0.0 : GHSA-r374-rxx8-8654 / CVE-2026-44405 (SHA-1 RSA
+  #    signatures accepted; fixed after 4.0.0). The 5.x line also carries
+  #    the Terrapin fix (CVE-2023-48795) and OpenSSH-sized flow control.
+  #  - cryptography >= 50.0.0 : GHSA-g6cj-pr64-35w5 (PKCS#7 Bleichenbacher),
+  #    GHSA-jwv3-5hgf-82ww, GHSA-m2h6-j472-rp4c, GHSA-537c-gmf6-5ccf
+  #    (bundled OpenSSL) and GHSA-r6ph-v2qm-q3c2 all affect older releases.
+  #  - PySide6-Essentials>=6.6, pyte>=0.8.2 : no open pip advisories.
   "PySide6-Essentials>=6.6",
-  "paramiko>=3.5.1",
+  "paramiko>=5.0.0",
   "pyte>=0.8.2",
-  "cryptography>=44.0.2",
+  "cryptography>=50.0.0",
 ]
 
 [project.optional-dependencies]
