@@ -233,6 +233,14 @@ def _with_stderr(chan, exc: ScpError) -> ScpError:
 # ----------------------------------------------------------------------
 # Client
 # ----------------------------------------------------------------------
+# Permission bits we are willing to take from a remote peer.  The setuid,
+# setgid and sticky bits are deliberately excluded: the mode arrives in the
+# remote ``C``/``D`` header, so a hostile (or compromised) server could
+# otherwise land a setuid-root-looking binary or a sticky directory locally
+# (CWE-732).
+SAFE_DOWNLOAD_MODE = 0o777
+
+
 def _apply_metadata(
     target: Path,
     mode: int,
@@ -245,6 +253,9 @@ def _apply_metadata(
     Both are best-effort: a destination filesystem that refuses utime/chmod
     (FAT, a read-only mount, a foreign owner) must not fail a transfer whose
     payload already landed intact.
+
+    Only ordinary permission bits are copied; setuid/setgid/sticky bits from
+    the remote header are discarded.
     """
     if preserve_times and mtime is not None and atime is not None:
         try:
@@ -252,7 +263,7 @@ def _apply_metadata(
         except OSError:
             log.debug("scp could not set times on %s", target, exc_info=True)
     try:
-        os.chmod(target, mode & 0o7777)
+        os.chmod(target, mode & SAFE_DOWNLOAD_MODE)
     except OSError:
         log.debug("scp could not set mode on %s", target, exc_info=True)
 

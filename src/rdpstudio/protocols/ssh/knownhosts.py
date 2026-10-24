@@ -72,6 +72,14 @@ class KnownHostsVerifier(paramiko.MissingHostKeyPolicy):
             raise paramiko.SSHException(
                 f"host key for {hostname} rejected ({'changed' if changed else 'unknown'})"
             )
+        if changed:
+            # Replace, don't accumulate: keeping the previous key trusted would
+            # let the very MITM the warning was about reconnect silently later
+            # (paramiko accepts any entry that matches).
+            try:
+                del self.host_keys[hostname]
+            except KeyError:
+                pass
         self.host_keys.add(hostname, key.get_name(), key)
         self._save()
 

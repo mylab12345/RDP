@@ -9,19 +9,62 @@ behind the same prompt; it lives here so the wording, the thresholds and the
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-__all__ = ["PASTE_PREVIEW_CHARS", "PASTE_WARN_CHARS", "confirm_multiline_paste"]
+__all__ = [
+    "PASTE_PREVIEW_CHARS",
+    "PASTE_WARN_CHARS",
+    "confirm_multiline_paste",
+    "needs_paste_confirmation",
+    "sanitize_bracketed_paste",
+]
 
 #: Pastes longer than this are treated as "bulk" and prompt even on one line.
 PASTE_WARN_CHARS = 200
 #: How much of the payload the prompt shows before eliding.
 PASTE_PREVIEW_CHARS = 400
 
+# Control bytes other than tab, LF and CR.  They include ESC, so a payload
+# that carries terminal escape sequences (cursor movement, OSC titles, mode
+# changes, a bracketed-paste terminator) is treated as dangerous too — those
+# sequences are executed by the terminal/shell just like a newline.
+_CONTROL_BYTES = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# Bracketed-paste markers. ``ESC[201~`` inside pasted text ends bracketed
+# paste early, and everything after it is interpreted as typed keystrokes
+# ("pastejacking").
+_BRACKETED_START = "\x1b[200~"
+_BRACKETED_END = "\x1b[201~"
+
 
 def needs_paste_confirmation(text: str) -> bool:
-    """True when ``text`` is multi-line or long enough to warrant a prompt."""
-    return "\n" in text or "\r" in text or len(text) > PASTE_WARN_CHARS
+    """True when ``text`` is multi-line, control-bearing, or bulk.
+
+    A single "line" containing escape sequences is just as dangerous as a
+    multi-line paste: it can move the cursor, rewrite the screen or break out
+    of bracketed paste.  Both are prompted for when the setting is on.
+    """
+    return (
+        "\n" in text
+        or "\r" in text
+        or len(text) > PASTE_WARN_CHARS
+        or bool(_CONTROL_BYTES.search(text))
+    )
+
+
+def sanitize_bracketed_paste(text: str) -> str:
+    """Remove bracketed-paste markers from ``text`` before it is wrapped.
+
+    Callers that enable bracketed paste wrap the payload in
+    ``ESC[200~ … ESC[201~``.  A payload that already contains either marker
+    could terminate (or nest) paste mode, so the markers are stripped — the
+    content otherwise reaches the remote shell unchanged.
+    """
+    if not text:
+        return text
+    return text.replace(_BRACKETED_END, "").replace(_BRACKETED_START, "")
 
 
 def confirm_multiline_paste(parent: QWidget, text: str, *, enabled: bool = True) -> bool:

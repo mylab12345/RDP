@@ -4,12 +4,46 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
 from ...core.models import Session
 
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+# Fallback location used when the default per-user temp directory cannot be
+# trusted (symlinked, or owned by someone else on a shared /tmp).
+_fallback_dir: Path | None = None
+
+
+def _private_temp_dir() -> Path:
+    """Return a directory only this user can write, or a fresh private one.
+
+    ``tempfile.gettempdir()`` is world-writable, so a predictable
+    ``rdpstudio-<uid>`` name can be pre-created by another local user as a
+    symlink (CWE-377/CWE-59).  Only an existing *directory* we own with no
+    group/other access is used as-is; anything else falls back to
+    ``mkdtemp``, which is atomic, uniquely named and already 0700.
+    """
+    global _fallback_dir
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    candidate = Path(tempfile.gettempdir()) / f"rdpstudio-{uid}"
+    try:
+        candidate.mkdir(mode=0o700, exist_ok=True)
+        info = os.lstat(candidate)
+        trusted = stat.S_ISDIR(info.st_mode)
+        if trusted and os.name == "posix":
+            trusted = info.st_uid == os.getuid()
+        if trusted:
+            if os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o077:
+                os.chmod(candidate, 0o700)
+            return candidate
+    except OSError:
+        pass
+    if _fallback_dir is None or not _fallback_dir.is_dir():
+        _fallback_dir = Path(tempfile.mkdtemp(prefix="rdpstudio-rdp-"))
+    return _fallback_dir
 
 
 def _rdp_str(value: object) -> str:
@@ -93,16 +127,41 @@ def write_rdp_file(defn: Session, directory: Path | None = None) -> Path:
     sanitised: an unfiltered name could contain ``/`` or ``..`` and escape the
     target directory (CWE-22).  The file lands in a per-user directory with
     restrictive permissions because it embeds the username/host layout.
+
+    The file is created with ``O_EXCL|O_NOFOLLOW`` and ``0600`` so a
+    pre-planted symlink or hard link in the destination cannot redirect the
+    write to a victim file (CWE-377/CWE-59).  A stale file left by an earlier
+    launch is replaced only after it is confirmed to be a regular file owned
+    by this user.
     """
-    directory = directory or Path(tempfile.gettempdir()) / f"rdpstudio-{os.getuid() if hasattr(os, 'getuid') else 'user'}"
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if directory is None:
+        directory = _private_temp_dir()
+    else:
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     safe = _SAFE_NAME.sub("_", defn.display_name()).strip("._") or "session"
     path = directory / f"{safe[:64]}_{_SAFE_NAME.sub('_', defn.id)}.rdp"
-    # Create with 0600 *before* writing, so the content is never briefly
-    # world-readable.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        # utf-16 includes the BOM, which mstsc uses to detect Unicode files
-        # (without it non-ASCII usernames/domains can be misread as ANSI).
-        fh.write(build_rdp_text(defn).encode("utf-16"))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        info = os.lstat(path)
+        owned = os.name != "posix" or getattr(info, "st_uid", os.getuid()) == os.getuid()
+        if not stat.S_ISREG(info.st_mode) or not owned:
+            # Symlink/FIFO/foreign file: refuse rather than truncate it.
+            raise OSError(f"refusing to replace unsafe file at {path}") from None
+        os.unlink(path)
+        fd = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            # utf-16 includes the BOM, which mstsc uses to detect Unicode files
+            # (without it non-ASCII usernames/domains can be misread as ANSI).
+            fh.write(build_rdp_text(defn).encode("utf-16"))
+    except BaseException:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
     return path

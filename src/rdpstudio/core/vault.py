@@ -173,14 +173,25 @@ class CredentialVault:
             raise VaultLockedError("vault is locked")
 
     def entries(self) -> list[Credential]:
+        """Detached copies of every entry.
+
+        Callers (UI editors included) must not hold live objects: mutating one
+        in place used to change in-memory state without persisting it and
+        defeated the rollback snapshot taken by :meth:`put` (SR-15).
+        """
         self._require_unlocked()
         self.touch()
-        return sorted(self._entries.values(), key=lambda c: c.name.lower())
+        return [
+            Credential.from_dict(c.to_dict())
+            for c in sorted(self._entries.values(), key=lambda c: c.name.lower())
+        ]
 
     def get(self, credential_id: str) -> Credential | None:
+        """Detached copy of one entry (see :meth:`entries`)."""
         self._require_unlocked()
         self.touch()
-        return self._entries.get(credential_id)
+        stored = self._entries.get(credential_id)
+        return None if stored is None else Credential.from_dict(stored.to_dict())
 
     def put(self, cred: Credential) -> Credential:
         """Insert/update an entry and persist immediately (auto-save).
@@ -191,21 +202,26 @@ class CredentialVault:
         observe state that was reported as unsuccessfully persisted.
         """
         self._require_unlocked()
+        if not isinstance(cred, Credential):
+            cred = Credential.from_dict(cred)
         if not cred.id or cred.id == "new":
             cred.id = uuid.uuid4().hex[:12]
         cred.updated_at = time.time()
+        # Store a snapshot, not the caller's object: a later in-place edit of
+        # the caller's instance must not silently diverge from what is on disk.
+        stored = Credential.from_dict(cred.to_dict())
         missing = object()
-        previous = self._entries.get(cred.id, missing)
-        self._entries[cred.id] = cred
+        previous = self._entries.get(stored.id, missing)
+        self._entries[stored.id] = stored
         try:
             self.save_if_master()
         except BaseException:
             if previous is missing:
-                self._entries.pop(cred.id, None)
+                self._entries.pop(stored.id, None)
             else:
-                self._entries[cred.id] = previous
+                self._entries[stored.id] = previous
             raise
-        return cred
+        return Credential.from_dict(stored.to_dict())
 
     def delete(self, credential_id: str) -> None:
         self._require_unlocked()

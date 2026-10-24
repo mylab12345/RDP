@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -57,6 +57,14 @@ class VaultDialog(QDialog):
         close.clicked.connect(self.accept)
         layout.addWidget(close)
 
+        # Auto-lock happens on a timer in the main window; the dialog must
+        # notice it even while it is open, so no cached secret survives (SR-04).
+        self._last_unlocked = self.ctx.vault.unlocked
+        self._lock_watch = QTimer(self)
+        self._lock_watch.setInterval(1000)
+        self._lock_watch.timeout.connect(self._watch_vault_lock)
+        self._lock_watch.start()
+
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -88,12 +96,10 @@ class VaultDialog(QDialog):
 
         reveal = QPushButton("Show")
         reveal.setCheckable(True)
-        reveal.toggled.connect(
-            lambda on: self.cred_secret.setEchoMode(
-                QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
-            )
-        )
+        reveal.setEnabled(False)  # until the vault is unlocked and an entry is picked
+        reveal.toggled.connect(self._set_secret_visible)
         self.cred_secret.textChanged.connect(lambda _: reveal.setChecked(False))
+        self.reveal_btn = reveal
 
         buttons = QHBoxLayout()
         new_btn = QPushButton(icon("plus"), "New")
@@ -151,9 +157,51 @@ class VaultDialog(QDialog):
         if vault.unlocked:
             for cred in vault.entries():
                 item = QListWidgetItem(f"{cred.name or cred.id} · {cred.kind}")
-                item.setData(Qt.ItemDataRole.UserRole, cred)
+                # Only the id is cached: list items must not carry secrets or
+                # live credential objects past a lock (SR-04/SR-15).
+                item.setData(Qt.ItemDataRole.UserRole, cred.id)
                 self.cred_list.addItem(item)
+        else:
+            self._clear_editor()
+        self._last_unlocked = vault.unlocked
         self._refresh_key_list()
+
+    # -- lock handling ---------------------------------------------------
+    def _watch_vault_lock(self) -> None:
+        """Purge every secret-bearing widget the moment the vault locks."""
+        unlocked = self.ctx.vault.unlocked
+        if self._last_unlocked and not unlocked:
+            self._handle_vault_locked()
+        self._last_unlocked = unlocked
+
+    def _handle_vault_locked(self) -> None:
+        if self.cred_list.count() or self.cred_list.currentRow() >= 0 or self.cred_secret.text():
+            self.cred_list.clearSelection()
+            self.cred_list.clear()
+        self._clear_editor()
+        self.status.setText("Vault is locked.")
+        self._refresh_key_list()
+
+    def _clear_editor(self) -> None:
+        self.reveal_btn.setChecked(False)
+        self.reveal_btn.setEnabled(False)
+        for field in (
+            self.cred_name,
+            self.cred_username,
+            self.cred_secret,
+            self.cred_host,
+            self.cred_notes,
+        ):
+            field.clear()
+        self.cred_kind.setCurrentIndex(0)
+
+    def _set_secret_visible(self, on: bool) -> None:
+        if on and not self.ctx.vault.unlocked:
+            self.reveal_btn.setChecked(False)
+            return
+        self.cred_secret.setEchoMode(
+            QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
+        )
 
     def _new_credential(self) -> None:
         if not self._ensure_unlocked():
@@ -168,12 +216,19 @@ class VaultDialog(QDialog):
         self.cred_name.setFocus()
 
     def _load_credential(self, row: int) -> None:
-        if row < 0:
+        vault: CredentialVault = self.ctx.vault
+        if row < 0 or not vault.unlocked:
+            # Selecting a stale row after a lock must never repopulate the
+            # editor with secrets (SR-04).
+            self._clear_editor()
             return
         item = self.cred_list.item(row)
-        cred = item.data(Qt.ItemDataRole.UserRole)
+        credential_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        cred = vault.get(credential_id) if credential_id else None
         if cred is None:
+            self._clear_editor()
             return
+        self.reveal_btn.setEnabled(True)
         self.cred_name.setText(cred.name)
         self.cred_kind.setCurrentText(cred.kind)
         self.cred_username.setText(cred.username)
@@ -186,7 +241,8 @@ class VaultDialog(QDialog):
         if not self._ensure_unlocked():
             return
         item = self.cred_list.currentItem()
-        cred = item.data(Qt.ItemDataRole.UserRole) if item else None
+        credential_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        cred = vault.get(credential_id) if credential_id else None
         cred = cred or Credential()
         cred.name = self.cred_name.text().strip() or cred.id
         cred.kind = self.cred_kind.currentText()
@@ -203,10 +259,13 @@ class VaultDialog(QDialog):
         item = self.cred_list.currentItem()
         if item is None:
             return
-        cred = item.data(Qt.ItemDataRole.UserRole)
+        credential_id = item.data(Qt.ItemDataRole.UserRole)
         vault: CredentialVault = self.ctx.vault
-        if vault.unlocked and cred:
-            vault.delete(cred.id)
+        if not vault.unlocked:
+            self._handle_vault_locked()
+            return
+        if credential_id:
+            vault.delete(str(credential_id))
             self._persist_master()
             self._refresh()
 

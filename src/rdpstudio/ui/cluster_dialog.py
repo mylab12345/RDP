@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.export_safety import sanitize_csv_cell, sanitize_markdown_cell
 from ..core.models import Session
 from ..core.plugin import SessionContext
 from ..tools.cluster_runner import ClusterHostResult, ClusterRunner
@@ -432,14 +433,32 @@ class ClusterDialog(QDialog):
                     writer = csv.writer(fh)
                     writer.writerow(["Host", "DisplayName", "Status", "ExitCode", "Duration_s", "Stdout", "Stderr", "Error"])
                     for r in self._results:
-                        writer.writerow([r.host, r.display_name, r.status, r.exit_code, r.duration_s, r.stdout, r.stderr, r.error])
+                        # Remote output is untrusted: neutralise spreadsheet
+                        # formulas before it lands in a cell (CWE-1236).
+                        writer.writerow(
+                            [
+                                sanitize_csv_cell(r.host),
+                                sanitize_csv_cell(r.display_name),
+                                sanitize_csv_cell(r.status),
+                                r.exit_code,
+                                r.duration_s,
+                                sanitize_csv_cell(r.stdout),
+                                sanitize_csv_cell(r.stderr),
+                                sanitize_csv_cell(r.error),
+                            ]
+                        )
             elif path.endswith(".md"):
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(f"# Cluster Execution Results — {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                     fh.write("| Host | Status | Exit Code | Duration | Output |\n|---|---|---|---|---|\n")
                     for r in self._results:
                         prev = (r.stdout.strip() or r.error).replace("\n", " ")[:60]
-                        fh.write(f"| {r.display_name} | {r.status} | {r.exit_code} | {r.duration_s:.2f}s | {prev} |\n")
+                        fh.write(
+                            f"| {sanitize_markdown_cell(r.display_name)} "
+                            f"| {sanitize_markdown_cell(r.status)} "
+                            f"| {r.exit_code} | {r.duration_s:.2f}s "
+                            f"| {sanitize_markdown_cell(prev)} |\n"
+                        )
             else:
                 with open(path, "w", encoding="utf-8") as fh:
                     json.dump([r.to_dict() for r in self._results], fh, indent=2)

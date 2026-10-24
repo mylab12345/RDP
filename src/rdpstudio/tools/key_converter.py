@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
+import re
 import struct
 from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+
+# PPK files are line-oriented: a comment carrying CR/LF would add records of
+# its own (the same injection class as SR-02 for .rdp files).
+_PPK_CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def generate_randomart(raw_digest: bytes, key_type: str = "ED25519", bits: int = 256) -> str:
@@ -116,7 +122,25 @@ def parse_key_details(key_file_path: str | Path, passphrase: str | None = None) 
 
 
 def openssh_to_ppk(key_data: bytes, comment: str = "rdpstudio-key", passphrase: str = "") -> str:
-    """Generate a PuTTY PPK v2/v3 compatible formatted text string from unencrypted OpenSSH key."""
+    """Render an *unencrypted* OpenSSH/PEM private key as a PuTTY PPK v2 file.
+
+    The MAC is the PPK v2 construction: ``HMAC-SHA1`` keyed with
+    ``SHA1(comment)`` over the length-prefixed key type, encryption name,
+    comment and the public/private blobs.  The previous plain-SHA1 digest was
+    not a valid PPK MAC, so PuTTY/WinSCP rejected the file.
+
+    ``passphrase`` is accepted for API compatibility but rejected when set:
+    silently emitting an unencrypted key for a caller that asked for an
+    encrypted one was the worst possible outcome (SR-03).  Use PuTTYgen for
+    encrypted exports.
+    """
+    if passphrase:
+        raise ValueError(
+            "encrypted PPK export is not supported; export an unencrypted key "
+            "and protect the file, or use PuTTYgen"
+        )
+    if _PPK_CTRL.search(str(comment or "")):
+        raise ValueError("PPK comment must not contain control characters")
     # Attempt to load as private key
     try:
         key = serialization.load_ssh_private_key(key_data, password=None)
@@ -133,22 +157,18 @@ def openssh_to_ppk(key_data: bytes, comment: str = "rdpstudio-key", passphrase: 
 
     if isinstance(key, ed25519.Ed25519PrivateKey):
         key_type = "ssh-ed25519"
-        # Ed25519 raw private bytes (32 bytes secret + 32 bytes public)
-        raw_priv = key.private_bytes(
+        # The PPK v2 private section for ssh-ed25519 is the bare 32-byte
+        # private scalar — not the length-prefixed OpenSSH private blob.
+        priv_blob = key.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        raw_pub = pub_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw,
-        )
-        priv_blob = struct.pack(">I", 32) + raw_priv + struct.pack(">I", 32) + raw_pub
         priv_b64 = base64.b64encode(priv_blob).decode()
     elif isinstance(key, rsa.RSAPrivateKey):
         key_type = "ssh-rsa"
         priv_numbers = key.private_numbers()
-        # PPK RSA private blob
+        # PPK RSA private blob: ssh-string of d, p, q and iqmp.
         d_bytes = priv_numbers.d.to_bytes((priv_numbers.d.bit_length() + 7) // 8, "big")
         p_bytes = priv_numbers.p.to_bytes((priv_numbers.p.bit_length() + 7) // 8, "big")
         q_bytes = priv_numbers.q.to_bytes((priv_numbers.q.bit_length() + 7) // 8, "big")
@@ -170,15 +190,20 @@ def openssh_to_ppk(key_data: bytes, comment: str = "rdpstudio-key", passphrase: 
     pub_lines = wrap_64(pub_b64)
     priv_lines = wrap_64(priv_b64)
 
-    # MAC computation for unencrypted PPK v2
+    # PPK v2 MAC: HMAC-SHA1 keyed by SHA1(comment) over the SSH-2 strings.
+    comment_bytes = str(comment or "").encode("utf-8")
+    key_type_bytes = key_type.encode("ascii")
+    pub_blob = base64.b64decode(pub_b64)
+    priv_blob = base64.b64decode(priv_b64)
     mac_data = (
-        struct.pack(">I", len(key_type)) + key_type.encode() +
+        struct.pack(">I", len(key_type_bytes)) + key_type_bytes +
         struct.pack(">I", 4) + b"none" +
-        struct.pack(">I", len(comment)) + comment.encode() +
-        struct.pack(">I", len(base64.b64decode(pub_b64))) + base64.b64decode(pub_b64) +
-        struct.pack(">I", len(base64.b64decode(priv_b64))) + base64.b64decode(priv_b64)
+        struct.pack(">I", len(comment_bytes)) + comment_bytes +
+        struct.pack(">I", len(pub_blob)) + pub_blob +
+        struct.pack(">I", len(priv_blob)) + priv_blob
     )
-    mac = hashlib.sha1(mac_data).hexdigest()
+    mac_key = hashlib.sha1(comment_bytes).digest()  # noqa: S324 - PPK v2 spec
+    mac = hmac.new(mac_key, mac_data, hashlib.sha1).hexdigest()
 
     ppk_lines = [
         f"PuTTY-User-Key-File-2: {key_type}",

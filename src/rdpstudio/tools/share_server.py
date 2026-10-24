@@ -85,6 +85,18 @@ _KEY_BYTES = 32
 # Reject a client that authenticates but never opens the SFTP subsystem.
 _AUTH_TIMEOUT = 20.0
 _EVENT_HISTORY = 200
+# Permission bits a share client may request.  setuid/setgid/sticky are
+# stripped: the mode comes from the client's SFTP OPEN/MKDIR/FSETSTAT request,
+# and honouring those bits would let an authenticated peer create privilege-
+# carrying files or directories inside a writable share (CWE-732).
+_SAFE_MODE = 0o777
+# Brute-force budget for the share password.  The first few failures from a
+# peer are free (so a mistyped password does not stall the user); after that
+# every attempt is delayed with an increasing, capped backoff.
+_AUTH_FREE_FAILURES = 5
+_AUTH_FAILURE_WINDOW = 300.0
+_AUTH_MAX_DELAY = 5.0
+_AUTH_MAX_TRACKED_PEERS = 512
 
 
 class ShareServerError(RuntimeError):
@@ -135,6 +147,66 @@ def verify_password(password: str, stored: str) -> bool:
 # A fixed dummy hash keeps the timing of a failed login roughly the same
 # whether or not the username exists (no cheap user enumeration).
 _DUMMY_HASH = hash_password("kb-remote-dummy-password")
+
+
+class _AuthThrottle:
+    """Per-peer failed-login throttle for the share password.
+
+    The share service has exactly one account and a user-chosen password, so
+    an attacker on the LAN could otherwise try guesses as fast as the network
+    and PBKDF2 allow.  Failures are counted per peer address inside a rolling
+    window; past :data:`_AUTH_FREE_FAILURES` the caller sleeps for an
+    increasing, capped interval before answering.  State is bounded so a
+    spoofed source-address flood cannot grow it without limit.
+    """
+
+    def __init__(
+        self,
+        free_failures: int = _AUTH_FREE_FAILURES,
+        window: float = _AUTH_FAILURE_WINDOW,
+        max_delay: float = _AUTH_MAX_DELAY,
+        max_peers: int = _AUTH_MAX_TRACKED_PEERS,
+    ) -> None:
+        self._free = max(0, int(free_failures))
+        self._window = float(window)
+        self._max_delay = float(max_delay)
+        self._max_peers = max(1, int(max_peers))
+        self._lock = threading.Lock()
+        self._failures: dict[str, deque[float]] = {}
+
+    def delay_for(self, peer: str, *, now: float | None = None) -> float:
+        """Seconds the next attempt from ``peer`` should be delayed."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            stamps = self._recent(peer, now)
+            excess = len(stamps) - self._free
+            if excess <= 0:
+                return 0.0
+            return min(self._max_delay, float(2 ** min(excess - 1, 8)))
+
+    def record_failure(self, peer: str, *, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            stamps = self._recent(peer, now)
+            stamps.append(now)
+            if len(self._failures) > self._max_peers:
+                # Drop the least recently used peer; ordering is not security
+                # critical, boundedness is.
+                for key in list(self._failures)[: len(self._failures) - self._max_peers]:
+                    self._failures.pop(key, None)
+
+    def reset(self, peer: str) -> None:
+        with self._lock:
+            self._failures.pop(peer, None)
+
+    # -- internals -------------------------------------------------------
+    def _recent(self, peer: str, now: float) -> deque[float]:
+        stamps = self._failures.get(peer)
+        if stamps is None:
+            stamps = self._failures[peer] = deque(maxlen=64)
+        while stamps and now - stamps[0] > self._window:
+            stamps.popleft()
+        return stamps
 
 
 # ----------------------------------------------------------------------
@@ -297,8 +369,22 @@ class _ShareHandle(SFTPHandle):
         self._read += len(data)
         return data
 
+    def _writable(self) -> bool:
+        """Live check: a handle opened before a policy change must obey it."""
+        if not self._share.writable:
+            return False
+        registry = getattr(self._server, "registry", None)
+        if registry is not None and not registry.is_writable():
+            return False
+        return True
+
     def write(self, offset: int, data: bytes):
         if self.writefile is None:
+            return SFTP_PERMISSION_DENIED
+        if not self._writable():
+            # The share was unpublished or switched to read-only while this
+            # handle was open (SR-01). Fail closed instead of continuing to
+            # write with stale permission.
             return SFTP_PERMISSION_DENIED
         try:
             self.writefile.seek(offset)
@@ -459,7 +545,9 @@ class _ShareSFTPBackend(SFTPServerInterface):
         if creating and real.is_dir():
             return SFTP_FAILURE
         mode = getattr(attr, "st_mode", 0) or 0
-        self._open_mode = stat_module.S_IMODE(mode) or 0o644
+        # Only ordinary permission bits: setuid/setgid/sticky are client
+        # supplied and must never be granted inside a share (CWE-732).
+        self._open_mode = (stat_module.S_IMODE(mode) & _SAFE_MODE) or 0o644
         try:
             handle = _ShareHandle(share, real, flags, self)
         except OSError as exc:
@@ -529,7 +617,7 @@ class _ShareSFTPBackend(SFTPServerInterface):
         share, real = found
         if not share.writable:
             return SFTP_PERMISSION_DENIED
-        mode = stat_module.S_IMODE(getattr(attr, "st_mode", 0) or 0) or 0o755
+        mode = (stat_module.S_IMODE(getattr(attr, "st_mode", 0) or 0) & _SAFE_MODE) or 0o755
         try:
             os.mkdir(str(real), mode)
         except OSError:
@@ -564,7 +652,7 @@ class _ShareSFTPBackend(SFTPServerInterface):
             return SFTP_PERMISSION_DENIED
         try:
             if getattr(attr, "st_mode", None):
-                os.chmod(str(real), stat_module.S_IMODE(attr.st_mode))
+                os.chmod(str(real), stat_module.S_IMODE(attr.st_mode) & _SAFE_MODE)
             if getattr(attr, "st_mtime", None) is not None:
                 os.utime(str(real), (time.time(), attr.st_mtime))
         except OSError:
@@ -607,16 +695,25 @@ class _ShareAuthServer(paramiko.ServerInterface):
         return "password"
 
     def get_banner(self):
+        # Pre-authentication output is visible to anyone who can reach the
+        # port: announce the service, never the share names (SR-13).
         banner = self._server.config.banner or DEFAULT_BANNER
-        shares = ", ".join(e.name for e in self._server.registry.entries()) or "(none configured)"
-        return f"{banner}\r\nShares: {shares}\r\n", "en-US"
+        return f"{banner}\r\n", "en-US"
 
     def _check_password(self, username: str, password: str) -> int:
         config = self._server.config
         peer = f"{self._server.peer_of(self)} as {username}"
+        peer_addr = self._server.peer_address_of(self)
+        throttle = self._server.auth_throttle
+        delay = throttle.delay_for(peer_addr)
+        if delay:
+            # Slow down guessing without changing the answer: a throttled peer
+            # still pays the full PBKDF2 cost below and still gets AUTH_FAILED.
+            time.sleep(delay)
         stored = config.password_hash
         if not stored:
             self._server.event("error", "login refused: no share password configured", peer)
+            throttle.record_failure(peer_addr)
             return AUTH_FAILED
         user_ok = hmac.compare_digest(
             (username or "").encode("utf-8"), (config.username or "").encode("utf-8")
@@ -625,9 +722,11 @@ class _ShareAuthServer(paramiko.ServerInterface):
         if user_ok and pass_ok:
             self.username = username
             self.authenticated.set()
+            throttle.reset(peer_addr)
             self._server.event("auth", f"user “{username}” authenticated", peer)
             log.info("share server: %s authenticated from %s", username, peer)
             return AUTH_SUCCESSFUL
+        throttle.record_failure(peer_addr)
         self._server.event("auth", f"rejected login attempt for “{username or '(empty)'}”", peer)
         log.warning("share server: rejected login for %r from %s", username, peer)
         return AUTH_FAILED
@@ -708,6 +807,7 @@ class SftpShareServer:
         self._host_key: paramiko.PKey | None = None
         self._bound: tuple[str, int] | None = None
         self._last_error: str = ""
+        self.auth_throttle = _AuthThrottle()
         registry.set_writable(config.allow_write)
 
     # -- lifecycle -------------------------------------------------------
@@ -865,14 +965,25 @@ class SftpShareServer:
             self._log.debug("share server: %s %s", kind, detail)
 
     def peer_of(self, server_interface: Any) -> str:
-        transport = getattr(server_interface, "transport", None)
-        try:
-            peername = transport.getpeername() if transport is not None else None
-        except Exception:  # pragma: no cover - defensive
-            peername = None
+        peername = self._peername(server_interface)
         if isinstance(peername, tuple) and peername:
             return f"{peername[0]}:{peername[1]}"
         return ""
+
+    def peer_address_of(self, server_interface: Any) -> str:
+        """Peer *address* only (no port), used as the throttle key."""
+        peername = self._peername(server_interface)
+        if isinstance(peername, tuple) and peername:
+            return str(peername[0])
+        return ""
+
+    @staticmethod
+    def _peername(server_interface: Any):
+        transport = getattr(server_interface, "transport", None)
+        try:
+            return transport.getpeername() if transport is not None else None
+        except Exception:  # pragma: no cover - defensive
+            return None
 
     def _register(self, conn: _Connection) -> bool:
         with self._lock:
