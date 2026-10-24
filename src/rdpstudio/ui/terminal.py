@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.settings import Settings
-from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste
+from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste, sanitize_bracketed_paste
 from .session_log import SessionLogMixin
 
 
@@ -1369,7 +1369,8 @@ class TerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
         ):
             return
         if self.core.bracketed_paste:
-            self.write_user(b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~")
+            payload = sanitize_bracketed_paste(text).encode("utf-8")
+            self.write_user(b"\x1b[200~" + payload + b"\x1b[201~")
         else:
             self.write_user(text.encode("utf-8"))
         self.scroll_to_bottom()

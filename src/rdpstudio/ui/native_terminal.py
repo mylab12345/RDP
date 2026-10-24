@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste
+from .paste_guard import ClipboardPasteMixin, confirm_multiline_paste, sanitize_bracketed_paste
 from .session_log import SessionLogMixin
 from .terminal import (
     encode_key_event,
@@ -922,7 +922,7 @@ class NativeTerminalView(ClipboardPasteMixin, SessionLogMixin, QWidget):
             return
         payload = text.encode("utf-8")
         if self._bracketed_paste:
-            payload = b"\x1b[200~" + payload + b"\x1b[201~"
+            payload = b"\x1b[200~" + sanitize_bracketed_paste(text).encode("utf-8") + b"\x1b[201~"
         self.write_user(payload)
         self.scroll_to_bottom()
 

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import paths
+from ..core.persistence import atomic_write_text
 from ..core.plugin import SessionContext
 from ..protocols.ssh import keys
 from ..tools.key_converter import openssh_to_ppk, parse_key_details
@@ -248,7 +249,9 @@ class KeyUtilityDialog(QDialog):
             ppk_text = openssh_to_ppk(raw_bytes, comment=self.conv_comment.text().strip() or "rdpstudio-key")
             dest, _ = QFileDialog.getSaveFileName(self, "Save PuTTY PPK File", str(Path(src).with_suffix(".ppk")), "PuTTY Private Key (*.ppk)")
             if dest:
-                Path(dest).write_text(ppk_text, encoding="utf-8")
-                toast(self, f"Saved PPK to {Path(dest).name}", "good")
+                # The PPK holds an unencrypted private key: write it 0600
+                # through the shared atomic-write helper (SR-03).
+                atomic_write_text(dest, ppk_text, prefix=".ppk-")
+                toast(self, f"Saved unencrypted PPK to {Path(dest).name}", "warn")
         except Exception as exc:
             toast(self, f"Conversion failed: {exc}", "bad")

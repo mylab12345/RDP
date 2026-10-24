@@ -14,6 +14,7 @@ PTY burst is pure overhead.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from pathlib import Path
@@ -27,6 +28,10 @@ _CSI_RE = re.compile(r"\x1b\[[0-9;?<=>!\"#$%&'()*+,\-./ ]*[@-~]")
 _OSC_RE = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)")
 
 _BANNER_TIME = "%Y-%m-%d %H:%M:%S"
+# Session transcripts can contain anything the remote host printed (tokens,
+# pasted secrets, `cat`-ed key material), so they are created 0600 and never
+# follow a pre-existing symlink at the destination.
+_LOG_MODE = 0o600
 
 
 def strip_ansi(text: str) -> str:
@@ -56,7 +61,19 @@ class SessionLogMixin:
         self.stop_logging()
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(p, "a", encoding="utf-8", buffering=1)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_BINARY", 0)
+        fd = os.open(p, flags, _LOG_MODE)
+        try:
+            # os.open applies the mode only on creation; re-assert privacy for
+            # an existing file so an upgrade never keeps a 0644 transcript.
+            if os.name == "posix":
+                os.fchmod(fd, _LOG_MODE)
+            handle = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
+        except BaseException:
+            os.close(fd)
+            raise
         try:
             handle.write(f"\n--- KB-Remote Session Log Started: {time.strftime(_BANNER_TIME)} ---\n")
         except Exception:
