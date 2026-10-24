@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### Security — hardening pass (2026-10-24)
+- **Dependency floors raised** to exclude every advisory known at this date:
+  `paramiko>=5.0.0` (CVE-2026-44405 / GHSA-r374-rxx8-8654 SHA-1 RSA
+  signatures, plus CVE-2023-48795 "Terrapin") and `cryptography>=50.0.0`
+  (GHSA-g6cj-pr64-35w5 PKCS#7 Bleichenbacher, GHSA-jwv3-5hgf-82ww,
+  GHSA-m2h6-j472-rp4c, GHSA-537c-gmf6-5ccf bundled OpenSSL,
+  GHSA-r6ph-v2qm-q3c2). `PySide6-Essentials` and `pyte` carry no open
+  pip advisories. The suite runs green on those versions.
+- **`.rdp` staging files** are created `0600` with `O_EXCL|O_NOFOLLOW` in a
+  per-user directory that is verified to be a real directory owned by the
+  current user, closing a predictable-temp-file/symlink clobber on shared
+  `/tmp` systems (CWE-377/CWE-59).
+- **Remote-supplied permission bits** are masked to `0o777` on SCP downloads
+  and on SFTP share `OPEN`/`MKDIR`/`FSETSTAT`, so setuid/setgid/sticky bits
+  never survive a transfer (CWE-732).
+- **Share server**: a write handle opened before a share becomes read-only now
+  stops writing; the pre-auth banner no longer enumerates share names; and
+  repeated failed passwords from one peer are delayed with a bounded,
+  capped backoff (SR-01, SR-13).
+- **PPK export** now emits the real PPK v2 `HMAC-SHA1` MAC keyed with
+  `SHA1(comment)` (the previous plain SHA-1 digest was not a valid PPK MAC),
+  writes the file `0600` atomically, rejects comments containing control
+  characters, rejects a requested passphrase instead of silently emitting an
+  unencrypted key, and stores the Ed25519 private scalar in the PPK layout
+  (SR-03).
+- **Vault**: reads return detached copies so an editor cannot bypass the
+  rollback of a failed save, and locking the vault now clears the credential
+  dialog's list, editor fields and reveal state instead of leaving them
+  readable (SR-04, SR-15).
+- **Paste guard**: control bytes and escape sequences now trigger the
+  confirmation prompt, and bracketed-paste markers inside a payload are
+  stripped so a crafted paste cannot terminate paste mode and inject
+  keystrokes (SR-06).
+- **known_hosts**: accepting a changed host key now *replaces* the previous
+  entry instead of leaving the old key trusted (SR-09).
+- **Cluster export**: CSV/Markdown cells are neutralised against spreadsheet
+  formula injection from remote output (CWE-1236).
+- **Session transcripts** are created `0600` and never follow a pre-existing
+  symlink (SR-05).
+
 ### Added — MobaXterm parity features (2026-10)
 - **MultiExec broadcast input** (`Ctrl+Alt+B`): keystrokes from any shell tab
   are mirrored to every other connected shell tab. Each participating tab
