@@ -441,7 +441,16 @@ def test_all_svg_icons_render_and_tint_cleanly(qtapp) -> None:  # noqa: ARG001
 
 
 def test_session_dialog_uses_modern_cards_and_unclipped_controls(qtapp) -> None:
-    """SessionDialog uses 8 px surface cards and an unclipped password toggle."""
+    """SessionDialog uses rounded, styled section cards and an unclipped
+    password toggle.
+
+    The card radius is no longer hard-coded per dialog: cards are painted by
+    the shared design system (``#sectionCard`` in the global sheet) at the
+    token radius, so this asserts the card really is a themed surface
+    instead of freezing one literal number.
+    """
+    from PySide6.QtCore import Qt
+
     from rdpstudio.core.models import PROTOCOL_SSH, Session
     from rdpstudio.ui.session_dialog import SessionDialog
 
@@ -451,7 +460,11 @@ def test_session_dialog_uses_modern_cards_and_unclipped_controls(qtapp) -> None:
         try:
             assert dlg._pw_toggle.minimumWidth() >= 60
             card = dlg._make_card("Section")
-            assert "border-radius: 8px" in card.styleSheet()
+            assert card.objectName() == "sectionCard"
+            assert card.testAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+            qss = qtapp.styleSheet()
+            assert "QWidget#sectionCard {" in qss
+            assert "border-radius: 10px" in qss
         finally:
             dlg.close()
     finally:

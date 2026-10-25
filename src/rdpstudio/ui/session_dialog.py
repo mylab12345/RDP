@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import threading
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -93,33 +93,15 @@ class SessionDialog(QDialog):
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        from . import theme as _theme
-        hdr_row = QHBoxLayout()
-        hdr_row.setContentsMargins(0, 0, 0, 2)
-        hdr_row.setSpacing(12)
+        from .widgets import DialogHeader
 
-        hdr_icon = QLabel()
-        hdr_icon.setFixedSize(36, 36)
-        hdr_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hdr_icon.setObjectName("dashTileIcon")
-        hdr_icon.setPixmap(
-            _theme.accent_icon("plus" if self.is_new else "server", 18).pixmap(18, 18)
+        self._header = DialogHeader(
+            "New Session" if self.is_new else "Edit Session",
+            "Configure your remote connection. Fields can be left blank to "
+            "prompt at connect time.",
+            icon_name="plus" if self.is_new else "server",
         )
-        hdr_row.addWidget(hdr_icon)
-
-        hdr_col = QVBoxLayout()
-        hdr_col.setContentsMargins(0, 0, 0, 0)
-        hdr_col.setSpacing(2)
-        title_label = QLabel("New Session" if self.is_new else "Edit Session")
-        title_label.setObjectName("h1")
-        hdr_col.addWidget(title_label)
-
-        subtitle = QLabel("Configure your remote connection. Fields can be left blank to prompt at connect time.")
-        subtitle.setObjectName("muted")
-        subtitle.setWordWrap(True)
-        hdr_col.addWidget(subtitle)
-        hdr_row.addLayout(hdr_col, 1)
-        root.addLayout(hdr_row)
+        root.addWidget(self._header)
 
         self._advanced: list[QWidget] = []
         self._test_thread: threading.Thread | None = None
@@ -133,11 +115,13 @@ class SessionDialog(QDialog):
         scroll_layout.setContentsMargins(2, 2, 6, 2)
         scroll_layout.setSpacing(10)
 
-        header_card = self._make_card("General")
-        header_content = self._card_content(header_card)
-        head = QFormLayout(header_content)
+        from .widgets import SectionCard
+
+        header_card = SectionCard("General", "Identity", spacing=8)
+        head = QFormLayout()
         head.setSpacing(8)
-        head.setContentsMargins(12, 10, 12, 10)
+        head.setContentsMargins(0, 0, 0, 0)
+        header_card.fields.addLayout(head)
         self.protocol = QComboBox()
         for plugin in registry().editable():
             self.protocol.addItem(icon_text(plugin), plugin.id)
@@ -154,11 +138,8 @@ class SessionDialog(QDialog):
         head.addRow("Folder", self.group)
         scroll_layout.addWidget(header_card)
 
-        conn_card = self._make_card("Connection")
-        conn_content = self._card_content(conn_card)
-        conn_layout = QVBoxLayout(conn_content)
-        conn_layout.setContentsMargins(12, 10, 12, 10)
-        conn_layout.setSpacing(8)
+        conn_card = SectionCard("Connection", "Where to connect", spacing=8)
+        conn_layout = conn_card.fields
         self._build_connection(conn_layout)
         scroll_layout.addWidget(conn_card)
 
@@ -189,55 +170,40 @@ class SessionDialog(QDialog):
         adv_row.addStretch(1)
         root.addLayout(adv_row)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setObjectName("hairline")
-        line.setFixedHeight(1)
-        root.addWidget(line)
+        from .widgets import DialogActionBar
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        btn_left = QHBoxLayout()
-        btn_left.setSpacing(8)
-        btn_right = QHBoxLayout()
-        btn_right.setSpacing(8)
+        bar = DialogActionBar()
+        self._action_bar = bar
 
-        self.btn_test = QPushButton("Test")
-        self.btn_test.setMinimumHeight(34)
+        self.btn_test = QPushButton("Test connection")
         self.btn_test.setObjectName("ghost")
+        self.btn_test.setToolTip("Verify the host is reachable with these settings")
         self.btn_test.clicked.connect(self._on_test)
-        btn_left.addWidget(self.btn_test)
+        bar.add_left(self.btn_test)
 
         if not self.is_new:
             self.btn_delete = QPushButton("Delete")
-            self.btn_delete.setMinimumHeight(34)
             self.btn_delete.setObjectName("danger")
             self.btn_delete.clicked.connect(self._on_delete)
-            btn_left.addWidget(self.btn_delete)
-
-        btn_left.addStretch(1)
+            bar.add_left(self.btn_delete)
 
         self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.setMinimumHeight(34)
         self.btn_cancel.setObjectName("subtle")
         self.btn_cancel.clicked.connect(self.reject)
-        btn_right.addWidget(self.btn_cancel)
+        bar.add(self.btn_cancel)
 
-        self.btn_connect = QPushButton("Connect")
-        self.btn_connect.setMinimumHeight(34)
+        self.btn_connect = QPushButton("Save && connect")
         self.btn_connect.setObjectName("accent")
+        self.btn_connect.setToolTip("Save this session and open it now")
         self.btn_connect.clicked.connect(self._on_connect)
-        btn_right.addWidget(self.btn_connect)
+        bar.add(self.btn_connect)
 
         self.btn_save = QPushButton("Save")
-        self.btn_save.setMinimumHeight(34)
         self.btn_save.setObjectName("primary")
         self.btn_save.clicked.connect(self._on_save)
-        btn_right.addWidget(self.btn_save)
+        bar.add(self.btn_save, primary=True)
 
-        btn_row.addLayout(btn_left)
-        btn_row.addLayout(btn_right)
-        root.addLayout(btn_row)
+        root.addWidget(bar)
 
         self._apply_button_styles()
 
@@ -253,48 +219,19 @@ class SessionDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _make_card(self, title: str) -> QWidget:
-        card = QWidget()
-        card.setObjectName("card")
-        br = 8
-        card.setStyleSheet(
-            f"QWidget#card {{ background: {self._pal['bg2']}; "
-            f"border: 1px solid {self._pal['border']}; "
-            f"border-radius: {br}px; }}"
-        )
-        outer = QVBoxLayout(card)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        if title:
-            header = QWidget()
-            header.setStyleSheet(
-                f"background: {self._pal['panel']}; "
-                f"border-top-left-radius: {br}px; border-top-right-radius: {br}px;"
-            )
-            hl = QHBoxLayout(header)
-            hl.setContentsMargins(14, 7, 14, 7)
-            hl.setSpacing(8)
-            bar_dot = QFrame()
-            bar_dot.setFixedSize(3, 13)
-            bar_dot.setStyleSheet(
-                f"background: {self._pal['accent']}; border-radius: 1px;"
-            )
-            hl.addWidget(bar_dot)
-            lbl = QLabel(title)
-            lbl.setObjectName("h2")
-            lbl.setStyleSheet(
-                f"font-size: 12.5px; font-weight: 600; color: {self._pal['fg']};"
-            )
-            hl.addWidget(lbl)
-            hl.addStretch(1)
-            outer.addWidget(header)
-            sep = QFrame()
-            sep.setFrameShape(QFrame.Shape.HLine)
-            sep.setObjectName("hairline")
-            sep.setFixedHeight(1)
-            outer.addWidget(sep)
-        content = QWidget()
-        outer.addWidget(content)
-        card._content_widget = content  # type: ignore[attr-defined]
+        """A titled section card (shared ``SectionCard`` shell).
+
+        The inner content widget is left un-margined so each page keeps the
+        field padding it needs; the header, accent rule and hairline come
+        from the shared component.
+        """
+        from .widgets import SectionCard
+
+        card = SectionCard(title)
+        card.fields.setContentsMargins(0, 0, 0, 0)
+        inner = QWidget()
+        card.fields.addWidget(inner)
+        card._content_widget = inner  # type: ignore[attr-defined]
         return card
 
     def _card_content(self, card: QWidget) -> QWidget:
@@ -341,8 +278,16 @@ class SessionDialog(QDialog):
         return cb  # global QSS: Windows-style 13 px check box
 
     def _make_label(self, text: str, size: float = 11.5) -> QLabel:
+        """Field label: quiet, semibold, secondary colour.
+
+        Labels sit above their input rather than competing with it — the
+        value inside the field is what the eye should catch first.
+        """
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"font-size: {max(size, 12)}px; color: {self._pal['fg']}; font-weight: 400;")
+        lbl.setStyleSheet(
+            f"font-size: {max(size, 11.5)}px; color: {self._pal['fg_dim']};"
+            " font-weight: 600; letter-spacing: 0.1px; background: transparent;"
+        )
         return lbl
 
     def _apply_button_styles(self) -> None:

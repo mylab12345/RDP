@@ -546,6 +546,120 @@ def _shade(hex_color: str, factor: float) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+# ----------------------------------------------------------------------
+# Design tokens — derived from the palette, never hard-coded per theme
+# ----------------------------------------------------------------------
+def _grad(*stops: tuple[float, str], x1: float = 0, y1: float = 0, x2: float = 0, y2: float = 1) -> str:
+    """Build a QSS ``qlineargradient`` from ``(position, colour)`` stops."""
+    body = ", ".join(f"stop:{pos:g} {color}" for pos, color in stops)
+    return f"qlineargradient(x1:{x1:g}, y1:{y1:g}, x2:{x2:g}, y2:{y2:g}, {body})"
+
+
+def design_tokens(pal: dict[str, str]) -> dict[str, str]:
+    """Presentation tokens shared by the global sheet and inline widgets.
+
+    The palette defines *semantics* (surface, text, accent, state); this layer
+    turns them into the concrete values the design system needs: surface
+    gradients, elevation steps, focus rings, soft state washes, and the
+    button/field faces.  Everything is recomputed per theme, so a custom
+    accent or a light palette produces a coherent set rather than a dark-only
+    skin pasted onto white.
+    """
+    bg, bg2, bg3 = pal["bg"], pal["bg2"], pal["bg3"]
+    panel, panel2 = pal["panel"], pal["panel2"]
+    border, border_strong = pal["border"], pal["border_strong"]
+    fg = pal["fg"]
+    accent, accent_hover, accent_active = pal["accent"], pal["accent_hover"], pal["accent_active"]
+
+    # Light themes invert the elevation direction: raised surfaces get
+    # *lighter* and "shade" means a soft grey wash, not a glow.
+    light = _relative_luminance(bg) > 0.5
+    lift = 0.30 if light else 0.55  # how far to mix toward fg when raising
+
+    field_bg = _mix_hex(bg2, bg, 0.55 if not light else 0.0)
+    tokens = {
+        # --- surfaces ---------------------------------------------------
+        # A near-invisible accent wash at the top of the window gives the
+        # chrome depth without a background image or gradient banding.
+        "bg_grad": _grad((0.0, _mix_hex(bg, accent, 0.05 if not light else 0.03)),
+                        (0.55, bg), (1.0, _mix_hex(bg, "#000000", 0.18 if not light else 0.02))),
+        "chrome_grad": _grad((0.0, _mix_hex(panel2, "#ffffff", 0.05 if light else 0.03)),
+                            (1.0, panel)),
+        "card_grad": _grad((0.0, _mix_hex(bg2, fg, 0.035 if not light else 0.0)),
+                          (1.0, bg2)),
+        "card_grad_hover": _grad((0.0, _mix_hex(bg3, fg, 0.045 if not light else 0.0)),
+                                (1.0, _mix_hex(bg2, accent, 0.04))),
+        "hero_grad": _grad(
+            (0.0, _mix_hex(bg2, accent, 0.16 if not light else 0.10)),
+            (0.55, _mix_hex(bg2, accent, 0.05 if not light else 0.03)),
+            (1.0, bg2),
+            x1=0, y1=0, x2=1, y2=1,
+        ),
+        "rail_grad": _grad((0.0, _mix_hex(panel, accent, 0.10 if not light else 0.05)),
+                          (1.0, panel)),
+        "nav_active_grad": _grad((0.0, _mix_hex(bg3, accent, 0.26 if not light else 0.16)),
+                                (1.0, _mix_hex(bg2, accent, 0.10 if not light else 0.06))),
+        "tab_active_grad": _grad((0.0, _mix_hex(bg2, accent, 0.20 if not light else 0.10)),
+                                (1.0, bg2)),
+        "elev_line": _mix_hex(bg2, "#ffffff", 0.09 if not light else 0.0),
+        "hairline": _mix_hex(bg2, border, 0.6),
+        "scrim": _mix_hex(bg, "#000000", 0.25 if not light else 0.0),
+
+        # --- controls ---------------------------------------------------
+        "field_bg": field_bg,
+        "field_bg_hover": _mix_hex(field_bg, fg if not light else bg, 0.03 if not light else 0.45),
+        "field_bg_focus": _mix_hex(field_bg, accent, 0.06 if not light else 0.04),
+        # Light themes raise a button by *darkening* it toward the window
+        # chrome; dark themes lift it with a hint of the text colour.
+        "btn_face": _mix_hex(bg2, fg, 0.055) if not light else _mix_hex(bg2, bg, 0.55),
+        "btn_face_hover": _mix_hex(bg2, fg, 0.105) if not light else _mix_hex(bg2, bg, 0.85),
+        "btn_face_press": _mix_hex(bg2, fg, 0.02) if not light else _mix_hex(bg2, bg, 1.0),
+        "btn_line": _mix_hex(border, fg, 0.10) if not light else border_strong,
+        "btn_line_hover": _mix_hex(border_strong, accent, 0.25 if not light else 0.10),
+        "accent_grad": _grad((0.0, accent_hover), (1.0, accent_active),
+                             x1=0, y1=0, x2=0.85, y2=1),
+        "accent_grad_hover": _grad((0.0, _mix_hex(accent_hover, "#ffffff", 0.12)),
+                                   (1.0, accent)),
+        "accent_grad_press": _grad((0.0, accent), (1.0, accent_active)),
+
+        # --- accent washes & focus --------------------------------------
+        "accent_ring": tint(accent, 0x3d, bg),
+        "accent_soft": tint(accent, 0x1c, bg2),
+        "accent_soft2": tint(accent, 0x2c, bg2),
+        "accent_line": tint(accent, 0x66, bg2),
+        "accent_text_soft": _mix_hex(accent, fg, 0.35 if not light else 0.15),
+
+        # --- state washes (chips, banners, meters) ----------------------
+        "good_soft": tint(pal["good"], 0x1e, bg2),
+        "good_line": tint(pal["good"], 0x55, bg2),
+        "warn_soft": tint(pal["warn"], 0x1e, bg2),
+        "warn_line": tint(pal["warn"], 0x55, bg2),
+        "info_soft": tint(pal["info"], 0x1e, bg2),
+        "info_line": tint(pal["info"], 0x55, bg2),
+        "bad_soft": tint(pal["bad"], 0x22, bg2),
+        "bad_line": tint(pal["bad"], 0x55, bg2),
+
+        # --- type & space ------------------------------------------------
+        "ui_sans": _UI_SANS,
+        "ui_mono": _UI_MONO,
+        "ui_display": _UI_DISPLAY,
+        # Motion is expressed in the sheet only as easing hints for the
+        # widgets that animate themselves (see widgets.animate_*).
+        "lift": f"{lift:g}",
+    }
+    # Danger shades (hover/press) derived from the palette's bad colour.
+    tokens.update(
+        {
+            "bad_hover": _shade(pal["bad"], 1.18),
+            "bad_active": _shade(pal["bad"], 0.82),
+            "bad_text": "#ffffff",
+            "bad_border": tint(pal["bad"], 0x55, bg2),
+            "bad_faint": tint(pal["bad"], 0x1A, bg2),
+        }
+    )
+    return tokens
+
+
 def apply_theme(
     app: QApplication,
     theme: str = "",
@@ -560,23 +674,14 @@ def apply_theme(
     MOTIONS_ENABLED = bool(animations)
     pal = palette(theme)
     extra = _indicator_image_urls(pal)
-    # Danger-button shades derived from the palette's `bad` colour.
+    # Palette + derived design tokens + regenerated indicator glyphs.
+    # QSS cannot parse 8-digit hex (Qt mangles the alpha byte order), so every
+    # translucent tint is pre-blended into a solid colour by design_tokens().
     fmt = {
         **pal,
+        **design_tokens(pal),
         **extra,
-        "bad_hover": _shade(pal["bad"], 1.18),
-        "bad_active": _shade(pal["bad"], 0.82),
-        "bad_text": "#ffffff",
-        # QSS cannot parse 8-digit hex (Qt mangles the alpha byte order),
-        # so every translucent danger tint is pre-blended into a solid
-        # colour over the card surface.
-        "bad_border": tint(pal["bad"], 0x55, pal["bg2"]),
-        "bad_soft": tint(pal["bad"], 0x22, pal["bg2"]),
         "bad_soft2": tint(pal["bad"], 0x33, pal["bg2"]),
-        "bad_faint": tint(pal["bad"], 0x1A, pal["bg2"]),
-        "ui_sans": _UI_SANS,
-        "ui_mono": _UI_MONO,
-        "ui_display": _UI_DISPLAY,
     }
     # QSS cannot parse 8-digit hex (Qt mangles the alpha byte order), so
     # semi-transparent tints are pre-blended into solid colours over the

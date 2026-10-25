@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -315,6 +316,18 @@ class DashboardCustomizeDialog(QDialog):
         super().accept()
 
 
+class _DashboardPage(QWidget):
+    """The welcome page: forwards its own width to the layout adaptor."""
+
+    def __init__(self, on_resize, parent=None) -> None:
+        super().__init__(parent)
+        self._on_resize = on_resize
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        super().resizeEvent(event)
+        self._on_resize(event.size().width())
+
+
 class DashboardMixin:
     """Builds the welcome dashboard tab (no state of its own)."""
 
@@ -333,7 +346,7 @@ class DashboardMixin:
         lives in the global QSS (object-name selectors).
         """
         lay_pref = self._dashboard_layout()
-        w = QWidget()
+        w = _DashboardPage(self._apply_dashboard_width)
         w.setObjectName("dashboard")
         el = QVBoxLayout(w)
         el.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -366,6 +379,8 @@ class DashboardMixin:
         header_row.addWidget(title)
         version = QLabel(f"v{__version__}  ·  SSH · SFTP · RDP · local terminal")
         version.setObjectName("dashVersion")
+        version.setToolTip(f"KB-Remote v{__version__} — SSH, SFTP, RDP and local terminal")
+        self._dash_version_label = version
         header_row.addWidget(version, 0, Qt.AlignmentFlag.AlignVCenter)
         header_row.addStretch(1)
         customize_btn = QPushButton("Customize…")
@@ -378,32 +393,46 @@ class DashboardMixin:
         )
         customize_btn.setAccessibleName("Customize dashboard")
         customize_btn.clicked.connect(self.open_dashboard_customizer)
+        self._dash_customize_btn = customize_btn
         header_row.addWidget(customize_btn)
         el.addLayout(header_row)
 
-        # Hero — quick connect, the primary path from an empty workbench
+        # Hero — the primary path from an empty workbench. One gradient
+        # panel, one headline, one input: nothing competes with it.
         if lay_pref["show_quick_connect"]:
             quick_section = QFrame()
             quick_section.setObjectName("dashSectionQuick")
-            quick_section.setStyleSheet(
-                f"QFrame#dashSectionQuick {{ background: {palette()['panel']}; "
-                f"border: 1px solid {palette()['border']}; border-radius: 8px; }}"
-            )
+            quick_section.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             qs = QVBoxLayout(quick_section)
-            qs.setContentsMargins(16, 12, 16, 14)
-            qs.setSpacing(8)
-            hero_hdr = QHBoxLayout()
-            hero_hdr.setContentsMargins(0, 0, 0, 0)
-            hero_hdr.setSpacing(6)
-            hero_label = QLabel("Quick connect")
-            hero_label.setObjectName("dashSection")
-            hero_hdr.addWidget(hero_label)
-            hero_hdr.addStretch(1)
+            qs.setContentsMargins(22, 18, 22, 18)
+            qs.setSpacing(12)
+
+            # Title and hint chips share the first row; the explanation gets
+            # its own full-width row so word wrapping always has the height
+            # it asks for (a wrapped label inside a shared row clips).
+            hero_top = QHBoxLayout()
+            hero_top.setContentsMargins(0, 0, 0, 0)
+            hero_top.setSpacing(10)
+            hero_title = QLabel("Where do you want to go?")
+            hero_title.setObjectName("heroTitle")
+            self._dash_hero_title = hero_title
+            self._dash_hero_chips = []
+            hero_top.addWidget(hero_title, 1)
             for hint_txt in ("ssh user@host", "host:3389 (RDP)"):
                 hint_chip = QLabel(hint_txt)
                 hint_chip.setObjectName("protoChip")
-                hero_hdr.addWidget(hint_chip)
-            qs.addLayout(hero_hdr)
+                self._dash_hero_chips.append(hint_chip)
+                hero_top.addWidget(hint_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+            qs.addLayout(hero_top)
+
+            hero_sub = QLabel(
+                "Type a host and press Enter — SSH by default, RDP when you "
+                "name port 3389."
+            )
+            hero_sub.setObjectName("heroSubtitle")
+            hero_sub.setWordWrap(True)
+            self._dash_hero_sub = hero_sub
+            qs.addWidget(hero_sub)
 
             hero_row = QHBoxLayout()
             hero_row.setSpacing(8)
@@ -420,8 +449,8 @@ class DashboardMixin:
             hero_row.addWidget(self.dash_quick, 1)
             dash_go = QPushButton("Connect")
             dash_go.setObjectName("primary")
-            dash_go.setFixedHeight(38)
-            dash_go.setMinimumWidth(98)
+            dash_go.setMinimumHeight(40)
+            dash_go.setMinimumWidth(108)
             dash_go.setCursor(Qt.CursorShape.PointingHandCursor)
             dash_go.setAccessibleName("Connect")
             dash_go.clicked.connect(lambda: self._quick_connect_from(self.dash_quick))
@@ -468,8 +497,6 @@ class DashboardMixin:
             if recents_section is not None:
                 el.addWidget(recents_section)
 
-        el.addStretch(1)
-
         # Keyboard shortcut chips (flow-wrapped too)
         if lay_pref["show_shortcuts"]:
             shortcuts_section = QWidget()
@@ -505,8 +532,53 @@ class DashboardMixin:
             ss.addWidget(chips_row)
             el.addWidget(shortcuts_section)
 
-        animate_in(w)
-        return w
+        # Trailing slack sits *after* the content, so the page reads top-down
+        # instead of pushing the shortcut row to the window floor.
+        el.addStretch(1)
+
+        # Responsive to height as well as width: on a short window (or a
+        # laptop split) the welcome page scrolls rather than clipping its own
+        # hero card.
+        scroll = QScrollArea()
+        scroll.setObjectName("dashScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(w)
+        self._dash_page = w
+        self._apply_dashboard_width(760)
+        animate_in(scroll)
+        return scroll
+
+    def _apply_dashboard_width(self, width: int) -> None:
+        """Adapt the welcome page to the available width.
+
+        Nothing is ever clipped: the decorative version words go first, then
+        the Customize label, so the identity row stays on one line from a
+        phone-width window up to a full desktop.
+        """
+        version = getattr(self, "_dash_version_label", None)
+        if version is not None:
+            version.setVisible(width >= 720)
+        btn = getattr(self, "_dash_customize_btn", None)
+        if btn is not None:
+            compact = width < 660
+            btn.setText("" if compact else "Customize…")
+            btn.setToolTip("Customize dashboard")
+            btn.setMinimumWidth(34 if compact else 108)
+        title = getattr(self, "_dash_header_label", None)
+        if title is not None:
+            title.setText(APP_NAME if width >= 520 else "KB")
+        hero_title = getattr(self, "_dash_hero_title", None)
+        if hero_title is not None:
+            hero_title.setText(
+                "Where do you want to go?" if width >= 560 else "Connect"
+            )
+        hero_sub = getattr(self, "_dash_hero_sub", None)
+        if hero_sub is not None:
+            hero_sub.setVisible(width >= 480)
+        for chip in getattr(self, "_dash_hero_chips", []):
+            chip.setVisible(width >= 640)
 
     def _dash_action_card(
         self, icon_name: str, label: str, caption: str, tooltip: str, callback

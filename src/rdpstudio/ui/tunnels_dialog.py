@@ -5,7 +5,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QTreeWidget,
@@ -29,33 +28,60 @@ class TunnelsDialog(QDialog):
         self.setWindowTitle(f"Port forwarding — {controller.definition.display_name()}")
         self.resize(760, 420)
 
+        self.setMinimumSize(720, 400)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        from .widgets import DialogActionBar, DialogHeader, SectionCard
+
+        layout.addWidget(
+            DialogHeader(
+                "Port forwarding",
+                controller.definition.display_name(),
+                icon_name="transfer",
+            )
+        )
+
         hint = QLabel(
-            "Local: your machine listens, traffic exits at the remote host. "
-            "Remote: the server listens, traffic bridges back to this machine. "
-            "Dynamic: SOCKS5 proxy on this machine."
+            "Local: your machine listens, traffic exits at the remote host.  "
+            "Remote: the server listens, traffic bridges back here.  "
+            "Dynamic: a SOCKS5 proxy on this machine."
         )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        table_card = SectionCard("Forwards")
+        table_card.fields.setContentsMargins(0, 0, 0, 0)
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["State", "Type", "Listen", "Destination", ""])
+        self.tree.setHeaderLabels(["State", "Type", "Listen", "Destination"])
         self.tree.setRootIsDecorated(False)
-        layout.addWidget(self.tree, 1)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setMinimumHeight(160)
+        table_card.fields.addWidget(self.tree)
+        layout.addWidget(table_card, 1)
 
-        buttons = QHBoxLayout()
+        bar = DialogActionBar()
         add = QPushButton("Add forward…")
-        stop = QPushButton("Stop")
+        add.setObjectName("primary")
+        bar.add_left(add)
+
         start = QPushButton("Start")
+        start.setObjectName("subtle")
+        stop = QPushButton("Stop")
+        stop.setObjectName("subtle")
         remove = QPushButton("Remove")
         remove.setObjectName("danger")
-        buttons.addWidget(add)
-        buttons.addWidget(start)
-        buttons.addWidget(stop)
-        buttons.addWidget(remove)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
+        bar.add(start)
+        bar.add(stop)
+        bar.add(remove)
+
+        close = QPushButton("Close")
+        close.setObjectName("subtle")
+        close.clicked.connect(self.accept)
+        bar.add(close)
+        layout.addWidget(bar)
 
         add.clicked.connect(self._add)
         start.clicked.connect(self._start_selected)

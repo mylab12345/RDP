@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -24,31 +21,53 @@ class RdpServerDialog(QDialog):
         self.setModal(True)
         self.resize(640, 420)
 
+        self.setMinimumSize(560, 360)
         layout = QVBoxLayout(self)
-        head = QLabel("<b>Local RDP server</b>")
-        layout.addWidget(head)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
 
+        from .widgets import DialogActionBar, DialogHeader, SectionCard
+
+        layout.addWidget(
+            DialogHeader(
+                "Local RDP server",
+                "Share this machine's desktop over RDP. Enabling or disabling "
+                "the service needs administrator rights.",
+                icon_name="windows",
+            )
+        )
+
+        status_card = SectionCard("Service status", "live")
         self.status = QPlainTextEdit()
+        self.status.setObjectName("readout")
         self.status.setReadOnly(True)
-        layout.addWidget(self.status, 1)
+        self.status.setMinimumHeight(120)
+        status_card.fields.addWidget(self.status)
+        layout.addWidget(status_card, 1)
 
-        buttons = QHBoxLayout()
-        self.btn_refresh = QPushButton("Refresh")
+        bar = DialogActionBar()
+        self.btn_refresh = QPushButton(icon("clock"), "Refresh")
+        self.btn_refresh.setObjectName("subtle")
         self.btn_refresh.clicked.connect(self.refresh)
-        self.btn_enable = QPushButton(icon("connect"), "Enable (elevated)")
-        self.btn_enable.clicked.connect(lambda: self._apply("enable"))
-        self.btn_disable = QPushButton(icon("stop"), "Disable (elevated)")
-        self.btn_disable.clicked.connect(lambda: self._apply("disable"))
-        buttons.addWidget(self.btn_refresh)
-        buttons.addStretch(1)
-        buttons.addWidget(self.btn_enable)
-        buttons.addWidget(self.btn_disable)
-        layout.addLayout(buttons)
+        bar.add_left(self.btn_refresh)
 
-        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close.rejected.connect(self.reject)
+        self.btn_enable = QPushButton(icon("connect"), "Enable…")
+        self.btn_enable.setObjectName("primary")
+        self.btn_enable.setToolTip("Start the RDP listener (requires elevation)")
+        self.btn_enable.clicked.connect(lambda: self._apply("enable"))
+        bar.add(self.btn_enable, primary=True)
+
+        self.btn_disable = QPushButton(icon("stop"), "Disable…")
+        self.btn_disable.setObjectName("subtle")
+        self.btn_disable.setToolTip("Stop the RDP listener (requires elevation)")
+        self.btn_disable.clicked.connect(lambda: self._apply("disable"))
+        bar.add(self.btn_disable)
+
+        close = QPushButton("Close")
+        close.setObjectName("subtle")
         close.clicked.connect(self.accept)
-        layout.addWidget(close)
+        bar.add(close)
+        layout.addWidget(bar)
 
         self.refresh()
 

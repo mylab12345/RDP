@@ -237,22 +237,30 @@ class SettingsDialog(QDialog):
         pal = palette()
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 10, 12, 10)
-        outer.setSpacing(8)
+        outer.setContentsMargins(16, 14, 16, 14)
+        outer.setSpacing(10)
 
-        # ── header (title + live search across every settings group) ──
+        # ── header (identity + live search across every settings group) ──
+        from .widgets import DialogHeader
+
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
-        title = QLabel("Settings")
-        title.setObjectName("h1")
-        header_row.addWidget(title)
-        header_row.addStretch(1)
+        header_row.addWidget(
+            DialogHeader(
+                "Settings",
+                "Appearance, terminal, connections, security and RDP defaults.",
+                icon_name="gear",
+            ),
+            1,
+        )
 
         self._settings_search = QLineEdit()
+        self._settings_search.setObjectName("search")
         self._settings_search.setPlaceholderText("Search settings…")
         self._settings_search.setClearButtonEnabled(True)
         self._settings_search.setFixedWidth(220)
-        self._settings_search.setMinimumHeight(28)
+        self._settings_search.setMinimumHeight(30)
+        self._settings_search.setAccessibleName("Search settings")
         search_act = self._settings_search.addAction(
             icon("search"), QLineEdit.ActionPosition.LeadingPosition
         )
@@ -264,6 +272,7 @@ class SettingsDialog(QDialog):
         # MobaXterm "Configuration" dialog: a classic horizontal tab strip
         # across the top, framed pane below (global QSS styles it).
         tabs = QTabWidget()
+        tabs.setObjectName("settingsTabs")
         tabs.setTabPosition(QTabWidget.TabPosition.North)
         tabs.setDocumentMode(False)
         outer.addWidget(tabs, 1)
@@ -282,22 +291,23 @@ class SettingsDialog(QDialog):
         footer = QHBoxLayout()
         footer.setSpacing(12)
 
-        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn = QPushButton("Reset to defaults")
         reset_btn.setObjectName("ghost")
-        reset_btn.setMinimumHeight(40)
+        reset_btn.setMinimumHeight(36)
         reset_btn.clicked.connect(self._reset_defaults)
         footer.addWidget(reset_btn)
         footer.addStretch(1)
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setObjectName("subtle")
-        cancel_btn.setMinimumHeight(40)
+        cancel_btn.setMinimumHeight(36)
         cancel_btn.clicked.connect(self.reject)
         footer.addWidget(cancel_btn)
 
-        save_btn = QPushButton("Save Settings")
+        save_btn = QPushButton("Save settings")
         save_btn.setObjectName("primary")
-        save_btn.setMinimumHeight(40)
+        save_btn.setMinimumHeight(36)
+        save_btn.setDefault(True)
         save_btn.clicked.connect(self._save)
         footer.addWidget(save_btn)
 
