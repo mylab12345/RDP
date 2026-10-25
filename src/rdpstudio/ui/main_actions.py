@@ -8,7 +8,9 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSizePolicy,
@@ -321,7 +323,15 @@ class MainActionsMixin:
         )
 
     def _build_toolbar(self) -> None:
-        """Build the compact Studio command bar without changing its actions."""
+        """Build the command bar: brand, primary action, tools, quick connect.
+
+        Visual hierarchy (left → right): product mark, the one primary action
+        (*New session*), destination actions (Terminal / Sessions), utility
+        tools, the always-available quick-connect field, then a quiet icon
+        cluster for preferences at the far edge. Actions are unchanged — only
+        their grouping, prominence and object names (for the stylesheet) are
+        new.
+        """
         bar = QToolBar()
         bar.setObjectName("moxaToolbar")  # retained for stylesheet/test compatibility
         bar.setMovable(False)
@@ -330,62 +340,132 @@ class MainActionsMixin:
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toolbar = bar
         self._themed_actions: list[tuple[QAction, str]] = []
+        self._themed_labels: list[tuple[QLabel, str]] = []
+
+        # ---- brand block ------------------------------------------------
+        brand = QWidget()
+        brand.setObjectName("brandBlock")
+        bl = QHBoxLayout(brand)
+        bl.setContentsMargins(2, 0, 10, 0)
+        bl.setSpacing(9)
+
+        mark = QLabel("KB")
+        mark.setObjectName("brandMark")
+        mark.setFixedSize(30, 30)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mark.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        bl.addWidget(mark)
+
+        title = QLabel("KB-Remote")
+        title.setObjectName("brandName")
+        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        bl.addWidget(title)
+        self._brand_title = title
+
+        self._brand_block = brand
+        self._brand_action = bar.addWidget(brand)
+
+        divider = QFrame()
+        divider.setObjectName("brandDivider")
+        divider.setFrameShape(QFrame.Shape.VLine)
+        divider.setFixedWidth(1)
+        self._brand_divider_action = bar.addWidget(divider)
+        self._brand_divider = divider
 
         def themed_action(icon_name: str, text: str) -> QAction:
             act = bar.addAction(theme.toolbar_icon(icon_name), text)
             self._themed_actions.append((act, icon_name))
             return act
 
-        a = themed_action("plus", "Session")
+        def style_action(act: QAction, object_name: str) -> None:
+            """Tag the toolbar button a QAction materialises as."""
+            button = bar.widgetForAction(act)
+            if button is not None:
+                button.setObjectName(object_name)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        def set_compact(act: QAction) -> None:
+            """Icon-only button: the label lives in the tooltip.
+
+            Keeps the bar to a single calm row — the primary action is the
+            only item that carries a persistent label, so the eye has one
+            obvious destination instead of nine competing words.
+            """
+            button = bar.widgetForAction(act)
+            if button is not None:
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                button.setMinimumWidth(34)
+
+        # ---- primary + destinations ------------------------------------
+        a = themed_action("plus", "New session")
         a.setToolTip("Create a new saved session (Ctrl+N)")
+        a.setStatusTip("Create a new saved session")
         a.triggered.connect(self.new_session)
+        style_action(a, "tbPrimary")
+        self._act_new_session = a
 
         a = themed_action("console", "Terminal")
         a.setToolTip("Open a local terminal tab (Ctrl+Shift+T)")
+        a.setStatusTip("Open a local terminal tab")
         a.triggered.connect(self.open_local_terminal)
+        set_compact(a)
+        self._act_terminal_toolbar = a
 
         act_sidebar = themed_action("panel", "Sessions")
         act_sidebar.setToolTip("Show / hide the Sessions side panel (Ctrl+B)")
+        act_sidebar.setStatusTip("Show or hide the Sessions side panel")
         act_sidebar.setCheckable(True)
         act_sidebar.toggled.connect(self._toggle_sidebar)
+        set_compact(act_sidebar)
         self._act_sidebar_toolbar = act_sidebar
 
         bar.addSeparator()
 
+        # ---- tools ------------------------------------------------------
         def add_tool(icon_name, text, tip, cb):
             act = themed_action(icon_name, text)
             act.setToolTip(tip)
+            act.setStatusTip(tip)
             act.triggered.connect(cb)
             return act
 
-        add_tool("search", "Commands", "Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)", self.open_command_palette)
-        add_tool("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools)
-        add_tool("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility)
-        add_tool("transfer", "Tunneling", "SSH tunnels / port forwarding for the active session", self.open_tunnels_dialog)
+        self._tool_actions = []
+        for icon_name, label, tip, callback in (
+            ("search", "Commands", "Command Palette & Quick Switcher (Ctrl+P / Ctrl+K)", self.open_command_palette),
+            ("server", "Servers", "Network Tools & Port Scanner (Ctrl+Shift+N)", self.open_network_tools),
+            ("key", "Keys", "SSH Key Utility & Converter (Ctrl+Shift+U)", self.open_key_utility),
+            ("transfer", "Tunnels", "SSH tunnels / port forwarding", self.open_tunnels_dialog),
+        ):
+            act = add_tool(icon_name, label, tip, callback)
+            set_compact(act)
+            self._tool_actions.append(act)
 
         bar.addSeparator()
 
-        # Quick connect is deliberately integrated into the command bar so
-        # the highest-frequency action stays available without opening a dialog.
+        # ---- quick connect ---------------------------------------------
+        # Deliberately integrated into the command bar so the highest-frequency
+        # action stays available without opening a dialog.
         quick_wrap = QWidget()
         quick_wrap.setObjectName("quickConnect")
         ql = QHBoxLayout(quick_wrap)
-        ql.setContentsMargins(8, 1, 1, 1)
-        ql.setSpacing(4)
+        ql.setContentsMargins(10, 1, 2, 1)
+        ql.setSpacing(6)
+        self._quick_wrap = quick_wrap
 
-        from PySide6.QtWidgets import QLabel
         qc_ic = QLabel()
-        qc_ic.setPixmap(theme.accent_icon("plug", 13).pixmap(13, 13))
-        qc_ic.setFixedSize(15, 15)
+        qc_ic.setPixmap(theme.accent_icon("plug", 14).pixmap(14, 14))
+        qc_ic.setFixedSize(16, 16)
         qc_ic.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qc_ic.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._quick_icon = qc_ic
         ql.addWidget(qc_ic, 0)
 
         self.quick = QLineEdit()
-        self.quick.setPlaceholderText("Quick connect:  user@host[:port]")
+        self.quick.setPlaceholderText("user@host[:port]")
         # Flexible width: the strip compresses on narrow windows instead of
         # pushing the whole toolbar off-screen.
         self.quick.setMinimumWidth(140)
-        self.quick.setMaximumWidth(212)
+        self.quick.setMaximumWidth(248)
         self.quick.setObjectName("quickInput")
         self.quick.returnPressed.connect(self.quick_connect)
         self.quick.setAccessibleName("Quick connect")
@@ -394,38 +474,133 @@ class MainActionsMixin:
 
         qc_btn = QPushButton("Connect")
         qc_btn.setObjectName("primary")
+        qc_btn.setProperty("quickGo", True)
         qc_btn.setToolTip("Connect now (Enter)")
         qc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         qc_btn.clicked.connect(self.quick_connect)
-        qc_btn.setMinimumWidth(82)
+        qc_btn.setMinimumWidth(76)
         ql.addWidget(qc_btn, 0)
-        quick_wrap.setFixedHeight(30)
-        quick_wrap.setMinimumWidth(246)
-        quick_wrap.setMaximumWidth(316)
+        self._quick_go = qc_btn
+        quick_wrap.setFixedHeight(34)
+        quick_wrap.setMinimumWidth(244)
+        quick_wrap.setMaximumWidth(348)
         quick_holder = QWidget()
         qhl = QVBoxLayout(quick_holder)
         qhl.setContentsMargins(6, 0, 6, 0)
         qhl.addStretch(1)
         qhl.addWidget(quick_wrap)
         qhl.addStretch(1)
-        bar.addWidget(quick_holder)
+        self._quick_holder = quick_holder
+        self._quick_holder_action = bar.addWidget(quick_holder)
 
-        # Keep preferences and help separated from connection and diagnostic
-        # actions; Close all stays at the far edge as a destructive action.
+        # ---- quiet preferences cluster ----------------------------------
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         bar.addWidget(spacer)
 
-        bar.addSeparator()
-        add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings)
-        add_tool("shield", "Help", "Keyboard shortcuts & help", self.open_shortcuts)
+        sep = QFrame()
+        sep.setObjectName("brandDivider")
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedWidth(1)
+        self._end_divider_action = bar.addWidget(sep)
+        self._end_divider = sep
 
-        # Close all tabs button
+        prefs = []
+        prefs.append(add_tool("gear", "Settings", "Settings (Ctrl+,)", self.open_settings))
+        prefs.append(add_tool("shield", "Help", "Keyboard shortcuts & help", self.open_shortcuts))
+        for act in prefs:
+            style_action(act, "tbIcon")
+            button = bar.widgetForAction(act)
+            if button is not None:
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+        # Close all — destructive, hidden until more than one tab is open.
         self._close_all_btn = themed_action("close", "Close all")
         self._close_all_btn.setToolTip("Close all open session tabs")
         self._close_all_btn.triggered.connect(self._close_all_tabs)
         self._close_all_btn.setVisible(False)
+        style_action(self._close_all_btn, "tbIcon")
 
         self.addToolBar(bar)
         self._apply_ui_prefs()
+
+    # ------------------------------------------------------------------
+    # Responsive chrome
+    # ------------------------------------------------------------------
+    def _apply_responsive_chrome(self, width: int) -> None:
+        """Adapt the command bar to the window width (mobile-first rules).
+
+        Three breakpoints, checked widest first:
+
+        * ≥ 1240 px — full chrome: brand, labelled primary, all tools.
+        * ≥ 1040 px — brand stays, the quick-connect field narrows.
+        * ≥ 900 px  — the wordmark drops (the mark remains), quick narrows
+          again so nothing is pushed into the overflow menu.
+        * < 900 px  — icon-only buttons; the utility tools step aside for
+          the palette (still reachable via Ctrl+P and the menus) and the
+          quick-connect field yields to the dashboard/sidebar inputs, which
+          are always on screen.
+        """
+        bar = getattr(self, "_toolbar", None)
+        if bar is None:
+            return
+        if width < 900:
+            tier = 0
+        elif width < 1040:
+            tier = 1
+        elif width < 1240:
+            tier = 2
+        else:
+            tier = 3
+
+        if tier != getattr(self, "_responsive_tier", None):
+            self._responsive_tier = tier
+            # The bar-level style stays "label beside icon" (the app's normal
+            # look and the documented default); the compact buttons opt out
+            # individually below. ``QToolBar.setToolButtonStyle`` resets every
+            # button, so the per-button overrides must come after this call.
+            bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            # Widget actions are shown/hidden through the QAction the toolbar
+            # created for them — the toolbar re-applies that state on every
+            # layout pass, so setting the widget directly does not stick.
+            brand_rows = (
+                getattr(self, "_brand_action", None),
+                getattr(self, "_brand_divider_action", None),
+                getattr(self, "_end_divider_action", None),
+            )
+            for action in brand_rows:
+                if action is not None:
+                    action.setVisible(tier >= 2)
+            # The primary action always keeps its label — it is the one
+            # destination the user should never have to hunt for.
+            primary = getattr(self, "_act_new_session", None)
+            if primary is not None:
+                button = bar.widgetForAction(primary)
+                if button is not None:
+                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            # Everything else is icon-only: one labelled destination per row.
+            for act, _icon in getattr(self, "_themed_actions", []):
+                if act is primary:
+                    continue
+                button = bar.widgetForAction(act)
+                if button is not None:
+                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                    button.setMinimumWidth(34)
+            quick = getattr(self, "quick", None)
+            if quick is not None:
+                quick.setMaximumWidth(248 if tier >= 2 else 168)
+            wrap = getattr(self, "_quick_wrap", None)
+            if wrap is not None:
+                wrap.setMaximumWidth(348 if tier >= 2 else 268)
+            holder_action = getattr(self, "_quick_holder_action", None)
+            if holder_action is not None:
+                holder_action.setVisible(tier >= 1)
+            for act in getattr(self, "_tool_actions", []):
+                act.setVisible(tier >= 1)
+            tool_actions = set(getattr(self, "_tool_actions", []))
+            for act, _icon in getattr(self, "_themed_actions", []):
+                if act in tool_actions or act is self._close_all_btn:
+                    continue
+                act.setVisible(True)
+

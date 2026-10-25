@@ -128,6 +128,7 @@ def main() -> int:
                      username="admin", rdp_fit_screen=True), win
     )
     dlg.resize(620, 760)
+    dlg.show()
     app.processEvents()
     dlg.grab().save(str(OUT / "session-editor.png"))
     dlg.deleteLater()
@@ -140,6 +141,7 @@ def main() -> int:
     ctx.vault.put(Credential(name="win admin", kind="password", username="Administrator", secret="demo-secret"))
     dlg = VaultDialog(ctx, win)
     dlg.resize(900, 560)
+    dlg.show()
     app.processEvents()
     dlg.grab().save(str(OUT / "vault.png"))
     dlg.deleteLater()
@@ -148,6 +150,7 @@ def main() -> int:
     from rdpstudio.ui.rdp_server_dialog import RdpServerDialog
     dlg = RdpServerDialog(win)
     dlg.resize(660, 430)
+    dlg.show()
     app.processEvents()
     dlg.grab().save(str(OUT / "rdp-server-manager.png"))
     dlg.deleteLater()

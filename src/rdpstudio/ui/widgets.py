@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -311,25 +312,54 @@ def toast(parent: QWidget, text: str, kind: str = "info") -> None:
     Toast(parent, text, kind)
 
 
+class ElidedLabel(QLabel):
+    """A label that elides its text instead of forcing the layout wider.
+
+    Used for variable-length chrome text (session identity, host summaries):
+    the row keeps its buttons at full size and the sentence shortens with a
+    proper ellipsis, with the untruncated value available as a tooltip.
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._full = text
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(40)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 — Qt naming
+        self._full = text or ""
+        self.setToolTip(self._full)
+        self._apply_elide()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def _apply_elide(self) -> None:
+        width = max(self.width() - 2, 0)
+        if not self._full:
+            super().setText("")
+            return
+        shown = self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, width)
+        super().setText(shown)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        super().resizeEvent(event)
+        self._apply_elide()
+
+
 class ModernCard(QWidget):
-    """Reusable surface card container (8 px radius, 1 px border)."""
+    """Reusable surface card container (12 px radius, gradient face).
+
+    The face, hairline and hover elevation all come from the global
+    stylesheet (``QWidget#card``), so a live theme or accent switch re-paints
+    the card without touching this class. It stays as a named component
+    because dialogs and the dashboard construct cards through it.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
-        pal = palette()
-        self.setStyleSheet(
-            f"""
-            QWidget#card {{
-                background: {pal['bg2']};
-                border: 1px solid {pal['border']};
-                border-radius: 8px;
-            }}
-            QWidget#card:hover {{
-                border-color: {pal['border_strong']};
-            }}
-            """
-        )
 
 
 class PillBadge(QLabel):
@@ -1286,6 +1316,159 @@ def card(
     layout.setContentsMargins(*margins)
     layout.setSpacing(spacing)
     return widget, layout
+
+
+# ----------------------------------------------------------------------
+# Dialog shell — header, section card and action bar
+#
+# Every tool dialog (session editor, settings, SFTP, network tools …) shares
+# the same three-part anatomy: an identity header, a stack of labelled
+# section cards, and a persistent action bar. Building it once here keeps the
+# alignment, spacing rhythm and affordances identical everywhere.
+# ----------------------------------------------------------------------
+class DialogHeader(QWidget):
+    """Identity header for a dialog: tinted glyph tile, title, subtitle."""
+
+    def __init__(
+        self,
+        title: str,
+        subtitle: str = "",
+        icon_name: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("dialogHeader")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+
+        self._icon = QLabel()
+        self._icon.setObjectName("dialogGlyph")
+        self._icon.setFixedSize(38, 38)
+        self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if icon_name:
+            self._icon.setPixmap(theme_icon(icon_name, palette()["accent"], 19).pixmap(19, 19))
+        row.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignTop)
+
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("dialogTitle")
+        col.addWidget(self.title_label)
+
+        self.subtitle_label = QLabel(subtitle)
+        self.subtitle_label.setObjectName("dialogSubtitle")
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setVisible(bool(subtitle))
+        col.addWidget(self.subtitle_label)
+        row.addLayout(col, 1)
+
+    def set_subtitle(self, text: str) -> None:
+        self.subtitle_label.setText(text)
+        self.subtitle_label.setVisible(bool(text))
+
+
+class SectionCard(QWidget):
+    """A titled card: accent rule + heading, hairline, then the fields.
+
+    ``content`` is the widget to parent fields to — pass it to a form/box
+    layout. ``add`` is a convenience for a vertical field stack.
+    """
+
+    def __init__(
+        self,
+        title: str,
+        description: str = "",
+        parent: QWidget | None = None,
+        *,
+        spacing: int = 9,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("sectionCard")
+        # A plain QWidget only paints a stylesheet background when it is told
+        # to; the app-wide sheet cannot set that attribute for us.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        head = QWidget()
+        head.setObjectName("sectionCardHead")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(14, 8, 14, 8)
+        hl.setSpacing(8)
+
+        rule = QFrame()
+        rule.setObjectName("sectionRule")
+        rule.setFixedSize(3, 13)
+        hl.addWidget(rule, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        label = QLabel(title)
+        label.setObjectName("sectionCardTitle")
+        hl.addWidget(label)
+
+        if description:
+            desc = QLabel(description)
+            desc.setObjectName("sectionCardHint")
+            hl.addWidget(desc)
+        hl.addStretch(1)
+        outer.addWidget(head)
+
+        line = QFrame()
+        line.setObjectName("hairline")
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFixedHeight(1)
+        outer.addWidget(line)
+
+        self.content = QWidget()
+        self.content.setObjectName("sectionCardBody")
+        self.fields = QVBoxLayout(self.content)
+        self.fields.setContentsMargins(14, 11, 14, 12)
+        self.fields.setSpacing(spacing)
+        outer.addWidget(self.content)
+
+
+class DialogActionBar(QWidget):
+    """One row of dialog buttons with a clear primary on the right.
+
+    ``add_left`` items sit at the far edge (destructive/secondary such as
+    *Test* or *Delete*), ``add`` items cluster right, and ``primary`` is
+    visually last so the default action is where the eye finishes.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("dialogActions")
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(8)
+        self._right: list[QWidget] = []
+        self._stretch = None
+        self.primary: QPushButton | None = None
+
+    def add_left(self, button: QPushButton) -> QPushButton:
+        button.setMinimumHeight(34)
+        self._row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._ensure_stretch()
+        return button
+
+    def add(self, button: QPushButton, *, primary: bool = False) -> QPushButton:
+        button.setMinimumHeight(34)
+        self._ensure_stretch()
+        self._row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._right.append(button)
+        if primary:
+            button.setDefault(True)
+            button.setObjectName("primary")
+            self.primary = button
+        return button
+
+    def _ensure_stretch(self) -> None:
+        if self._stretch is None:
+            self._stretch = self._row.count()
+            self._row.addStretch(1)
 
 
 # ----------------------------------------------------------------------

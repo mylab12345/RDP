@@ -238,12 +238,22 @@ class SftpDialog(QDialog):
         self._raw_local_entries: list[dict] = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(9)
+
+        from .widgets import DialogHeader
+
+        layout.addWidget(
+            DialogHeader(
+                "Files",
+                controller.definition.display_name(),
+                icon_name="folder",
+            )
+        )
 
         # Top toolbar
         top_bar = QHBoxLayout()
-        self.chk_hidden = QCheckBox("Show Hidden Files (.*)")
+        self.chk_hidden = QCheckBox("Show hidden files")
         self.chk_hidden.setChecked(False)
         self.chk_hidden.toggled.connect(self._toggle_hidden)
         top_bar.addWidget(self.chk_hidden)
@@ -264,7 +274,7 @@ class SftpDialog(QDialog):
         self.proto_combo.currentIndexChanged.connect(self._on_proto_changed)
         top_bar.addWidget(self.proto_combo)
 
-        btn_refresh_all = QPushButton("↻ Refresh Both")
+        btn_refresh_all = QPushButton(icon("clock"), "Refresh both")
         btn_refresh_all.setObjectName("subtle")
         btn_refresh_all.clicked.connect(self._refresh_all)
         top_bar.addWidget(btn_refresh_all)

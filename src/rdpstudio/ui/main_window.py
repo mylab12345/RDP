@@ -48,7 +48,7 @@ from .main_actions import MainActionsMixin
 from .monitor_bar import MonitorBar
 from .sidebar import SessionTree
 from .theme import icon, palette, protocol_badge
-from .widgets import STATE_COLORS, StateChip, animate_in, pulse, toast
+from .widgets import STATE_COLORS, ElidedLabel, StateChip, animate_in, pulse, toast
 
 log = get_logger("ui.main")
 
@@ -85,6 +85,17 @@ def get_main_window(widget=None) -> MainWindow | None:
     return None
 
 
+class _ResponsiveBar(QWidget):
+    """A bar that reports its own width to a callback on every resize."""
+
+    on_resize = None
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        super().resizeEvent(event)
+        if callable(self.on_resize):
+            self.on_resize(event.size().width())
+
+
 class SessionTab(QWidget):
     """One tab: hosts a SessionController with a modern, distinct header.
 
@@ -108,7 +119,7 @@ class SessionTab(QWidget):
         layout.setSpacing(0)
 
         # ── Modern session header — distinct surface from terminal ──
-        header = QWidget()
+        header = _ResponsiveBar()
         header.setObjectName("sessionHeader")
         header.setMinimumHeight(46)
         header.setMaximumHeight(46)
@@ -149,16 +160,21 @@ class SessionTab(QWidget):
         sep_left.setFixedHeight(16)
         left_l.addWidget(sep_left)
 
-        self.info = QLabel("")
+        # Elides rather than widening the header: the action buttons keep
+        # their full labels at every window width.
+        self.info = ElidedLabel("")
         self.info.setObjectName("sessionInfo")
-        self.info.setStyleSheet("font-size: 12px; font-weight: 500;")
         left_l.addWidget(self.info, 1)
 
         grp_str = getattr(defn_obj, "group", "") or ""
         if grp_str:
             grp_lbl = QLabel(grp_str)
             grp_lbl.setObjectName("protoChip")
+            grp_lbl.setToolTip(f"Folder: {grp_str}")
             left_l.addWidget(grp_lbl)
+        else:
+            grp_lbl = None
+        self._grp_chip = grp_lbl
 
         h.addWidget(left_wrap, 1)
 
@@ -180,8 +196,10 @@ class SessionTab(QWidget):
             b.setToolTip(tip)
             b.clicked.connect(cb)
             b.setFixedHeight(30)
-            b.setMinimumWidth(78)
             b.setIconSize(QSize(16, 16))
+            # Size to content: a fixed floor narrower than the label clips
+            # ("Monito…"), which reads as a bug.
+            b.setMinimumWidth(b.sizeHint().width())
             return b
 
         # State-aware Stop / Reconnect — primary action
@@ -191,7 +209,7 @@ class SessionTab(QWidget):
         self.btn_reconnect.clicked.connect(self._on_action_btn)
         self.btn_reconnect.setVisible(False)
         self.btn_reconnect.setFixedHeight(30)
-        self.btn_reconnect.setMinimumWidth(92)
+        self.btn_reconnect.setMinimumWidth(84)
         self.btn_reconnect.setIconSize(QSize(14, 14))
         ah.addWidget(self.btn_reconnect)
 
@@ -229,13 +247,19 @@ class SessionTab(QWidget):
         close_btn.setAccessibleDescription("Close this session tab and clear all related data")
         close_btn.setStatusTip("Close this session and clear all related data")
         close_btn.setFixedHeight(30)
-        close_btn.setMinimumWidth(84)
         close_btn.setIconSize(QSize(14, 14))
         close_btn.clicked.connect(self._request_close)
         ah.addWidget(close_btn)
         self._close_btn = close_btn
 
         h.addWidget(actions_wrap)
+
+        # Narrow windows drop the optional folder chip first, then the long
+        # connection metadata — the identity and the actions never move.
+        header.on_resize = lambda width: (
+            self._grp_chip is not None and self._grp_chip.setVisible(width >= 720)
+        ) or self.info.setVisible(width >= 420)
+        header.setMinimumWidth(320)
 
         layout.addWidget(header)
 
@@ -995,15 +1019,18 @@ class MainWindow(DashboardMixin, MainActionsMixin, QMainWindow):
             accent_color=getattr(s, "accent_color", ""),
         )
         if hasattr(self, "_toolbar"):
-            if s.toolbar_labels:
-                # Studio chrome keeps labels beside smaller, scannable icons.
-                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                self._toolbar.setIconSize(QSize(18, 18))
-            else:
-                self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-                self._toolbar.setIconSize(QSize(18, 18))
+            # The *preference* is stored; the effective label mode also
+            # depends on the window width (see _apply_responsive_chrome).
+            self._toolbar_labels_wanted = bool(s.toolbar_labels)
+            self._toolbar.setIconSize(QSize(18, 18))
+            self._apply_responsive_chrome(self.width() or 1380)
         # Dashboard title sizing (comfortable/compact) lives in the global
         # QSS (#dashTitle) — no inline overrides.
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        """Keep the chrome usable at laptop-split and narrow widths."""
+        super().resizeEvent(event)
+        self._apply_responsive_chrome(event.size().width())
 
     def _on_destroyed_remove_theme_callback(self, *_args) -> None:
         """Drop the global theme callback when the C++ window is deleted."""

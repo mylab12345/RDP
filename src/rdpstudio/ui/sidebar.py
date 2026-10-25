@@ -140,11 +140,12 @@ class SessionTree(QWidget):
             b.setIconSize(QSize(15, 15))
             return b
 
-        # Header — title + count + action buttons + dock grip
+        # Header — title + count, then a quiet action cluster and the grip
         header = QWidget()
+        header.setObjectName("sideHeader")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(2, 0, 2, 0)
-        hl.setSpacing(4)
+        hl.setContentsMargins(4, 2, 2, 2)
+        hl.setSpacing(6)
 
         title = QLabel("Sessions")
         title.setObjectName("sideTitle")
@@ -158,6 +159,8 @@ class SessionTree(QWidget):
         hl.addStretch(1)
 
         btn_new = make_btn("", "plus", "New session (Ctrl+N)", self.newSessionRequested.emit, primary=True)
+        # The one accented affordance in the panel header.
+        btn_new.setObjectName("sideNew")
         btn_local = make_btn(
             "",
             "console",
@@ -191,7 +194,7 @@ class SessionTree(QWidget):
         # Quick connect — top-of-panel box: type user@host[:port] and hit Enter.
         self.side_quick = QLineEdit()
         self.side_quick.setObjectName("sideQuick")
-        self.side_quick.setPlaceholderText("Quick connect…  user@host")
+        self.side_quick.setPlaceholderText("Quick connect")
         self.side_quick.setClearButtonEnabled(True)
         self.side_quick.setMinimumWidth(0)
         self.side_quick.setFixedHeight(28)
@@ -284,7 +287,7 @@ class SessionTree(QWidget):
         layout.addWidget(self._no_match_state, 1)
 
         # Footer hint — plain caption
-        self._hint = QLabel("Double-click to connect · Right-click for actions")
+        self._hint = QLabel("Double-click to connect · right-click for actions")
         self._hint.setObjectName("caption")
         self._hint.setWordWrap(True)
         self._hint.setToolTip("Keyboard: Up/Down to move, Enter to connect, Menu key for actions")

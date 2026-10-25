@@ -41,18 +41,36 @@ class VaultDialog(QDialog):
         self.setModal(True)
         self.resize(860, 540)
 
+        self.setMinimumSize(760, 480)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        from .widgets import DialogHeader
+
+        layout.addWidget(
+            DialogHeader(
+                "Credentials & keys",
+                "Secrets stay encrypted at rest and are wiped from this window "
+                "the moment the vault auto-locks.",
+                icon_name="key",
+            )
+        )
+
         self.status = QLabel("")
         self.status.setObjectName("muted")
         layout.addWidget(self.status)
 
         tabs = QTabWidget()
+        tabs.setObjectName("toolTabs")
         layout.addWidget(tabs, 1)
 
         tabs.addTab(self._build_credentials_tab(), "Credentials")
         tabs.addTab(self._build_keys_tab(), "SSH keys")
+        self._tabs = tabs
 
         close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.setObjectName("dialogActions")
         close.rejected.connect(self.reject)
         close.clicked.connect(self.accept)
         layout.addWidget(close)
@@ -66,6 +84,10 @@ class VaultDialog(QDialog):
         self._lock_watch.start()
 
         self._refresh()
+        # Land the caret on the credential list, not on the tab strip: a
+        # focused tab bar paints a keyboard ring on open, which reads as an
+        # error state on a freshly opened dialog.
+        self.cred_list.setFocus()
 
     # ------------------------------------------------------------------
     def _build_credentials_tab(self) -> QWidget:
@@ -79,6 +101,8 @@ class VaultDialog(QDialog):
 
         editor = QWidget()
         form = QFormLayout(editor)
+        form.setContentsMargins(4, 4, 4, 4)
+        form.setSpacing(9)
         self.cred_name = QLineEdit()
         self.cred_kind = QComboBox()
         self.cred_kind.addItems(["password", "passphrase", "secret"])
@@ -90,29 +114,43 @@ class VaultDialog(QDialog):
         form.addRow("Name", self.cred_name)
         form.addRow("Kind", self.cred_kind)
         form.addRow("Username", self.cred_username)
-        form.addRow("Secret", self.cred_secret)
-        form.addRow("Host hint", self.cred_host)
-        form.addRow("Notes", self.cred_notes)
 
+        # Secret + reveal share one row: "Show" belongs to the field it
+        # reveals, not on a row of its own.
+        secret_row = QHBoxLayout()
+        secret_row.setSpacing(6)
+        secret_row.addWidget(self.cred_secret, 1)
         reveal = QPushButton("Show")
         reveal.setCheckable(True)
         reveal.setEnabled(False)  # until the vault is unlocked and an entry is picked
+        reveal.setMinimumWidth(64)
+        reveal.setObjectName("subtle")
         reveal.toggled.connect(self._set_secret_visible)
         self.cred_secret.textChanged.connect(lambda _: reveal.setChecked(False))
         self.reveal_btn = reveal
+        secret_row.addWidget(reveal)
+        form.addRow("Secret", secret_row)
 
+        form.addRow("Host hint", self.cred_host)
+        form.addRow("Notes", self.cred_notes)
+
+        # Destructive action far left, primary action last — the standard
+        # dialog action order the rest of the app follows.
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         new_btn = QPushButton(icon("plus"), "New")
+        new_btn.setObjectName("ghost")
         save_btn = QPushButton("Save")
+        save_btn.setObjectName("primary")
         del_btn = QPushButton(icon("trash"), "Delete")
         del_btn.setObjectName("danger")
-        for b in (new_btn, save_btn, del_btn):
-            buttons.addWidget(b)
+        buttons.addWidget(del_btn)
         buttons.addStretch(1)
+        buttons.addWidget(new_btn)
+        buttons.addWidget(save_btn)
         form.addRow(buttons)
-        form.addRow(reveal)
         splitter.addWidget(editor)
-        splitter.setSizes([320, 480])
+        splitter.setSizes([300, 500])
 
         new_btn.clicked.connect(self._new_credential)
         save_btn.clicked.connect(self._save_credential)

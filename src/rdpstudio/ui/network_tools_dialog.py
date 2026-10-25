@@ -149,21 +149,25 @@ class NetworkToolsDialog(QDialog):
         self._scan_results: list[ScanResult] = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
-        # Header
-        head = QHBoxLayout()
-        title = QLabel("Network Diagnostics & Scanner")
-        title.setObjectName("h1")
-        head.addWidget(title)
-        head.addStretch(1)
-        layout.addLayout(head)
+        from .widgets import DialogHeader
+
+        layout.addWidget(
+            DialogHeader(
+                "Network diagnostics",
+                "Scan ports, measure latency and resolve names against any "
+                "host on the network.",
+                icon_name="server",
+            )
+        )
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_scanner_tab(), "Port Scanner")
-        tabs.addTab(self._build_ping_tab(), "Ping && Latency")
-        tabs.addTab(self._build_dns_tab(), "DNS && IP Lookup")
+        tabs.setObjectName("toolTabs")
+        tabs.addTab(self._build_scanner_tab(), "Port scanner")
+        tabs.addTab(self._build_ping_tab(), "Ping && latency")
+        tabs.addTab(self._build_dns_tab(), "DNS && IP lookup")
         layout.addWidget(tabs, 1)
 
     def closeEvent(self, event) -> None:  # noqa: N802
